@@ -13,12 +13,14 @@ const execFileAsync = promisify(execFile);
 const { PolicyEngine } = require('./security/policy-engine.cjs');
 const { SelfRepairController } = require('./self-repair-controller.cjs');
 const { OBDSerialBridge } = require('./obd-serial.cjs');
+const { JarvisDataStore } = require('./data-store.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
 let selfRepair;
 let obdSerial;
+let dataStore;
 const stabilityState = {
   startedAt: Date.now(),
   rendererRestarts: [],
@@ -425,6 +427,28 @@ app.whenReady().then(() => {
   obdSerial = new OBDSerialBridge({
     onEvent:(event,payload)=>appendStabilityEvent('obd-'+event,payload),
   });
+
+  dataStore = new JarvisDataStore({
+    rootDir:path.join(app.getPath('userData'),'data'),
+    onEvent:(event,payload)=>appendStabilityEvent('data-'+event,payload),
+  });
+
+  ipcMain.handle('jarvis:data:status', () => dataStore.status());
+  ipcMain.handle('jarvis:data:import-legacy', (_e, payload) => dataStore.importLegacy(payload || {}));
+  ipcMain.handle('jarvis:data:user:get', () => dataStore.getUser());
+  ipcMain.handle('jarvis:data:user:update', (_e, patch) => dataStore.updateUser(patch || {}));
+  ipcMain.handle('jarvis:data:entity:filter', (_e, entityName, query, sort, limit) =>
+    dataStore.filter(entityName, query || {}, sort || null, limit ?? null)
+  );
+  ipcMain.handle('jarvis:data:entity:create', (_e, entityName, data) =>
+    dataStore.create(entityName, data || {}, dataStore.getUser().email)
+  );
+  ipcMain.handle('jarvis:data:entity:update', (_e, entityName, rowId, patch) =>
+    dataStore.update(entityName, rowId, patch || {})
+  );
+  ipcMain.handle('jarvis:data:entity:delete', (_e, entityName, rowId) =>
+    dataStore.delete(entityName, rowId)
+  );
 
   const isReadOnlyOBDCommand = (command='') => {
     const clean=String(command).replace(/[\s\r\n]/g,'').toUpperCase();
