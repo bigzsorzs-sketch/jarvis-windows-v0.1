@@ -25,6 +25,17 @@ function showBootError(message) {
 window.addEventListener('error', (event) => {
   const detail = event.error?.stack || event.message || event.error || event;
   console.error('[runtime:error]', detail);
+  window.jarvisDesktop?.reportRuntimeError?.({
+    type: 'window_error',
+    module: 'renderer',
+    message: event.message || String(event.error || 'Runtime error'),
+    stack: event.error?.stack || '',
+    context: {
+      filename: event.filename || '',
+      lineno: event.lineno || null,
+      colno: event.colno || null,
+    },
+  })?.catch?.(() => {});
   showBootError(runtimeMessage('runtime'));
 });
 
@@ -32,6 +43,12 @@ window.addEventListener('unhandledrejection', (event) => {
   if (!isDev) event.preventDefault();
   const detail = event.reason?.stack || event.reason || event;
   console.error('[runtime:unhandledrejection]', detail);
+  window.jarvisDesktop?.reportRuntimeError?.({
+    type: 'unhandled_rejection',
+    module: 'renderer',
+    message: event.reason?.message || String(event.reason || 'Unhandled promise rejection'),
+    stack: event.reason?.stack || '',
+  })?.catch?.(() => {});
   showBootError(runtimeMessage('runtime'));
 });
 

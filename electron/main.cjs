@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -11,10 +11,63 @@ const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const execFileAsync = promisify(execFile);
 const { PolicyEngine } = require('./security/policy-engine.cjs');
+const { SelfRepairController } = require('./self-repair-controller.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
+let selfRepair;
+const stabilityState = {
+  startedAt: Date.now(),
+  rendererRestarts: [],
+  lastRendererCrash: null,
+  lastUnhandledError: null,
+};
+
+function stabilityLogPath() {
+  return path.join(app.getPath('userData'), 'logs', 'stability.jsonl');
+}
+function serializeError(error) {
+  if (!error) return null;
+  return {
+    name: error.name || 'Error',
+    message: String(error.message || error),
+    stack: String(error.stack || '').slice(0, 12000),
+  };
+}
+function appendStabilityEvent(event, payload={}) {
+  try {
+    const file=stabilityLogPath();
+    fs.mkdirSync(path.dirname(file), {recursive:true});
+    fs.appendFileSync(file, JSON.stringify({ts:new Date().toISOString(),event,...payload})+'\n','utf8');
+  } catch {}
+}
+function pruneRendererRestarts() {
+  const cutoff=Date.now()-60_000;
+  stabilityState.rendererRestarts=stabilityState.rendererRestarts.filter(ts=>ts>cutoff);
+}
+function getStabilityStatus() {
+  pruneRendererRestarts();
+  return {
+    appVersion: app.getVersion(),
+    uptimeSeconds: Math.floor((Date.now()-stabilityState.startedAt)/1000),
+    rendererRestartsLastMinute: stabilityState.rendererRestarts.length,
+    lastRendererCrash: stabilityState.lastRendererCrash,
+    lastUnhandledError: stabilityState.lastUnhandledError,
+    logPath: stabilityLogPath(),
+    safeModeRecommended: stabilityState.rendererRestarts.length >= 3,
+  };
+}
+
+process.on('uncaughtException', (error) => {
+  stabilityState.lastUnhandledError={type:'uncaughtException',at:new Date().toISOString(),error:serializeError(error)};
+  appendStabilityEvent('uncaughtException',{error:serializeError(error)});
+});
+process.on('unhandledRejection', (reason) => {
+  const error=reason instanceof Error ? reason : new Error(String(reason));
+  stabilityState.lastUnhandledError={type:'unhandledRejection',at:new Date().toISOString(),error:serializeError(error)};
+  appendStabilityEvent('unhandledRejection',{error:serializeError(error)});
+});
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(process.resourcesPath, ...parts) : path.join(__dirname, '..', ...parts);
@@ -66,6 +119,7 @@ function getSettingsInternal() {
     aiProvider: raw.aiProvider || 'openrouter',
     aiModel: raw.aiModel || 'openrouter/auto',
     hasOpenRouterKey: Boolean(raw.openRouterKey),
+    supervisedSelfRepair: raw.supervisedSelfRepair !== false,
   };
 }
 
@@ -74,6 +128,7 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.language === 'string') raw.language = patch.language;
   if (typeof patch.aiProvider === 'string') raw.aiProvider = patch.aiProvider;
   if (typeof patch.aiModel === 'string') raw.aiModel = patch.aiModel;
+  if (typeof patch.supervisedSelfRepair === 'boolean') raw.supervisedSelfRepair = patch.supervisedSelfRepair;
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
@@ -251,6 +306,64 @@ Start-Process -FilePath $appExe
   return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot};
 }
 
+function attachWindowStabilityHandlers(win) {
+  win.webContents.on('render-process-gone', (_event, details) => {
+    const crash={at:new Date().toISOString(),reason:details.reason,exitCode:details.exitCode};
+    stabilityState.lastRendererCrash=crash;
+    stabilityState.rendererRestarts.push(Date.now());
+    pruneRendererRestarts();
+    appendStabilityEvent('render-process-gone', crash);
+    selfRepair?.diagnose({type:'renderer_crash',module:'renderer',message:'Renderer process gone: '+String(details.reason||'unknown'),context:crash}).catch(()=>{});
+
+    if (stabilityState.rendererRestarts.length <= 2 && !win.isDestroyed()) {
+      setTimeout(() => {
+        if (win.isDestroyed()) return;
+        if (isDev) win.loadURL('http://127.0.0.1:5173');
+        else win.loadFile(path.join(__dirname,'..','dist','index.html'));
+      }, 800);
+      return;
+    }
+
+    appendStabilityEvent('renderer-crash-loop-protection', {
+      restartsLastMinute: stabilityState.rendererRestarts.length,
+    });
+  });
+
+  win.on('unresponsive', () => appendStabilityEvent('window-unresponsive'));
+  win.on('responsive', () => appendStabilityEvent('window-responsive'));
+}
+
+
+async function runStabilitySelfTest() {
+  const checks = [];
+  checks.push({ id:'policy', ok:Boolean(policy?.integrityOk), detail:policy?.integrityOk ? 'Core Rules signature valid' : 'Core Rules unavailable or invalid' });
+  checks.push({ id:'encryption', ok:Boolean(safeStorage.isEncryptionAvailable()), detail:safeStorage.isEncryptionAvailable() ? 'Windows encrypted storage available' : 'Encrypted storage unavailable' });
+
+  const probe=path.join(app.getPath('userData'),'.jarvis-write-probe');
+  try {
+    fs.mkdirSync(path.dirname(probe),{recursive:true});
+    fs.writeFileSync(probe,'ok','utf8');
+    fs.unlinkSync(probe);
+    checks.push({ id:'storage', ok:true, detail:'User data folder is writable' });
+  } catch (error) {
+    checks.push({ id:'storage', ok:false, detail:String(error?.message || error) });
+  }
+
+  const status=getStabilityStatus();
+  checks.push({
+    id:'crash-loop',
+    ok:!status.safeModeRecommended,
+    detail:status.safeModeRecommended ? 'Repeated renderer crashes detected' : 'No renderer crash loop detected'
+  });
+
+  return {
+    ok:checks.every(x=>x.ok),
+    checkedAt:new Date().toISOString(),
+    checks,
+    status,
+  };
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -268,8 +381,21 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
+  attachWindowStabilityHandlers(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 }
 
 app.whenReady().then(() => {
@@ -279,6 +405,19 @@ app.whenReady().then(() => {
     signaturePath:resourcePath('security','core-rules.sig'),
     publicKeyPath:resourcePath('security','core-rules-public.pem'),
     auditPath:path.join(app.getPath('userData'),'audit','policy.jsonl')
+  });
+
+  selfRepair = new SelfRepairController({
+    app,
+    dialog,
+    shell,
+    getMainWindow:()=>mainWindow,
+    policy,
+    invokeAI:(payload)=>openRouterRequest(payload),
+    getSettings:()=>getSettingsInternal(),
+    saveSettings:(patch)=>saveSettingsInternal(patch),
+    oneClickUpdate:()=>oneClickUpdate(),
+    appendAudit:(event,payload)=>appendStabilityEvent(event,payload),
   });
 
   ipcMain.handle('jarvis:policy:rules', () => policy.getPublicRules());
@@ -298,6 +437,20 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
   ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
+  ipcMain.handle('jarvis:stability:status', () => getStabilityStatus());
+  ipcMain.handle('jarvis:stability:self-test', () => runStabilitySelfTest());
+  ipcMain.handle('jarvis:self-repair:report', (_e, report) => selfRepair?.diagnose(report || {}));
+  ipcMain.handle('jarvis:self-repair:list', () => selfRepair?.list() || []);
+  ipcMain.handle('jarvis:self-repair:approve', (_e, id) => selfRepair?.apply(String(id || '')));
+  ipcMain.handle('jarvis:self-repair:reject', (_e, id) => selfRepair?.reject(String(id || '')));
+  ipcMain.handle('jarvis:app:restart', () => { app.relaunch(); app.exit(0); });
+  ipcMain.handle('jarvis:stability:open-logs', async () => {
+    const file=stabilityLogPath();
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    if (!fs.existsSync(file)) fs.writeFileSync(file,'','utf8');
+    shell.showItemInFolder(file);
+    return {ok:true,path:file};
+  });
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

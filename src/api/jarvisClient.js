@@ -3,15 +3,43 @@
 
 const ENTITY_PREFIX = 'jarvis_entity_';
 const USER_KEY = 'jarvis_local_user';
+const BACKUP_PREFIX = 'jarvis_last_good:';
 
 function storage() {
   try { return window.localStorage; } catch { return null; }
 }
 function read(key, fallback) {
-  try { const raw = storage()?.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
+  const store = storage();
+  if (!store) return fallback;
+  const raw = store.getItem(key);
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const backup = store.getItem(BACKUP_PREFIX + key);
+    if (!backup) return fallback;
+    try {
+      const recovered = JSON.parse(backup);
+      store.setItem(key, backup);
+      return recovered;
+    } catch {
+      return fallback;
+    }
+  }
 }
 function write(key, value) {
-  try { storage()?.setItem(key, JSON.stringify(value)); } catch {}
+  try {
+    const store = storage();
+    if (!store) return;
+    const previous = store.getItem(key);
+    if (previous) {
+      try {
+        JSON.parse(previous);
+        store.setItem(BACKUP_PREFIX + key, previous);
+      } catch {}
+    }
+    store.setItem(key, JSON.stringify(value));
+  } catch {}
 }
 function id() {
   try { return crypto.randomUUID(); } catch { return `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
