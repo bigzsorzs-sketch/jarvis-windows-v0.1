@@ -73,9 +73,10 @@ export default function Beallitasok() {
   const [inviting, setInviting] = useState(false);
   const [inviteStatus, setInviteStatus] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [desktopAi, setDesktopAi] = useState({ aiProvider: 'openrouter', aiModel: 'openrouter/auto', hasOpenRouterKey: false });
+  const [desktopAi, setDesktopAi] = useState({ aiProvider: 'openrouter', aiModel: 'openrouter/auto', aiImageModel: 'openai/gpt-image-1', hasOpenRouterKey: false });
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [aiModels, setAiModels] = useState([]);
+  const [imageModels, setImageModels] = useState([]);
   const [aiStatus, setAiStatus] = useState('');
 
   const [deleting, setDeleting] = useState(false);
@@ -127,6 +128,9 @@ export default function Beallitasok() {
       if (desktop) setDesktopAi(desktop);
       if (desktop?.hasOpenRouterKey) {
         window.jarvisDesktop?.listModels?.().then(setAiModels).catch(() => {});
+        window.jarvisDesktop?.listImageModels?.()
+          .then((response) => setImageModels(response?.data?.models || response?.models || []))
+          .catch(() => {});
       }
     }).catch(() => {});
   }, []);
@@ -138,12 +142,15 @@ export default function Beallitasok() {
       const next = await window.jarvisDesktop.saveSettings({
         aiProvider: 'openrouter',
         aiModel: desktopAi.aiModel || 'openrouter/auto',
+        aiImageModel: desktopAi.aiImageModel || 'openai/gpt-image-1',
         ...(apiKeyInput.trim() ? { openRouterApiKey: apiKeyInput.trim() } : {})
       });
       setDesktopAi(next);
       setApiKeyInput('');
       const list = await window.jarvisDesktop.listModels().catch(() => []);
       setAiModels(list);
+      const imageList = await window.jarvisDesktop.listImageModels?.().catch(() => null);
+      setImageModels(imageList?.data?.models || imageList?.models || []);
       setAiStatus(lang === 'hu' ? '✓ AI beállítások mentve' : '✓ AI settings saved');
     } catch (e) { setAiStatus(`Error: ${e?.message || e}`); }
   };
@@ -283,6 +290,21 @@ export default function Beallitasok() {
           >
             <option value="openrouter/auto">AUTO – Jarvis / OpenRouter</option>
             {aiModels.map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+          </select>
+          <label className="block text-xs text-muted-foreground mb-1">
+            {lang === 'hu' ? 'Képgeneráló modell' : 'Image generation model'}
+          </label>
+          <select
+            value={desktopAi.aiImageModel || 'openai/gpt-image-1'}
+            onChange={(e) => setDesktopAi(d => ({ ...d, aiImageModel:e.target.value }))}
+            className="w-full mb-3 px-3 py-2 rounded-xl bg-background border border-border text-sm"
+          >
+            <option value={desktopAi.aiImageModel || 'openai/gpt-image-1'}>
+              {imageModels.find((m) => m.id === desktopAi.aiImageModel)?.name || desktopAi.aiImageModel || 'openai/gpt-image-1'}
+            </option>
+            {imageModels
+              .filter((m) => m.id !== desktopAi.aiImageModel)
+              .map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
           </select>
           <div className="flex items-center gap-3">
             <button onClick={saveDesktopAi} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold">
