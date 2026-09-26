@@ -34,10 +34,10 @@ export default function GeminiDiagnosisPanel({ session, vehicle, onDiagnosisRead
     <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
       <p className="text-sm font-semibold text-blue-400 mb-2 flex items-center gap-2">
         {loading ? <Loader2 size={15} className="animate-spin" /> : <BrainCircuit size={15} />}
-        Gemini AI diagnosztika
+        Jarvis AI diagnosztika
       </p>
       {loading ? (
-        <p className="text-xs text-muted-foreground">A Gemini elemzi a hibakódokat és a jármű adatait...</p>
+        <p className="text-xs text-muted-foreground">Jarvis elemzi a hibakódokat és a jármű adatait...</p>
       ) : (
         <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{diagnosis}</p>
       )}

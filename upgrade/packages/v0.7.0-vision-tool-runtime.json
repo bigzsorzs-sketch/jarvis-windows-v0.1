@@ -1,0 +1,25 @@
+{
+  "package": "Jarvis Vision + Tool Runtime",
+  "targetVersion": "0.7.0",
+  "minimumInstalledVersion": "0.6.0",
+  "channel": "staged",
+  "releaseGate": "Release only after text-to-image, reference-image and OBD AI diagnosis are tested with a valid configured provider key.",
+  "delivery": "GitHub stable release -> in-app Frissítés egy kattintással",
+  "includes": [
+    "multimodal LLM message construction",
+    "desktop image generation handler",
+    "image model discovery",
+    "independent image model setting",
+    "text-to-image without reference files",
+    "reference image analysis/edit workflow",
+    "desktop-safe upload validation flow",
+    "normalized image results",
+    "working OBD AI diagnosis handler",
+    "Jarvis AI branding cleanup"
+  ],
+  "dataMigration": "none",
+  "rollback": "v0.6.0 installer plus pre-update Jarvis backup",
+  "mergeFrom": "develop/v0.7.0-vision-tool-runtime",
+  "mergeInto": "develop/v0.6.0-data-memory-core",
+  "securityBoundary": "Provider keys remain in desktop protected settings and are not exposed through repository source. Image and multimodal calls use the central desktop function boundary."
+}

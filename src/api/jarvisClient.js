@@ -265,7 +265,8 @@ export const jarvis = {
       },
 
       async GenerateImage(params={}) {
-        return invoke('generateImage', params);
+        const response = await invoke('generateImage', params);
+        return response?.data || response;
       },
 
       async InvokeLLM(params={}) {
