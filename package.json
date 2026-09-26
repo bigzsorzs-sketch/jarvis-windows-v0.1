@@ -1,7 +1,7 @@
 {
   "name": "jarvis-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Jarvis local-first multi-AI desktop assistant for Windows 10 and 11",
   "type": "module",
   "main": "electron/main.cjs",
@@ -164,6 +164,12 @@
         "zh_CN"
       ],
       "include": "build/installer.nsh"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "upgrade/Jarvis-OneClick-Upgrade.cmd",
+        "to": "Jarvis-OneClick-Upgrade.cmd"
+      }
+    ]
   }
 }
