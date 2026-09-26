@@ -16,4 +16,5 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   getStabilityStatus: () => ipcRenderer.invoke('jarvis:stability:status'),
   runStabilitySelfTest: () => ipcRenderer.invoke('jarvis:stability:self-test'),
   openStabilityLogs: () => ipcRenderer.invoke('jarvis:stability:open-logs'),
+  restartApp: () => ipcRenderer.invoke('jarvis:app:restart'),
 });
