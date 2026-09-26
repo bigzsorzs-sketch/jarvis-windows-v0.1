@@ -17,6 +17,21 @@ function deterministicCapability(text, context) {
   const t = lower(text);
   const moduleId = context?.activeModule?.id;
 
+  if (moduleId === 'locations') {
+    if (includesAny(t, ['mentett hely', 'helyeim', 'milyen hely', 'saved places', 'saved locations'])) {
+      return { name: 'locations.list_saved', params: {} };
+    }
+
+    if (includesAny(t, ['aktív navigáció', 'aktiv navigacio', 'merre megyünk', 'merre megyunk', 'mi a célpont', 'mi a celpont'])) {
+      return { name: 'navigation.current_status', params: {} };
+    }
+
+    const navigationMatch = t.match(/(?:navigálj|navigalj|vigyél|vigyel)\s+(.+)$/);
+    if (navigationMatch?.[1]) {
+      return { name: 'navigation.go_saved', params: { query: navigationMatch[1].trim() } };
+    }
+  }
+
   if (moduleId === 'automotive') {
     if (includesAny(t, ['hibakód', 'hibakod', 'dtc', 'error code', 'fault code'])) {
       return { name: 'obd.read_dtcs', params: {} };
