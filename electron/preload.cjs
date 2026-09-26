@@ -17,4 +17,8 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   runStabilitySelfTest: () => ipcRenderer.invoke('jarvis:stability:self-test'),
   openStabilityLogs: () => ipcRenderer.invoke('jarvis:stability:open-logs'),
   restartApp: () => ipcRenderer.invoke('jarvis:app:restart'),
+  reportRuntimeError: (report) => ipcRenderer.invoke('jarvis:self-repair:report', report),
+  listSelfRepairs: () => ipcRenderer.invoke('jarvis:self-repair:list'),
+  approveSelfRepair: (id) => ipcRenderer.invoke('jarvis:self-repair:approve', id),
+  rejectSelfRepair: (id) => ipcRenderer.invoke('jarvis:self-repair:reject', id),
 });
