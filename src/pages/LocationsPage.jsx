@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import TutorialOverlay from '@/components/tutorial/TutorialOverlay';
 import { jarvis } from '@/api/jarvisClient';
 import { MapPin, Plus, X, Loader2, Navigation, Home, Briefcase, ShoppingCart, Activity, Bell, BellOff } from 'lucide-react';
@@ -7,6 +7,8 @@ import { requestNotificationPermission, getPermissionStatus } from '@/lib/pushNo
 import { useLang } from '@/lib/i18n';
 import PullToRefresh from '@/components/common/PullToRefresh';
 import MobileSelect from '@/components/common/MobileSelect';
+import { useJarvisModuleContext } from '@/hooks/useJarvisModuleContext';
+import { getActiveRoute, findSavedLocationForNavigation, startSavedLocationNavigation } from '@/lib/navigationTracker';
 
 const TYPE_CONFIG = {
   bolt: { label: 'Bolt', icon: ShoppingCart, color: 'text-green-400', bg: 'bg-green-400/10' },
@@ -93,6 +95,66 @@ export default function LocationsPage() {
     await deleteOwnedEntity(jarvis.entities.SavedLocation, id);
     setLocations(prev => prev.filter(l => l.id !== id));
   };
+
+  const getLocationContext = useCallback(() => ({
+    savedLocationCount: locations.length,
+    savedLocations: locations.slice(0, 20).map((location) => ({
+      id: location.id,
+      name: location.name,
+      type: location.type,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    })),
+    activeRoute: getActiveRoute(),
+  }), [locations]);
+
+  const getLocationActions = useCallback(() => ({
+    'locations.list_saved': {
+      description: 'Mentett helyek felsorolása',
+      risk: 'read',
+      handler: async () => ({
+        success: true,
+        data: locations,
+        message: locations.length
+          ? 'Mentett helyek: ' + locations.map((location) => location.name).join(', ') + '.'
+          : 'Még nincs mentett helyed.',
+      }),
+    },
+    'navigation.current_status': {
+      description: 'Aktív navigáció állapotának lekérdezése',
+      risk: 'read',
+      handler: async () => {
+        const route = getActiveRoute();
+        if (!route) return { success: true, data: null, message: 'Nincs aktív navigáció.' };
+        return {
+          success: true,
+          data: route,
+          message: 'Aktív célpont: ' + (route.contact_name || route.destination_address || 'ismeretlen') + '.',
+        };
+      },
+    },
+    'navigation.go_saved': {
+      description: 'Navigáció indítása egy mentett helyre',
+      risk: 'navigation',
+      handler: async ({ query }) => {
+        const location = await findSavedLocationForNavigation(query || '');
+        if (!location) return { success: false, message: 'Nem találtam ilyen mentett helyet.' };
+        const started = await startSavedLocationNavigation(location);
+        return {
+          success: true,
+          data: { routeId: started.local_id, location },
+          message: 'Navigáció indítva: ' + location.name + '.',
+        };
+      },
+    },
+  }), [locations]);
+
+  useJarvisModuleContext({
+    id: 'locations',
+    label: 'Helyek és navigáció',
+    getContext: getLocationContext,
+    getActions: getLocationActions,
+  });
 
   const locationsTutorial = [
     {
