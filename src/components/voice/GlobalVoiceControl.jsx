@@ -5,7 +5,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
 import { getRecognitionLangFromText } from '@/lib/globalVoiceNavigator';
 import { requestMicrophonePermission } from '@/lib/microphonePermission';
-import { showAppDialogMessage } from '@/lib/appDialog';
 
 export default function GlobalVoiceControl() {
   const location = useLocation();
@@ -48,7 +47,7 @@ export default function GlobalVoiceControl() {
     if (next) {
       const permission = await requestMicrophonePermission();
       if (!permission.ok) {
-        showAppDialogMessage(permission.message);
+        alert(permission.message);
         return;
       }
     }

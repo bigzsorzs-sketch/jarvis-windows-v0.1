@@ -4,7 +4,6 @@ import { Clock, AlertCircle, CheckCircle2, Trash2, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveEncryptedLocalBackup, removeEncryptedLocalBackup } from '@/lib/encryptedLocalBackup';
 import EncryptedLocalBackupNotice from '@/components/privacy/EncryptedLocalBackupNotice';
-import { requestAppDialogApproval } from '@/lib/appDialog';
 
 export default function DiagnosticHistory({ onSelectSession }) {
   const [sessions, setSessions] = useState([]);
@@ -30,21 +29,20 @@ export default function DiagnosticHistory({ onSelectSession }) {
   };
 
   const handleDelete = async (id) => {
-    const approved = await requestAppDialogApproval('Biztosan törölni akarod a munkamenetet?');
-    if (!approved) return;
-
-    try {
-      await jarvis.entities.OBDSession.delete(id);
-      const nextSessions = sessions.filter((s) => s.id !== id);
-      setSessions(nextSessions);
-      if (nextSessions.length > 0) {
-        const user = await jarvis.auth.me();
-        await saveEncryptedLocalBackup('diagnostic-history', nextSessions, user?.email || 'default');
-      } else {
-        removeEncryptedLocalBackup('diagnostic-history');
+    if (confirm('Biztosan törölni akarod a munkamenetet?')) {
+      try {
+        await jarvis.entities.OBDSession.delete(id);
+        const nextSessions = sessions.filter((s) => s.id !== id);
+        setSessions(nextSessions);
+        if (nextSessions.length > 0) {
+          const user = await jarvis.auth.me();
+          await saveEncryptedLocalBackup('diagnostic-history', nextSessions, user?.email || 'default');
+        } else {
+          removeEncryptedLocalBackup('diagnostic-history');
+        }
+      } catch (error) {
+        console.error('Delete error:', error);
       }
-    } catch (error) {
-      console.error('Delete error:', error);
     }
   };
 

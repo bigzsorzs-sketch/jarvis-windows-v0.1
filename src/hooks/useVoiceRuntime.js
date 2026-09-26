@@ -71,8 +71,8 @@ export function useVoiceRuntime() {
     toggleAutoSpeakReplies: useCallback(() => {
       return runtimeRef.current?.toggleAutoSpeakReplies();
     }, []),
-    speakText: useCallback((text, lang, options) => {
-      return runtimeRef.current?.speakText(text, lang, options);
+    speakText: useCallback((text, lang) => {
+      return runtimeRef.current?.speakText(text, lang);
     }, []),
     speakInstantAck: useCallback((lang) => {
       return runtimeRef.current?.speakInstantAck(lang);

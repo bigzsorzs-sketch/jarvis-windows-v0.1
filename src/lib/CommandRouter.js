@@ -1,6 +1,6 @@
 import { runAssistantTurn } from '@/lib/chatOrchestrator';
 import { executeGlobalVoiceCommand } from '@/lib/globalVoiceActions';
-import { findLocalUiCommand, findTravelTimeCommand, findWorkflowCommand } from '@/lib/commandIntents';
+import { findLocalUiCommand, findWorkflowCommand } from '@/lib/commandIntents';
 import { findSupportResponse } from '@/lib/supportAssistant';
 import { isCallCommand, extractCallTarget, isGlobalVoiceCommand } from '@/lib/voiceCommandRouter';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
@@ -42,9 +42,6 @@ export async function routeUserCommand({
 
   const fastReply = attachedFiles.length === 0 ? findFastChatReply(input, lang) : null;
   if (fastReply) return fastReply;
-
-  const travelTimeCommand = findTravelTimeCommand(input);
-  if (travelTimeCommand) return travelTimeCommand;
 
   const uiCommand = findLocalUiCommand(input);
   if (uiCommand) return uiCommand;

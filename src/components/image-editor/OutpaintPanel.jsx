@@ -35,9 +35,7 @@ export default function OutpaintPanel({ layers, CANVAS_W, CANVAS_H, onOutpaintCo
       // 2. Upload source image (async, non-blocking)
       const blob = await canvasToBlob(merged, 'image/png', 0.9);
       const file = new File([blob], 'source.png', { type: 'image/png' });
-      const uploadForm = new FormData();
-      uploadForm.append('file', file);
-      const uploadRes = await jarvis.functions.invoke('validateFileUpload', uploadForm);
+      const uploadRes = await jarvis.functions.invoke('validateFileUpload', { file });
       const file_url = uploadRes?.data?.file_url;
 
       // 3. Calculate new dimensions

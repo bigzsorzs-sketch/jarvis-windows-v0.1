@@ -18,22 +18,30 @@ export default function NativeDialogBridge() {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
-    const handleDialog = (event) => {
-      setDialog(event.detail || null);
+    const originalAlert = window.alert;
+    const originalConfirm = window.confirm;
+    const originalPrompt = window.prompt;
+
+    window.alert = (message = '') => {
+      setDialog({ type: 'alert', message: String(message || '') });
     };
 
-    window.addEventListener('app-native-dialog', handleDialog);
-    return () => window.removeEventListener('app-native-dialog', handleDialog);
-  }, []);
+    window.confirm = (message = '') => {
+      setDialog({ type: 'confirm', message: String(message || '') });
+      return false;
+    };
 
-  const closeApproval = (approved) => {
-    if (dialog?.id) {
-      window.dispatchEvent(new CustomEvent('app-native-dialog-result', {
-        detail: { id: dialog.id, approved },
-      }));
-    }
-    setDialog(null);
-  };
+    window.prompt = (message = '') => {
+      setDialog({ type: 'prompt', message: String(message || '') });
+      return null;
+    };
+
+    return () => {
+      window.alert = originalAlert;
+      window.confirm = originalConfirm;
+      window.prompt = originalPrompt;
+    };
+  }, []);
 
   return (
     <AnimatePresence>
@@ -47,7 +55,7 @@ export default function NativeDialogBridge() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
           className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
-          onClick={() => closeApproval(false)}
+          onClick={() => setDialog(null)}
         >
           <motion.div
             initial={{ y: 24, opacity: 0 }}
@@ -58,33 +66,14 @@ export default function NativeDialogBridge() {
             onClick={(event) => event.stopPropagation()}
           >
             <p className="text-sm leading-relaxed text-foreground">{dialog.message}</p>
-            {dialog.type === 'approval' ? (
-              <div className="mt-5 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => closeApproval(false)}
-                  className="min-h-[44px] rounded-2xl bg-secondary px-4 py-3 text-sm font-semibold text-foreground"
-                >
-                  {dialog.cancelLabel || text.dismiss[lang]}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => closeApproval(true)}
-                  className="min-h-[44px] rounded-2xl bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground"
-                >
-                  {dialog.approveLabel || text.ok[lang]}
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                aria-label={text.dismiss[lang]}
-                onClick={() => setDialog(null)}
-                className="mt-5 min-h-[44px] w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                {text.ok[lang]}
-              </button>
-            )}
+            <button
+              type="button"
+              aria-label={text.dismiss[lang]}
+              onClick={() => setDialog(null)}
+              className="mt-5 min-h-[44px] w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              {dialog.type === 'alert' ? text.ok[lang] : text.dismiss[lang]}
+            </button>
           </motion.div>
         </motion.div>
       )}

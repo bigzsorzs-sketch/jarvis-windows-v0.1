@@ -12,7 +12,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/u
  *  placeholder – string shown when no value selected
  *  className   – extra classes for the trigger button
  */
-export default function MobileSelect({ value, onChange, options = [], placeholder = 'Válassz...', className = '', disabled = false }) {
+export default function MobileSelect({ value, onChange, options = [], placeholder = 'Válassz...', className = '' }) {
   const [open, setOpen] = useState(false);
   const selected = options.find(o => o.value === value);
   const titleId = `mobile-select-${String(placeholder).toLowerCase().replace(/\s+/g, '-')}`;
@@ -22,11 +22,10 @@ export default function MobileSelect({ value, onChange, options = [], placeholde
       <button
         type="button"
         onClick={() => setOpen(true)}
-        disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={selected ? `${placeholder}: ${selected.label}` : placeholder}
-        className={`flex items-center justify-between gap-2 bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-foreground outline-none w-full min-h-[44px] focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${className}`}
+        className={`flex items-center justify-between gap-2 bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-foreground outline-none w-full min-h-[44px] focus-visible:ring-2 focus-visible:ring-primary ${className}`}
       >
         <span className={selected ? 'text-foreground' : 'text-muted-foreground'}>
           {selected ? selected.label : placeholder}

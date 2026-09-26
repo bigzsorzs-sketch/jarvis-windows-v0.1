@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { getTrips, deleteTrip } from '@/lib/tripLogger';
 import { MapPin, Trash2, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { requestAppDialogApproval } from '@/lib/appDialog';
 
 export default function TripHistory({ onViewTrip }) {
   const [trips, setTrips] = useState([]);
@@ -24,14 +23,13 @@ export default function TripHistory({ onViewTrip }) {
   };
 
   const handleDelete = async (id) => {
-    const approved = await requestAppDialogApproval('Biztos törölni akarod az útvonalat?');
-    if (!approved) return;
-
-    try {
-      await deleteTrip(id);
-      setTrips((prev) => prev.filter((t) => t.id !== id));
-    } catch (error) {
-      console.error('Delete error:', error);
+    if (confirm('Biztos törölni akarod az útvonalat?')) {
+      try {
+        await deleteTrip(id);
+        setTrips((prev) => prev.filter((t) => t.id !== id));
+      } catch (error) {
+        console.error('Delete error:', error);
+      }
     }
   };
 

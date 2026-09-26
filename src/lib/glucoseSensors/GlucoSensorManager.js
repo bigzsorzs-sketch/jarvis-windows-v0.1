@@ -14,7 +14,6 @@ export class GlucoSensorManager {
     this.currentSensor = null;
     this.readingInterval = null;
     this.lastReading = null;
-    this.nfcAbortController = null;
   }
 
   /**
@@ -71,21 +70,6 @@ export class GlucoSensorManager {
   }
 
   /**
-   * NFC állapot ellenőrzése böngészőben.
-   * A Libre 2 Plus ISO15693 alapú, nem NDEF formátumú szenzor, ezért Web NFC-ből nem olvasható ki közvetlenül.
-   */
-  async connectViaNfc() {
-    if (!('NDEFReader' in window)) {
-      return { success: false, error: 'Ez a böngésző nem támogatja a Web NFC-t. Android Chrome szükséges.' };
-    }
-
-    return {
-      success: false,
-      error: 'A Libre 2 Plus NFC-je ISO15693 alapú, nem Web NFC/NDEF címke, ezért a böngészős app nem tudja közvetlenül kiolvasni. Használd a LibreLink/gyári appot, vagy rögzítsd kézzel az értéket a Vércukor naplóban.'
-    };
-  }
-
-  /**
    * Adatok feldolgozása
    */
   onDataReceived(event) {
@@ -116,7 +100,7 @@ export class GlucoSensorManager {
   async startAutoRead(callback) {
     this.onReadingCallback = callback;
 
-    if (!this.isConnected || !this.characteristic) return;
+    if (!this.isConnected) return;
 
     // Bluetooth notifikáció alapú olvasás (primo)
     // ha az nem működik, polling fallback
@@ -154,8 +138,6 @@ export class GlucoSensorManager {
    */
   async disconnect() {
     this.stopAutoRead();
-    this.nfcAbortController?.abort?.();
-    this.nfcAbortController = null;
     if (this.device?.gatt?.connected) {
       await this.device.gatt.disconnect();
     }

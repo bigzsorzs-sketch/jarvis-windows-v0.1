@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import GlucoSensorManager from '@/lib/glucoseSensors/GlucoSensorManager';
-import { Droplet, Bluetooth, Loader2, Zap, TrendingUp, TrendingDown, ScanLine } from 'lucide-react';
+import { Droplet, Bluetooth, Loader2, Zap, TrendingUp, TrendingDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logger } from '@/lib/logger';
 
@@ -12,7 +12,6 @@ export default function GlucoSensorConnector() {
   const [sensorInfo, setSensorInfo] = useState(null);
   const [lastReading, setLastReading] = useState(null);
   const [status, setStatus] = useState('');
-  const [showLibreGuide, setShowLibreGuide] = useState(false);
   const autoSaveRef = useRef(true);
 
   // Cleanup: disconnect sensor on unmount to prevent memory leaks
@@ -22,14 +21,12 @@ export default function GlucoSensorConnector() {
     };
   }, [sensorManager]);
 
-  const connectSensor = async (mode = 'bluetooth') => {
+  const connectSensor = async () => {
     setConnecting(true);
-    setStatus(mode === 'nfc' ? 'NFC olvasás indítása... érintsd a szenzort a telefonhoz.' : 'Szenzor keresése...');
+    setStatus('Szenzor keresése...');
 
     try {
-      const result = mode === 'nfc'
-        ? await sensorManager.connectViaNfc()
-        : await sensorManager.detectAndConnect();
+      const result = await sensorManager.detectAndConnect();
 
       if (!result.success) throw new Error(result.error);
 
@@ -37,7 +34,7 @@ export default function GlucoSensorConnector() {
       setSensorInfo(result);
       setIsConnected(true);
 
-      // Auto-read indítása Bluetooth esetén, NFC-nél egyszeri érintéses olvasás történik
+      // Auto-read indítása
       await sensorManager.startAutoRead((reading) => {
         setLastReading(reading);
 
@@ -50,7 +47,7 @@ export default function GlucoSensorConnector() {
       setConnecting(false);
     } catch (error) {
       logger.error('GlucoSensorConnector', 'Glucose sensor connection failed');
-      setStatus(`❌ ${error.message || 'A szenzorhoz most nem tudtunk csatlakozni.'}`);
+      setStatus('❌ A szenzorhoz most nem tudtunk csatlakozni.');
       setConnecting(false);
     }
   };
@@ -91,14 +88,6 @@ export default function GlucoSensorConnector() {
     } catch (error) {
       logger.error('GlucoSensorConnector', 'Blood sugar save failed');
     }
-  };
-
-  const openLibreLinkSearch = () => {
-    window.open('https://play.google.com/store/search?q=FreeStyle%20LibreLink&c=apps', '_blank');
-  };
-
-  const openBloodSugarLog = () => {
-    window.dispatchEvent(new CustomEvent('open-blood-sugar-log'));
   };
 
   const getTimeOfDay = () => {
@@ -225,51 +214,19 @@ export default function GlucoSensorConnector() {
         ) : (
           <>
             <Bluetooth size={14} />
-            Bluetooth csatlakoztatás
+            Szenzor csatlakoztatása
           </>
         )}
       </button>
-
-      {!isConnected && (
-        <button
-          onClick={() => setShowLibreGuide((prev) => !prev)}
-          disabled={connecting}
-          className="w-full py-2.5 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 disabled:opacity-60"
-        >
-          <ScanLine size={14} />
-          Libre 2 Plus NFC Android útmutató
-        </button>
-      )}
-
-      {showLibreGuide && (
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3 space-y-3">
-          <div>
-            <p className="text-xs text-blue-400 font-semibold mb-1">Android APK folyamat</p>
-            <ul className="text-xs text-muted-foreground space-y-1">
-              <li>1. Olvasd le a Libre 2 Plus szenzort a LibreLink/gyári appal.</li>
-              <li>2. Másold vagy nézd meg az aktuális mmol/L értéket.</li>
-              <li>3. Nyisd meg itt a Vércukor naplót, és rögzítsd az értéket.</li>
-            </ul>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button onClick={openLibreLinkSearch} className="py-2 rounded-xl bg-blue-500 text-white text-xs font-semibold">
-              LibreLink keresése
-            </button>
-            <button onClick={openBloodSugarLog} className="py-2 rounded-xl bg-secondary text-foreground text-xs font-semibold border border-border">
-              Vércukor napló megnyitása
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Info */}
       <div className="bg-primary/10 border border-primary/30 rounded-xl p-3">
         <p className="text-xs text-primary font-semibold mb-1">✨ Automatikus folyamat</p>
         <ul className="text-xs text-muted-foreground space-y-0.5">
-          <li>• Libre 2 Plus NFC: böngészőből nem olvasható közvetlenül</li>
-          <li>• Web NFC csak NDEF címkéket kezel, a Libre 2 Plus ISO15693-alapú</li>
-          <li>• Bluetooth támogatott szenzoroknál automatikus frissítés működik</li>
-          <li>• LibreLink/gyári app után az érték kézzel rögzíthető a naplóban</li>
+          <li>• Szenzor csatlakoztatásakor azonnal elkezdi az olvasást</li>
+          <li>• 1-5 percenként frissít (szenzortípustól függően)</li>
+          <li>• Szóbeli értesítés minden méréskor</li>
+          <li>• Automatikus tárolás az adatbázisban</li>
         </ul>
       </div>
     </motion.div>

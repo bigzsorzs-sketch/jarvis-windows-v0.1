@@ -22,25 +22,6 @@ export function findWorkflowCommand(text, ctx) {
   };
 }
 
-export function findTravelTimeCommand(text) {
-  const lower = text.toLowerCase();
-  const normalized = lower.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const postcodeMatch = text.toUpperCase().match(/\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/);
-  const asksTravelTime = normalized.includes('mennyi') && (normalized.includes('ido') || normalized.includes('idő')) && (normalized.includes('erek') || normalized.includes('ernek'));
-  const destinationHungary = normalized.includes('magyarba') || normalized.includes('magyarorszag') || normalized.includes('hungary');
-
-  if (!asksTravelTime || !destinationHungary) return null;
-
-  const origin = postcodeMatch ? postcodeMatch[0].replace(/\s+/g, ' ') : 'WF3 2EY';
-  const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent('Hungary')}&travelmode=driving`;
-
-  return {
-    handled: true,
-    intent: 'travel_time_estimate',
-    reply: `🚗 ${origin} irányából Magyarországra autóval általában kb. 18–22 óra tiszta vezetés, megállókkal inkább 1–2 nap. Pontos, aktuális forgalmi idő: ${mapsUrl}`,
-  };
-}
-
 export function findLocalUiCommand(text) {
   const lower = text.toLowerCase();
 

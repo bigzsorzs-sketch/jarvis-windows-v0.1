@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
-import MobileSelect from '@/components/common/MobileSelect';
 
 export default function FuelLogForm({ vehicles, onSubmit, saving }) {
   const [form, setForm] = useState({
@@ -37,32 +36,22 @@ export default function FuelLogForm({ vehicles, onSubmit, saving }) {
       </div>
 
       {vehicles.length > 0 && (
-        <MobileSelect
-          value={form.vehicle_id}
-          onChange={(value) => update('vehicle_id', value)}
-          placeholder="Jármű"
-          options={[
-            { value: '', label: 'Jármű nélkül' },
-            ...vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.make} ${vehicle.model} (${vehicle.year})` })),
-          ]}
-          className="input-field"
-        />
+        <select value={form.vehicle_id} onChange={(e) => update('vehicle_id', e.target.value)} className="input-field">
+          <option value="">Jármű nélkül</option>
+          {vehicles.map((vehicle) => (
+            <option key={vehicle.id} value={vehicle.id}>{vehicle.make} {vehicle.model} ({vehicle.year})</option>
+          ))}
+        </select>
       )}
 
       <div className="grid grid-cols-2 gap-2">
         <input className="input-field" type="date" value={form.date} onChange={(e) => update('date', e.target.value)} required />
-        <MobileSelect
-          className="input-field"
-          value={form.fuel_type}
-          onChange={(value) => update('fuel_type', value)}
-          placeholder="Üzemanyag"
-          options={[
-            { value: 'benzin', label: 'Benzin' },
-            { value: 'dizel', label: 'Dízel' },
-            { value: 'hibrid', label: 'Hibrid' },
-            { value: 'egyeb', label: 'Egyéb' },
-          ]}
-        />
+        <select className="input-field" value={form.fuel_type} onChange={(e) => update('fuel_type', e.target.value)}>
+          <option value="benzin">Benzin</option>
+          <option value="dizel">Dízel</option>
+          <option value="hibrid">Hibrid</option>
+          <option value="egyeb">Egyéb</option>
+        </select>
       </div>
 
       <div className="grid grid-cols-3 gap-2">

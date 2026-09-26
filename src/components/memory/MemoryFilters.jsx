@@ -1,21 +1,3 @@
-import MobileSelect from '@/components/common/MobileSelect';
-
-const CATEGORY_OPTIONS = [
-  { value: 'all', label: 'All categories' },
-  { value: 'preference', label: 'Preference' },
-  { value: 'fact', label: 'Fact' },
-  { value: 'habit', label: 'Habit' },
-  { value: 'interest', label: 'Interest' },
-  { value: 'other', label: 'Other' },
-];
-
-const LINK_OPTIONS = [
-  { value: 'all', label: 'All links' },
-  { value: 'unlinked', label: 'Unlinked' },
-  { value: 'contact', label: 'Contacts' },
-  { value: 'project', label: 'Projects' },
-];
-
 export default function MemoryFilters({ search, setSearch, category, setCategory, linkType, setLinkType }) {
   return (
     <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
@@ -26,8 +8,20 @@ export default function MemoryFilters({ search, setSearch, category, setCategory
         className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground outline-none"
       />
       <div className="grid grid-cols-2 gap-2">
-        <MobileSelect value={category} onChange={setCategory} options={CATEGORY_OPTIONS} placeholder="Category" />
-        <MobileSelect value={linkType} onChange={setLinkType} options={LINK_OPTIONS} placeholder="Links" />
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground outline-none">
+          <option value="all">All categories</option>
+          <option value="preference">Preference</option>
+          <option value="fact">Fact</option>
+          <option value="habit">Habit</option>
+          <option value="interest">Interest</option>
+          <option value="other">Other</option>
+        </select>
+        <select value={linkType} onChange={(e) => setLinkType(e.target.value)} className="bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground outline-none">
+          <option value="all">All links</option>
+          <option value="unlinked">Unlinked</option>
+          <option value="contact">Contacts</option>
+          <option value="project">Projects</option>
+        </select>
       </div>
     </div>
   );

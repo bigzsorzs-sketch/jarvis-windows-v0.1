@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
 // ─── SUPPORTED LANGUAGES (42 languages with flags) ───────────────────────────
 export const SUPPORTED_LANGUAGES = [
@@ -893,9 +893,23 @@ export function LangProvider({ children }) {
     return stored && valid.includes(stored) ? stored : 'hu';
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    window.jarvisDesktop?.getSettings?.().then((settings) => {
+      const code = settings?.language;
+      const valid = SUPPORTED_LANGUAGES.some(l => l.code === code);
+      if (!cancelled && valid && !localStorage.getItem('app_lang')) {
+        setLang(code);
+        localStorage.setItem('app_lang', code);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const changeLang = (code) => {
     setLang(code);
     localStorage.setItem('app_lang', code);
+    window.jarvisDesktop?.saveSettings?.({ language: code }).catch?.(() => {});
   };
 
   const t = (key) => getTranslations(lang)[key] || getTranslations('en')[key] || key;

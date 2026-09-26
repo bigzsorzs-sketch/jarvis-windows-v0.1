@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Download, MessageSquare, Headphones, Volume2, VolumeX } from 'lucide-react';
 import LanguagePicker from '@/components/chat/LanguagePicker';
 import { requestMicrophonePermission } from '@/lib/microphonePermission';
-import { showAppDialogMessage } from '@/lib/appDialog';
 
 const ChatHeader = memo(function ChatHeader({ aiName, onNewChat, onExport, onFeedback, handsFree, onToggleHandsFree, autoSpeakReplies, onToggleAutoSpeak, speechStats, isOnline, degradedMode, t }) {
   const navigate = useNavigate();
@@ -12,7 +11,7 @@ const ChatHeader = memo(function ChatHeader({ aiName, onNewChat, onExport, onFee
     if (!handsFree) {
       const permission = await requestMicrophonePermission();
       if (!permission.ok) {
-        showAppDialogMessage(permission.message);
+        alert(permission.message);
         return;
       }
       onToggleHandsFree?.();

@@ -1,6 +1,5 @@
 import { Download, FileText } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import { showAppDialogMessage } from '@/lib/appDialog';
 
 export default function RetailRestockTab({ products = [] }) {
   const needsRestock = products
@@ -17,7 +16,7 @@ export default function RetailRestockTab({ products = [] }) {
   const handleExport = async () => {
     const text = ['Bevásárlólista', '', ...shoppingLines].join('\n');
     await navigator.clipboard.writeText(text);
-    showAppDialogMessage('A bevásárlólista a vágólapra lett másolva.');
+    alert('A bevásárlólista a vágólapra lett másolva.');
   };
 
   const handlePdf = () => {

@@ -1,7 +1,6 @@
 import { memo } from 'react';
 import { Eye, EyeOff, Trash2, Plus } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import MobileSelect from '@/components/common/MobileSelect';
 
 export const BLEND_MODES = [
   { value: 'source-over', label: 'Normal' },
@@ -101,13 +100,15 @@ export default memo(function EditorLayerPanel({
 
                         {/* Row 2: blend mode */}
                         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                          <MobileSelect
+                          <select
                             value={layer.blendMode || 'source-over'}
-                            onChange={(value) => onBlendChange(i, value)}
-                            options={BLEND_MODES}
-                            placeholder="Blend mode"
-                            className="flex-1 rounded px-1 py-0.5 text-[10px] min-h-[28px]"
-                          />
+                            onChange={e => onBlendChange(i, e.target.value)}
+                            className="flex-1 bg-secondary border border-border rounded px-1 py-0.5 text-[10px] text-foreground outline-none cursor-pointer"
+                          >
+                            {BLEND_MODES.map(m => (
+                              <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                          </select>
                         </div>
 
                         {/* Row 3: opacity slider */}

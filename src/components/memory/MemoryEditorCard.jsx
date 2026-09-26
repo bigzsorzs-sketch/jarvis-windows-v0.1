@@ -1,21 +1,4 @@
 import { Trash2 } from 'lucide-react';
-import MobileSelect from '@/components/common/MobileSelect';
-
-const CATEGORY_OPTIONS = [
-  { value: 'preference', label: 'Preference' },
-  { value: 'fact', label: 'Fact' },
-  { value: 'habit', label: 'Habit' },
-  { value: 'interest', label: 'Interest' },
-  { value: 'other', label: 'Other' },
-];
-
-const IMPORTANCE_OPTIONS = [1,2,3,4,5,6,7,8,9,10].map((num) => ({ value: num, label: `Priority ${num}` }));
-
-const LINK_TYPE_OPTIONS = [
-  { value: '', label: 'No link' },
-  { value: 'contact', label: 'Contact' },
-  { value: 'project', label: 'Project' },
-];
 
 const badgeStyles = {
   preference: 'bg-blue-500/20 text-blue-400',
@@ -42,37 +25,47 @@ export default function MemoryEditorCard({ memory, contacts, projects, onSave, o
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <MobileSelect value={memory.category || 'other'} onChange={(value) => onSave(memory.id, { category: value })} options={CATEGORY_OPTIONS} placeholder="Category" />
-        <MobileSelect value={memory.importance || 5} onChange={(value) => onSave(memory.id, { importance: Number(value) })} options={IMPORTANCE_OPTIONS} placeholder="Priority" />
+        <select value={memory.category || 'other'} onChange={(e) => onSave(memory.id, { category: e.target.value })} className="bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground outline-none">
+          <option value="preference">Preference</option>
+          <option value="fact">Fact</option>
+          <option value="habit">Habit</option>
+          <option value="interest">Interest</option>
+          <option value="other">Other</option>
+        </select>
+        <select value={memory.importance || 5} onChange={(e) => onSave(memory.id, { importance: Number(e.target.value) })} className="bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground outline-none">
+          {[1,2,3,4,5,6,7,8,9,10].map((num) => <option key={num} value={num}>Priority {num}</option>)}
+        </select>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <MobileSelect
+        <select
           value={memory.linked_entity_type || ''}
-          onChange={(value) => onSave(memory.id, {
-            linked_entity_type: value || null,
+          onChange={(e) => onSave(memory.id, {
+            linked_entity_type: e.target.value || null,
             linked_entity_id: null,
             linked_entity_name: null,
           })}
-          options={LINK_TYPE_OPTIONS}
-          placeholder="Link type"
-        />
-        <MobileSelect
+          className="bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground outline-none"
+        >
+          <option value="">No link</option>
+          <option value="contact">Contact</option>
+          <option value="project">Project</option>
+        </select>
+        <select
           value={memory.linked_entity_id || ''}
-          onChange={(value) => {
-            const selected = options.find((item) => item.id === value);
+          onChange={(e) => {
+            const selected = options.find((item) => item.id === e.target.value);
             onSave(memory.id, {
               linked_entity_id: selected?.id || null,
               linked_entity_name: selected?.name || null,
             });
           }}
           disabled={!memory.linked_entity_type}
-          placeholder={`Select ${memory.linked_entity_type || 'entity'}`}
-          options={[
-            { value: '', label: `Select ${memory.linked_entity_type || 'entity'}` },
-            ...options.map((item) => ({ value: item.id, label: item.name })),
-          ]}
-        />
+          className="bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground outline-none disabled:opacity-50"
+        >
+          <option value="">Select {memory.linked_entity_type || 'entity'}</option>
+          {options.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
       </div>
 
       <div className="flex items-center justify-between">
