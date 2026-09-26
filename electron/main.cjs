@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -328,6 +328,37 @@ function attachWindowStabilityHandlers(win) {
   win.on('responsive', () => appendStabilityEvent('window-responsive'));
 }
 
+
+async function runStabilitySelfTest() {
+  const checks = [];
+  checks.push({ id:'policy', ok:Boolean(policy?.integrityOk), detail:policy?.integrityOk ? 'Core Rules signature valid' : 'Core Rules unavailable or invalid' });
+  checks.push({ id:'encryption', ok:Boolean(safeStorage.isEncryptionAvailable()), detail:safeStorage.isEncryptionAvailable() ? 'Windows encrypted storage available' : 'Encrypted storage unavailable' });
+
+  const probe=path.join(app.getPath('userData'),'.jarvis-write-probe');
+  try {
+    fs.mkdirSync(path.dirname(probe),{recursive:true});
+    fs.writeFileSync(probe,'ok','utf8');
+    fs.unlinkSync(probe);
+    checks.push({ id:'storage', ok:true, detail:'User data folder is writable' });
+  } catch (error) {
+    checks.push({ id:'storage', ok:false, detail:String(error?.message || error) });
+  }
+
+  const status=getStabilityStatus();
+  checks.push({
+    id:'crash-loop',
+    ok:!status.safeModeRecommended,
+    detail:status.safeModeRecommended ? 'Repeated renderer crashes detected' : 'No renderer crash loop detected'
+  });
+
+  return {
+    ok:checks.every(x=>x.ok),
+    checkedAt:new Date().toISOString(),
+    checks,
+    status,
+  };
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -389,6 +420,14 @@ app.whenReady().then(() => {
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
   ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
   ipcMain.handle('jarvis:stability:status', () => getStabilityStatus());
+  ipcMain.handle('jarvis:stability:self-test', () => runStabilitySelfTest());
+  ipcMain.handle('jarvis:stability:open-logs', async () => {
+    const file=stabilityLogPath();
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    if (!fs.existsSync(file)) fs.writeFileSync(file,'','utf8');
+    shell.showItemInFolder(file);
+    return {ok:true,path:file};
+  });
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
