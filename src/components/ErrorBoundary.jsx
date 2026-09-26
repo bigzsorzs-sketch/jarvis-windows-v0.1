@@ -25,6 +25,14 @@ export default class ErrorBoundary extends React.Component {
       componentStack: errorInfo?.componentStack,
     });
 
+    window.jarvisDesktop?.reportRuntimeError?.({
+      type: 'react_render_error',
+      module: 'ErrorBoundary',
+      message: error?.message || 'React render error',
+      stack: error?.stack || '',
+      context: { componentStack: errorInfo?.componentStack || '' },
+    })?.catch?.(() => {});
+
     const message = String(error?.message || '');
     const isChunkLoadError = message.includes('Failed to fetch dynamically imported module') || message.includes('Importing a module script failed');
     if (isChunkLoadError && sessionStorage.getItem('chunk_reload_attempted') !== 'true') {
