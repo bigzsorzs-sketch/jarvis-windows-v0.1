@@ -15,6 +15,57 @@ const { PolicyEngine } = require('./security/policy-engine.cjs');
 const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
+const stabilityState = {
+  startedAt: Date.now(),
+  rendererRestarts: [],
+  lastRendererCrash: null,
+  lastUnhandledError: null,
+};
+
+function stabilityLogPath() {
+  return path.join(app.getPath('userData'), 'logs', 'stability.jsonl');
+}
+function serializeError(error) {
+  if (!error) return null;
+  return {
+    name: error.name || 'Error',
+    message: String(error.message || error),
+    stack: String(error.stack || '').slice(0, 12000),
+  };
+}
+function appendStabilityEvent(event, payload={}) {
+  try {
+    const file=stabilityLogPath();
+    fs.mkdirSync(path.dirname(file), {recursive:true});
+    fs.appendFileSync(file, JSON.stringify({ts:new Date().toISOString(),event,...payload})+'\n','utf8');
+  } catch {}
+}
+function pruneRendererRestarts() {
+  const cutoff=Date.now()-60_000;
+  stabilityState.rendererRestarts=stabilityState.rendererRestarts.filter(ts=>ts>cutoff);
+}
+function getStabilityStatus() {
+  pruneRendererRestarts();
+  return {
+    appVersion: app.getVersion(),
+    uptimeSeconds: Math.floor((Date.now()-stabilityState.startedAt)/1000),
+    rendererRestartsLastMinute: stabilityState.rendererRestarts.length,
+    lastRendererCrash: stabilityState.lastRendererCrash,
+    lastUnhandledError: stabilityState.lastUnhandledError,
+    logPath: stabilityLogPath(),
+    safeModeRecommended: stabilityState.rendererRestarts.length >= 3,
+  };
+}
+
+process.on('uncaughtException', (error) => {
+  stabilityState.lastUnhandledError={type:'uncaughtException',at:new Date().toISOString(),error:serializeError(error)};
+  appendStabilityEvent('uncaughtException',{error:serializeError(error)});
+});
+process.on('unhandledRejection', (reason) => {
+  const error=reason instanceof Error ? reason : new Error(String(reason));
+  stabilityState.lastUnhandledError={type:'unhandledRejection',at:new Date().toISOString(),error:serializeError(error)};
+  appendStabilityEvent('unhandledRejection',{error:serializeError(error)});
+});
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(process.resourcesPath, ...parts) : path.join(__dirname, '..', ...parts);
@@ -251,6 +302,32 @@ Start-Process -FilePath $appExe
   return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot};
 }
 
+function attachWindowStabilityHandlers(win) {
+  win.webContents.on('render-process-gone', (_event, details) => {
+    const crash={at:new Date().toISOString(),reason:details.reason,exitCode:details.exitCode};
+    stabilityState.lastRendererCrash=crash;
+    stabilityState.rendererRestarts.push(Date.now());
+    pruneRendererRestarts();
+    appendStabilityEvent('render-process-gone', crash);
+
+    if (stabilityState.rendererRestarts.length <= 2 && !win.isDestroyed()) {
+      setTimeout(() => {
+        if (win.isDestroyed()) return;
+        if (isDev) win.loadURL('http://127.0.0.1:5173');
+        else win.loadFile(path.join(__dirname,'..','dist','index.html'));
+      }, 800);
+      return;
+    }
+
+    appendStabilityEvent('renderer-crash-loop-protection', {
+      restartsLastMinute: stabilityState.rendererRestarts.length,
+    });
+  });
+
+  win.on('unresponsive', () => appendStabilityEvent('window-unresponsive'));
+  win.on('responsive', () => appendStabilityEvent('window-responsive'));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -268,8 +345,21 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
+  attachWindowStabilityHandlers(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 }
 
 app.whenReady().then(() => {
@@ -298,6 +388,7 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
   ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
+  ipcMain.handle('jarvis:stability:status', () => getStabilityStatus());
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
