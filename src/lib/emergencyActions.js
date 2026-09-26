@@ -15,6 +15,15 @@ export async function requestEmergencyCall(number = '999') {
   const mobileLike = /Android|iPhone|iPad/i.test(ua);
 
   try {
+    if (window.jarvisDesktop?.openEmergencyCall) {
+      const result = await window.jarvisDesktop.openEmergencyCall(normalized);
+      return {
+        success: true,
+        message: 'Megpróbáltam átadni a ' + normalized + ' segélyhívást a Windows híváskezelőjének. Ellenőrizd, hogy a hívás valóban elindult; ha nem, hívd a ' + normalized + ' számot telefonról.',
+        data: { ...result, callAttempted: true, platformConfirmedConnected: false },
+      };
+    }
+
     window.location.href = 'tel:' + normalized;
   } catch {
     return {
@@ -28,7 +37,7 @@ export async function requestEmergencyCall(number = '999') {
     success: true,
     message: mobileLike
       ? 'Megnyitottam a ' + normalized + ' segélyhívást. Ellenőrizd, hogy a hívás valóban elindult.'
-      : 'Megpróbáltam átadni a ' + normalized + ' hívást a Windows híváskezelőjének. Ha nem jelenik meg hívás, hívd a ' + normalized + ' számot telefonról.',
+      : 'Megpróbáltam átadni a ' + normalized + ' hívást a rendszer híváskezelőjének. Ha nem jelenik meg hívás, hívd a ' + normalized + ' számot telefonról.',
     data: { number: normalized, callAttempted: true, platformConfirmedConnected: false },
   };
 }
