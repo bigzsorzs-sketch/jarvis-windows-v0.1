@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home, MessageCircle, BarChart3, Brain, Wrench, Settings, MoreHorizontal, X,
-  Car, Activity, Sparkles, ShieldCheck, Wifi, Radio, Cpu, ChevronRight
+  Car, Activity, Sparkles, ShieldCheck, Wifi, Radio, Cpu, ChevronRight, Database
 } from 'lucide-react';
 import LocationSensor from './jarvis/LocationSensor';
 import LanguagePicker from './chat/LanguagePicker';
@@ -15,7 +15,7 @@ import { recordTabPath, getLastTabPath, resetTabPath } from '@/lib/tabHistory';
 const toolPaths = new Set([
   '/contacts','/reminders','/smarthome','/routines','/legal','/retail','/gmail',
   '/locations','/habits','/fuel-tracker','/jelentesek','/holding','/privacy-terms',
-  '/release-checklist','/voice-help','/ai-feedback-admin'
+  '/release-checklist','/voice-help','/ai-feedback-admin','/system-center'
 ]);
 
 export default function Layout() {
@@ -61,6 +61,7 @@ export default function Layout() {
     { path: '/automotive', label: 'Automotive', icon: Car },
     { path: '/obd2', label: 'OBD-II', icon: Activity },
     { path: '/tools/finance', label: 'Finance', icon: BarChart3 },
+    { path: '/system-center', label: 'System Center', icon: Database },
   ];
 
   const activeMobileTab = (() => {

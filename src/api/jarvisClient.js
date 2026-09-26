@@ -1,8 +1,10 @@
 // Jarvis local desktop data/API adapter.
-// No external platform SDK is required. Data is stored locally on the device.
+// Desktop builds use native SQLite through Electron IPC.
+// Browser/dev fallback remains localStorage for resilience.
 
 const ENTITY_PREFIX = 'jarvis_entity_';
 const USER_KEY = 'jarvis_local_user';
+const MIGRATION_KEY = 'jarvis_sqlite_migration_v1';
 
 function storage() {
   try { return window.localStorage; } catch { return null; }
@@ -14,10 +16,10 @@ function write(key, value) {
   try { storage()?.setItem(key, JSON.stringify(value)); } catch {}
 }
 function id() {
-  try { return crypto.randomUUID(); } catch { return `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+  try { return crypto.randomUUID(); } catch { return Date.now() + '-' + Math.random().toString(36).slice(2); }
 }
 function now() { return new Date().toISOString(); }
-function currentUser() {
+function localUser() {
   const existing = read(USER_KEY, null);
   if (existing) return existing;
   const user = { id:'local-owner', email:'owner@jarvis.local', full_name:'Owner', role:'owner', created_date:now() };
@@ -25,18 +27,61 @@ function currentUser() {
   return user;
 }
 
-function entityApi(entityName) {
+function nativeData() {
+  return window.jarvisDesktop?.data || null;
+}
+
+let migrationPromise = null;
+
+async function ensureDesktopMigration() {
+  const api = nativeData();
+  if (!api?.importLegacy) return false;
+  if (migrationPromise) return migrationPromise;
+
+  migrationPromise = (async () => {
+    if (storage()?.getItem(MIGRATION_KEY) === 'done') return true;
+
+    const entities = {};
+    const local = storage();
+    if (local) {
+      for (let i = 0; i < local.length; i += 1) {
+        const key = local.key(i);
+        if (!key?.startsWith(ENTITY_PREFIX)) continue;
+        const entityName = key.slice(ENTITY_PREFIX.length);
+        const rows = read(key, []);
+        if (Array.isArray(rows) && rows.length) entities[entityName] = rows;
+      }
+    }
+
+    const result = await api.importLegacy({ user: read(USER_KEY, null), entities });
+    if (result?.success) {
+      try { storage()?.setItem(MIGRATION_KEY, 'done'); } catch {}
+      return true;
+    }
+    return false;
+  })().catch((error) => {
+    console.warn('Jarvis SQLite migration deferred:', error);
+    migrationPromise = null;
+    return false;
+  });
+
+  return migrationPromise;
+}
+
+function localEntityApi(entityName) {
   const key = ENTITY_PREFIX + entityName;
   const all = () => read(key, []);
   const save = (rows) => write(key, rows);
+
   return {
     async filter(query = {}, sort = null, limit = null) {
-      let rows = all().filter(row => Object.entries(query || {}).every(([k,v]) => row?.[k] === v));
+      let rows = all().filter((row) => Object.entries(query || {}).every(([k,v]) => row?.[k] === v));
       if (sort) {
         const desc = String(sort).startsWith('-');
         const field = desc ? String(sort).slice(1) : String(sort);
         rows.sort((a,b) => {
-          const av=a?.[field] ?? ''; const bv=b?.[field] ?? '';
+          const av = a?.[field] ?? '';
+          const bv = b?.[field] ?? '';
           if (av === bv) return 0;
           return (av > bv ? 1 : -1) * (desc ? -1 : 1);
         });
@@ -45,35 +90,97 @@ function entityApi(entityName) {
       return structuredClone(rows);
     },
     async create(data = {}) {
-      const user = currentUser();
-      const row = { id:id(), created_date:now(), updated_date:now(), created_by:data.created_by || user.email, ...structuredClone(data) };
-      const rows = all(); rows.push(row); save(rows); return structuredClone(row);
+      const user = localUser();
+      const row = {
+        id:id(),
+        created_date:now(),
+        updated_date:now(),
+        created_by:data.created_by || user.email,
+        ...structuredClone(data)
+      };
+      const rows = all();
+      rows.push(row);
+      save(rows);
+      return structuredClone(row);
     },
     async update(rowId, patch = {}) {
-      const rows = all(); const i = rows.findIndex(r => r.id === rowId);
-      if (i < 0) throw new Error(`${entityName} not found: ${rowId}`);
-      rows[i] = { ...rows[i], ...structuredClone(patch), updated_date:now() }; save(rows); return structuredClone(rows[i]);
+      const rows = all();
+      const index = rows.findIndex((row) => row.id === rowId);
+      if (index < 0) throw new Error(entityName + ' not found: ' + rowId);
+      rows[index] = { ...rows[index], ...structuredClone(patch), updated_date:now() };
+      save(rows);
+      return structuredClone(rows[index]);
     },
     async delete(rowId) {
-      const rows = all(); const next = rows.filter(r => r.id !== rowId); save(next); return { success:next.length !== rows.length };
-    },
+      const rows = all();
+      const next = rows.filter((row) => row.id !== rowId);
+      save(next);
+      return { success:next.length !== rows.length };
+    }
   };
 }
 
-const entities = new Proxy({}, { get:(_target, prop) => entityApi(String(prop)) });
+function entityApi(entityName) {
+  const fallback = localEntityApi(entityName);
+
+  return {
+    async filter(query = {}, sort = null, limit = null) {
+      const api = nativeData();
+      if (!api?.filter) return fallback.filter(query, sort, limit);
+      await ensureDesktopMigration();
+      return api.filter(entityName, query, sort, limit);
+    },
+    async create(data = {}) {
+      const api = nativeData();
+      if (!api?.create) return fallback.create(data);
+      await ensureDesktopMigration();
+      return api.create(entityName, data);
+    },
+    async update(rowId, patch = {}) {
+      const api = nativeData();
+      if (!api?.update) return fallback.update(rowId, patch);
+      await ensureDesktopMigration();
+      return api.update(entityName, rowId, patch);
+    },
+    async delete(rowId) {
+      const api = nativeData();
+      if (!api?.delete) return fallback.delete(rowId);
+      await ensureDesktopMigration();
+      return api.delete(entityName, rowId);
+    }
+  };
+}
+
+const entities = new Proxy({}, {
+  get:(_target, prop) => entityApi(String(prop))
+});
 
 async function invoke(name, payload = {}) {
   if (window.jarvisDesktop?.invokeFunction) return window.jarvisDesktop.invokeFunction(name, payload);
-  throw new Error(`Desktop Jarvis function unavailable: ${name}`);
+  throw new Error('Desktop Jarvis function unavailable: ' + name);
 }
 
 export const jarvis = {
   auth: {
-    async me() { return structuredClone(currentUser()); },
+    async me() {
+      const api = nativeData();
+      if (!api?.getUser) return structuredClone(localUser());
+      await ensureDesktopMigration();
+      return api.getUser();
+    },
     async isAuthenticated() { return true; },
-    async updateMe(patch={}) { const u={...currentUser(),...patch,updated_date:now()}; write(USER_KEY,u); return structuredClone(u); },
-    async logout() { return { success:true }; },
-    redirectToLogin() { return null; },
+    async updateMe(patch = {}) {
+      const api = nativeData();
+      if (!api?.updateUser) {
+        const user = { ...localUser(), ...patch, updated_date:now() };
+        write(USER_KEY, user);
+        return structuredClone(user);
+      }
+      await ensureDesktopMigration();
+      return api.updateUser(patch);
+    },
+    async logout() { return { success:true, localOnly:true }; },
+    redirectToLogin() { return null; }
   },
   entities,
   functions: { invoke },
@@ -81,16 +188,30 @@ export const jarvis = {
     Core: {
       async UploadFile({ file }) {
         if (!file) throw new Error('Missing file');
-        const data = await new Promise((resolve,reject) => { const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file); });
+        const data = await new Promise((resolve,reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
         return { file_url:data, name:file.name, size:file.size, type:file.type };
       },
-      async GenerateImage(params={}) { return invoke('generateImage', params); },
-      async InvokeLLM(params={}) { const r=await invoke('llmProxy',params); return r?.data?.result; },
-    },
+      async GenerateImage(params = {}) { return invoke('generateImage', params); },
+      async InvokeLLM(params = {}) {
+        const result = await invoke('llmProxy', params);
+        return result?.data?.result;
+      }
+    }
   },
-  users: { async inviteUser(email, role='user') { return { success:true, email, role, localOnly:true }; } },
+  users: {
+    async inviteUser(email, role = 'user') {
+      return { success:true, email, role, localOnly:true };
+    }
+  },
   connectors: {
-    async connectAppUser() { throw new Error('Connector setup is not available in the local desktop build yet.'); }
+    async connectAppUser() {
+      throw new Error('Connector setup is not available in the local desktop build yet.');
+    }
   }
 };
 

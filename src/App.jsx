@@ -44,6 +44,7 @@ const OBD2Scanner = lazy(() => import('./pages/OBD2Scanner'));
 const FuelTracker = lazy(() => import('./pages/FuelTracker'));
 const VoiceCommandHelp = lazy(() => import('./pages/VoiceCommandHelp'));
 const AiFeedbackAdmin = lazy(() => import('./pages/AiFeedbackAdmin'));
+const SystemCenter = lazy(() => import('./pages/SystemCenter'));
 
 
 const PageLoader = () => (
@@ -113,6 +114,7 @@ const AuthenticatedApp = () => {
           <Route path="/fuel-tracker" element={<FuelTracker />} />
           <Route path="/voice-help" element={<VoiceCommandHelp />} />
           <Route path="/ai-feedback-admin" element={<AiFeedbackAdmin />} />
+          <Route path="/system-center" element={<SystemCenter />} />
           <Route path="/live-assistant" element={<LiveAssistant />} />
 
         </Route>

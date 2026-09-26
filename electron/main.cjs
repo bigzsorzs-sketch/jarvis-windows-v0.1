@@ -12,11 +12,15 @@ const { pipeline } = require('stream/promises');
 const execFileAsync = promisify(execFile);
 const { PolicyEngine } = require('./security/policy-engine.cjs');
 const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
+const { LocalDatabase } = require('./data/local-database.cjs');
+const { BackupManager } = require('./data/backup-manager.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
 let obdBridge;
+let database;
+let backupManager;
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(process.resourcesPath, ...parts) : path.join(__dirname, '..', ...parts);
@@ -121,7 +125,7 @@ async function invokeJarvisFunction(name, payload={}) {
     case 'validateFileUpload': return { data:{ valid:true, allowed:true } };
     case 'sendFeedback': return { data:{ success:true, storedLocally:true } };
     case 'getActivePromptTunings': return { data:{ tunings:[] } };
-    case 'deleteAccount': return { data:{ success:true, localOnly:true } };
+    case 'deleteAccount': database?.resetAll(); return { data:{ success:true, localOnly:true } };
     default: throw new Error(`JARVIS_FUNCTION_NOT_IMPLEMENTED:${name}`);
   }
 }
@@ -253,6 +257,77 @@ Start-Process -FilePath $appExe
   return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot};
 }
 
+async function runSystemCheck() {
+  const checks = [];
+  const add = (id, label, ok, detail, severity = 'normal') => checks.push({ id, label, ok:Boolean(ok), detail:String(detail || ''), severity });
+
+  try {
+    const stats = database.healthCheck();
+    add('database', 'SQLite adatbázis', stats.integrity === 'ok', stats.entityCount + ' rekord · integrity: ' + stats.integrity);
+  } catch (error) {
+    add('database', 'SQLite adatbázis', false, error?.message || error, 'critical');
+  }
+
+  try {
+    const dir = path.join(app.getPath('documents'), 'Jarvis Backups');
+    fs.mkdirSync(dir, { recursive:true });
+    fs.accessSync(dir, fs.constants.W_OK);
+    add('backup', 'Backup mappa', true, dir);
+  } catch (error) {
+    add('backup', 'Backup mappa', false, error?.message || error, 'critical');
+  }
+
+  add('safe-storage', 'Windows titkosított kulcstár', safeStorage.isEncryptionAvailable(), safeStorage.isEncryptionAvailable() ? 'DPAPI/safeStorage elérhető' : 'safeStorage nem elérhető', safeStorage.isEncryptionAvailable() ? 'normal' : 'warning');
+
+  try {
+    const ports = await obdBridge.listSerialPorts();
+    const recommended = ports.filter((port) => port.score > 0);
+    add('obd', 'OBD / COM eszközök', true, ports.length + ' port · ' + recommended.length + ' OBD-gyanús');
+  } catch (error) {
+    add('obd', 'OBD / COM eszközök', false, error?.message || error, 'warning');
+  }
+
+  try {
+    const raw = readJson(settingsPath(), {});
+    add('ai', 'AI konfiguráció', Boolean(raw.openRouterKey), raw.openRouterKey ? 'OpenRouter kulcs beállítva' : 'Nincs OpenRouter kulcs', raw.openRouterKey ? 'normal' : 'warning');
+  } catch (error) {
+    add('ai', 'AI konfiguráció', false, error?.message || error, 'warning');
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(UPDATE_API, { headers:{'User-Agent':'Jarvis-System-Check'}, signal:controller.signal });
+    clearTimeout(timeout);
+    add('network', 'Internet / frissítési csatorna', response.ok, response.ok ? 'GitHub release csatorna elérhető' : 'HTTP ' + response.status, response.ok ? 'normal' : 'warning');
+  } catch (error) {
+    add('network', 'Internet / frissítési csatorna', false, error?.name === 'AbortError' ? 'Időtúllépés' : (error?.message || error), 'warning');
+  }
+
+  if (process.platform === 'win32') {
+    try {
+      const ps = "$s=Get-AuthenticodeSignature -LiteralPath '" + psQuote(process.execPath) + "'; [pscustomobject]@{Status=[string]$s.Status;Signer=if($s.SignerCertificate){$s.SignerCertificate.Subject}else{''}} | ConvertTo-Json -Compress";
+      const { stdout } = await execFileAsync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',ps],{timeout:5000,windowsHide:true});
+      const signing = JSON.parse(stdout.trim());
+      const signed = signing.Status === 'Valid';
+      add('signing', 'Digitális aláírás', signed, signed ? ('Érvényes · ' + signing.Signer) : ('Állapot: ' + signing.Status), signed ? 'normal' : 'warning');
+    } catch (error) {
+      add('signing', 'Digitális aláírás', false, error?.message || error, 'warning');
+    }
+  }
+
+  const context = await getSystemContext();
+  const freeGb = Number(context.freeMemoryBytes || 0) / 1024 / 1024 / 1024;
+  add('memory', 'Szabad memória', freeGb >= 1, freeGb.toFixed(1) + ' GB szabad RAM', freeGb >= 1 ? 'normal' : 'warning');
+
+  return {
+    checkedAt: new Date().toISOString(),
+    appVersion: app.getVersion(),
+    checks,
+    ok: checks.every((check) => check.ok || check.severity !== 'critical')
+  };
+}
+
 function configureObdBluetoothChooser(win) {
   let pendingCallback = null;
   let cancelTimer = null;
@@ -312,6 +387,8 @@ function createWindow() {
 app.whenReady().then(() => {
   seedInitialSettings();
   obdBridge = new NativeObdBridge();
+  database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
+  backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
   policy = new PolicyEngine({
     rulesPath:resourcePath('security','core-rules.json'),
     signaturePath:resourcePath('security','core-rules.sig'),
@@ -341,9 +418,20 @@ app.whenReady().then(() => {
   ipcMain.handle('jarvis:obd:send', (_e, request) => obdBridge.sendCommand(request?.command, request?.timeout));
   ipcMain.handle('jarvis:obd:status', () => obdBridge.status());
   ipcMain.handle('jarvis:obd:disconnect', () => obdBridge.disconnect());
+  ipcMain.handle('jarvis:data:filter', (_e, req={}) => database.filter(req.entity, req.query, req.sort, req.limit));
+  ipcMain.handle('jarvis:data:create', (_e, req={}) => database.create(req.entity, req.data));
+  ipcMain.handle('jarvis:data:update', (_e, req={}) => database.update(req.entity, req.id, req.patch));
+  ipcMain.handle('jarvis:data:delete', (_e, req={}) => database.delete(req.entity, req.id));
+  ipcMain.handle('jarvis:data:import-legacy', (_e, snapshot={}) => database.importLegacy(snapshot));
+  ipcMain.handle('jarvis:data:stats', () => database.stats());
+  ipcMain.handle('jarvis:data:user:get', () => database.getUser());
+  ipcMain.handle('jarvis:data:user:update', (_e, patch={}) => database.updateUser(patch));
+  ipcMain.handle('jarvis:backup:create', (_e, req={}) => backupManager.create(req.passphrase));
+  ipcMain.handle('jarvis:backup:restore', (_e, req={}) => backupManager.restore(req.passphrase));
+  ipcMain.handle('jarvis:system:check', () => runSystemCheck());
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('before-quit', () => { obdBridge?.disconnect?.().catch(() => {}); });
+app.on('before-quit', () => { obdBridge?.disconnect?.().catch(() => {}); database?.close?.(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

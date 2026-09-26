@@ -13,6 +13,21 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
+  data: {
+    filter: (entity, query, sort, limit) => ipcRenderer.invoke('jarvis:data:filter', { entity, query, sort, limit }),
+    create: (entity, data) => ipcRenderer.invoke('jarvis:data:create', { entity, data }),
+    update: (entity, id, patch) => ipcRenderer.invoke('jarvis:data:update', { entity, id, patch }),
+    delete: (entity, id) => ipcRenderer.invoke('jarvis:data:delete', { entity, id }),
+    importLegacy: (snapshot) => ipcRenderer.invoke('jarvis:data:import-legacy', snapshot),
+    stats: () => ipcRenderer.invoke('jarvis:data:stats'),
+    getUser: () => ipcRenderer.invoke('jarvis:data:user:get'),
+    updateUser: (patch) => ipcRenderer.invoke('jarvis:data:user:update', patch),
+  },
+  backup: {
+    create: (passphrase) => ipcRenderer.invoke('jarvis:backup:create', { passphrase }),
+    restore: (passphrase) => ipcRenderer.invoke('jarvis:backup:restore', { passphrase }),
+  },
+  runSystemCheck: () => ipcRenderer.invoke('jarvis:system:check'),
   obd: {
     listPorts: () => ipcRenderer.invoke('jarvis:obd:list-ports'),
     connect: (options) => ipcRenderer.invoke('jarvis:obd:connect', options),

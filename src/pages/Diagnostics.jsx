@@ -38,8 +38,8 @@ const MODULES = [
     name: 'Blood Sugar Logging',
     status: 'VERIFIED',
     launch: 'beta',
-    detail: 'Float érték, dátum, időpont – tesztelve, helyes adatokkal.',
-    caveat: null,
+    detail: 'Manuális/importált vércukor rekordok tárolása támogatott.',
+    caveat: 'Közvetlen CGM BLE kapcsolat külön EXPERIMENTAL funkció és nincs klinikailag validálva.',
   },
   {
     id: 'meal',
@@ -109,9 +109,9 @@ const MODULES = [
     id: 'obd2',
     name: 'OBD2 Diagnostics',
     status: 'PARTIAL',
-    launch: 'not_ready',
-    detail: 'AI diagnózis + PDF export tesztelve és működik.',
-    caveat: 'Valós OBD2 Bluetooth kapcsolat Web Bluetooth API-t igényel – csak Chrome/Edge, fizikai hardver szükséges.',
+    launch: 'beta',
+    detail: 'Natív Windows USB/COM, Bluetooth Classic COM, BLE és Wi-Fi TCP transport build-verifikálva.',
+    caveat: 'A fizikai adapteres smoke test még szükséges az egyes adaptertípusok végleges hitelesítéséhez.',
   },
   {
     id: 'gmail',
@@ -233,14 +233,14 @@ export default function Diagnostics() {
           <p className="text-sm font-bold text-foreground mb-3">🏁 Összesített ítélet</p>
           <div className="space-y-2 text-xs text-muted-foreground leading-relaxed">
             <p><span className="text-green-400 font-semibold">Beta-ra kész (10 modul):</span> AI Chat, Memory, Tasks, Contacts, Blood Sugar, Meal Log, Finance, Invoice+PDF, Translations, Legal.</p>
-            <p><span className="text-yellow-400 font-semibold">Korlátozott (3 modul):</span> GPS/Geofencing, Smart Home, OBD2 – hardver vagy browser-környezet szükséges, nem univerzálisan elérhető.</p>
+            <p><span className="text-yellow-400 font-semibold">Korlátozott:</span> GPS/Geofencing, Smart Home és OBD2 fizikai hardveres végtesztet igényel. A közvetlen CGM kapcsolat kísérleti és alapból le van tiltva.</p>
             <p><span className="text-muted-foreground font-semibold">Nem verifikált (1 modul):</span> Push Notifications – kód helyes, de éles tesztelés szükséges.</p>
             <p><span className="text-red-400 font-semibold">Nem kész (1 modul):</span> Gmail Manager – OAuth konfiguráció és backend function hiányzik.</p>
           </div>
         </div>
 
         <p className="text-[10px] text-muted-foreground text-center">
-          Ez egy bizonyíték-alapú jelentés – minden ellenőrzött státusz valós API teszten alapul.
+          A státuszok build-, kód- és elérhető hardveres bizonyítékokra épülnek; a System Center futás közben külön ellenőrzi a Windows környezetet.
         </p>
       </div>
     </div>

@@ -7,7 +7,7 @@ const CHECKLIST_SECTIONS = [
     title: 'Adatbiztonság és Store megfelelés',
     items: [
       { title: 'Adatvédelmi oldal elérhető', description: 'Az app tartalmazza az adatkezelési és felhasználási feltételek oldalt.', status: 'ready' },
-      { title: 'Titkosított lokális mentés', description: 'Az érzékeny diagnosztikai és memória/jegyzet jellegű adatok helyi mentése titkosított.', status: 'ready' },
+      { title: 'Jelszavas hordozható mentés', description: 'A System Center AES-256-GCM + PBKDF2 alapú .jarvisbackup mentést és visszaállítást biztosít.', status: 'ready' },
       { title: 'Jogosultságok magyarázata', description: 'Mikrofon, hely, értesítés és járműdiagnosztika esetén legyen egyértelmű felhasználói magyarázat.', status: 'review' },
     ],
   },
@@ -17,7 +17,7 @@ const CHECKLIST_SECTIONS = [
       { title: 'Fő oldalak átnézése', description: 'Főoldal, Chat, Eszközök, Beállítások, Autódiagnosztika, OBD2 és Live Assistant kézi végigtesztelése.', status: 'manual' },
       { title: 'Offline és lassú hálózat teszt', description: 'Ellenőrizd, hogy az app érthető üzeneteket ad, ha nincs internet vagy lassú a kapcsolat.', status: 'manual' },
       { title: 'Hang és mikrofon teszt', description: 'Mikrofon engedélyezve, tiltva és újrapróbálás esetén is stabilan kell működnie.', status: 'manual' },
-      { title: 'OBD2 hibakezelés', description: 'Sikertelen adapter kapcsolatnál ne omoljon össze az app, hanem adjon javítható hibaüzenetet.', status: 'review' },
+      { title: 'OBD2 hibakezelés', description: 'Natív USB/COM, Bluetooth Classic, BLE és Wi-Fi transport build-verifikálva; fizikai adapteres smoke test szükséges.', status: 'review' },
     ],
   },
   {
