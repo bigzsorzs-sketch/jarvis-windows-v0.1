@@ -4,8 +4,11 @@ const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron')
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execFile, execFileSync } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const { promisify } = require('util');
+const crypto = require('crypto');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const execFileAsync = promisify(execFile);
 const { PolicyEngine } = require('./security/policy-engine.cjs');
 
@@ -156,6 +159,98 @@ async function getSystemContext() {
   };
 }
 
+
+const UPDATE_REPO = 'bigzsorzs-sketch/jarvis-windows-v0.1';
+const UPDATE_API = \`https://api.github.com/repos/\${UPDATE_REPO}/releases/latest\`;
+
+function normalizeVersion(value='0.0.0') {
+  return String(value).replace(/^v/i,'').split('-')[0].split('.').map(x => Number.parseInt(x,10) || 0);
+}
+function compareVersions(a,b) {
+  const av=normalizeVersion(a), bv=normalizeVersion(b);
+  const n=Math.max(av.length,bv.length);
+  for(let i=0;i<n;i+=1){ const d=(av[i]||0)-(bv[i]||0); if(d) return d>0?1:-1; }
+  return 0;
+}
+async function fetchLatestRelease() {
+  const res=await fetch(UPDATE_API,{headers:{'Accept':'application/vnd.github+json','User-Agent':'Jarvis-Desktop-Updater'}});
+  if(!res.ok) throw new Error(\`UPDATE_CHECK_\${res.status}\`);
+  const release=await res.json();
+  const latestVersion=String(release.tag_name||'').replace(/^v/i,'');
+  const exe=(release.assets||[]).find(a => /^Jarvis-Setup-\d+\.\d+\.\d+-x64\.exe$/i.test(a.name||''));
+  if(!exe) throw new Error('UPDATE_INSTALLER_NOT_FOUND');
+  const checksum=(release.assets||[]).find(a => a.name === \`\${exe.name}.sha256\`);
+  if(!checksum) throw new Error('UPDATE_CHECKSUM_NOT_FOUND');
+  return {latestVersion, releaseName:release.name||release.tag_name, publishedAt:release.published_at, exe, checksum};
+}
+async function downloadFile(url,destination) {
+  const res=await fetch(url,{redirect:'follow',headers:{'User-Agent':'Jarvis-Desktop-Updater'}});
+  if(!res.ok || !res.body) throw new Error(\`UPDATE_DOWNLOAD_\${res.status}\`);
+  await pipeline(Readable.fromWeb(res.body),fs.createWriteStream(destination));
+}
+async function sha256File(file) {
+  return new Promise((resolve,reject)=>{
+    const h=crypto.createHash('sha256');
+    const s=fs.createReadStream(file);
+    s.on('error',reject); s.on('data',d=>h.update(d)); s.on('end',()=>resolve(h.digest('hex').toLowerCase()));
+  });
+}
+function psQuote(value) { return String(value).replace(/'/g,"''"); }
+async function oneClickUpdate() {
+  const currentVersion=app.getVersion();
+  const release=await fetchLatestRelease();
+  if(compareVersions(release.latestVersion,currentVersion)<=0) {
+    return {status:'up-to-date',currentVersion,latestVersion:release.latestVersion};
+  }
+
+  const tempDir=path.join(app.getPath('temp'),\`Jarvis-Upgrade-\${release.latestVersion}\`);
+  fs.mkdirSync(tempDir,{recursive:true});
+  const installerPath=path.join(tempDir,release.exe.name);
+  const checksumPath=\`\${installerPath}.sha256\`;
+
+  await downloadFile(release.exe.browser_download_url,installerPath);
+  await downloadFile(release.checksum.browser_download_url,checksumPath);
+
+  const checksumText=fs.readFileSync(checksumPath,'utf8');
+  const expected=(checksumText.match(/\b[a-f0-9]{64}\b/i)||[])[0]?.toLowerCase();
+  if(!expected) throw new Error('UPDATE_CHECKSUM_INVALID');
+  const actual=await sha256File(installerPath);
+  if(actual!==expected) {
+    try { fs.unlinkSync(installerPath); } catch {}
+    throw new Error('UPDATE_CHECKSUM_MISMATCH');
+  }
+
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  const backupRoot=path.join(app.getPath('documents'),'Jarvis Backups',stamp);
+  const helperPath=path.join(tempDir,'install-update.ps1');
+  const appExe=process.execPath;
+  const userData=app.getPath('userData');
+  const helper=\`
+$ErrorActionPreference = 'Stop'
+$pidToWait = \${process.pid}
+$installer = '\${psQuote(installerPath)}'
+$userData = '\${psQuote(userData)}'
+$backup = '\${psQuote(backupRoot)}'
+$appExe = '\${psQuote(appExe)}'
+Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $backup | Out-Null
+if (Test-Path -LiteralPath $userData) {
+  Copy-Item -LiteralPath $userData -Destination (Join-Path $backup 'UserData') -Recurse -Force
+}
+$p = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+Start-Process -FilePath $appExe
+\`;
+  fs.writeFileSync(helperPath,helper,'utf8');
+
+  const child=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',helperPath],{
+    detached:true,stdio:'ignore',windowsHide:true
+  });
+  child.unref();
+  setTimeout(()=>app.quit(),700);
+  return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot};
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -202,6 +297,7 @@ app.whenReady().then(() => {
     return (json.data||[]).map(m=>({id:m.id,name:m.name||m.id,context_length:m.context_length||null,pricing:m.pricing||null}));
   });
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
+  ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
