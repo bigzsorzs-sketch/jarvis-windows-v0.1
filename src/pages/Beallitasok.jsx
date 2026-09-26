@@ -258,11 +258,12 @@ export default function Beallitasok() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="px-4 pt-5 pb-6">
+    <div className="h-full overflow-y-auto jarvis-scroll">
+      <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-10 max-w-[1500px] mx-auto">
         <SettingsPageHeader title={t('settings')} saved={saved} onSave={saveAll} t={t} />
 
-        <div className="bg-card border border-border rounded-2xl p-4 mb-4">
+        <div className="settings-desktop-grid">
+        <div className="bg-card border border-primary/15 rounded-2xl p-4 md:p-5 mb-4 app-surface">
           <h3 className="font-semibold text-foreground mb-1">{lang === 'hu' ? 'AI agy / modellek' : 'AI brain / models'}</h3>
           <p className="text-xs text-muted-foreground mb-3">
             {lang === 'hu' ? 'OpenRouteren keresztül a Jarvis az aktuálisan elérhető modelleket tölti be. A kulcs Windows titkosított tárhelyen marad.' : 'Jarvis loads currently available models through OpenRouter. The key stays in Windows encrypted storage.'}
@@ -351,6 +352,7 @@ export default function Beallitasok() {
         <SettingsMenuItems t={t} />
 
         <DeleteAccountCard lang={lang} onOpen={() => setShowDeleteConfirm(true)} t={t} />
+        </div>
       </div>
 
       {/* Delete confirmation sheet */}

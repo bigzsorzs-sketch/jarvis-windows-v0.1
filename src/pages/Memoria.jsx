@@ -95,15 +95,15 @@ export default function Memoria() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="px-4 pt-5 pb-6 space-y-4">
+    <div className="h-full overflow-y-auto jarvis-scroll bg-transparent">
+      <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-10 space-y-4 md:space-y-5 max-w-[1500px] mx-auto">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-purple-500/20 flex items-center justify-center">
               <Brain size={20} className="text-purple-400" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-foreground">Memory Dashboard</h1>
+              <h1 className="text-xl md:text-3xl font-bold tracking-tight text-foreground">Memory Dashboard</h1>
               <p className="text-xs text-muted-foreground">View, edit, categorize and link personal facts</p>
             </div>
           </div>

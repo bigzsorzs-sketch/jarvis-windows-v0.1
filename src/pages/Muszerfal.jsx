@@ -274,14 +274,14 @@ export default function Muszerfal() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="px-4 pt-5 pb-6 space-y-4">
+    <div className="h-full overflow-y-auto jarvis-scroll">
+      <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-10 space-y-4 md:space-y-5 max-w-[1500px] mx-auto">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-primary/20 flex items-center justify-center">
             <TrendingUp size={20} className="text-primary" />
           </div>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-foreground">{t('dashboard_title')}</h1>
+            <h1 className="text-xl md:text-3xl font-bold tracking-tight text-foreground">{t('dashboard_title')}</h1>
             <p className="text-xs text-muted-foreground">{t('dashboard_sub')}</p>
           </div>
           <button

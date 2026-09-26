@@ -184,8 +184,8 @@ export default function Home() {
   const todayStr = new Date().toISOString().split('T')[0];
 
   return (
-    <div className="h-full overflow-y-auto bg-gradient-to-b from-background via-background to-secondary/20">
-      <div className="px-4 pt-5 pb-24 space-y-5">
+    <div className="h-full overflow-y-auto jarvis-scroll bg-gradient-to-b from-background via-background to-secondary/20">
+      <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-24 md:pb-10 space-y-5 md:space-y-6 max-w-[1500px] mx-auto">
 
         {/* ── ROLE SWITCHER ── */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
@@ -208,12 +208,12 @@ export default function Home() {
         </div>
 
         {/* ── HERO BLOCK ── */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="app-surface p-5">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="app-surface p-5 md:p-8">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
             <span className="text-xs text-primary font-semibold tracking-wide uppercase">Jarvis</span>
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-1">{t('hero_tagline')}</h1>
+          <h1 className="text-2xl md:text-4xl font-bold tracking-tight text-foreground mb-1">{t('hero_tagline')}</h1>
           <p className="text-sm text-muted-foreground mb-4">{t('hero_sub')}</p>
 
           {/* Input row */}

@@ -179,9 +179,9 @@ export default function Eszkozok() {
   const activeMeds = medications.filter(m => m.is_active).length;
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
+    <div className="h-full overflow-y-auto jarvis-scroll bg-transparent">
       <PullToRefresh onRefresh={refreshAll}>
-        <div className="px-4 pt-5 pb-6 space-y-4">
+        <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-10 space-y-4 md:space-y-5 max-w-[1500px] mx-auto">
 
           <ToolsPageHeader title={t('tools')} pendingTodos={pendingTodos} activeMeds={activeMeds} t={t} />
 
