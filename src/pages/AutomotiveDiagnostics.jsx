@@ -20,13 +20,13 @@ const TUTORIAL_STEPS = [
 ];
 
 export default function AutomotiveDiagnostics() {
-  const [adapterType, setAdapterType] = useState('bluetooth-elm327');
+  const [adapterType, setAdapterType] = useState('auto');
   const [wifiIP, setWifiIP] = useState('192.168.0.10:35000');
-  const [usbPort, setUsbPort] = useState('/dev/ttyUSB0');
+  const [usbPort, setUsbPort] = useState('');
   const [viewMode, setViewMode] = useState('chat');
   const [vehicleProfile, setVehicleProfile] = useState(null);
 
-  const { obd2Manager, obd2Status, obd2Connecting, connect: connectOBDHook, disconnect: disconnectOBDHook } = useOBDData();
+  const { obd2Manager, obd2Status, obd2Connecting, serialPorts, refreshSerialPorts, connect: connectOBDHook, disconnect: disconnectOBDHook } = useOBDData();
 
   const chat = useAutomotiveChat();
   const { isRecordingTrip, selectedTrip, setSelectedTrip, toggleTripRecording } = useTripLogic(chat.addMessage);
@@ -60,6 +60,7 @@ export default function AutomotiveDiagnostics() {
         adapterType={adapterType} setAdapterType={setAdapterType}
         wifiIP={wifiIP} setWifiIP={setWifiIP}
         usbPort={usbPort} setUsbPort={setUsbPort}
+        serialPorts={serialPorts} onRefreshPorts={refreshSerialPorts}
         viewMode={viewMode} setViewMode={setViewMode}
         lastDiagnosis={chat.lastDiagnosis}
         isRecordingTrip={isRecordingTrip} toggleTripRecording={toggleTripRecording}
@@ -68,7 +69,7 @@ export default function AutomotiveDiagnostics() {
         onNewChat={chat.resetChat}
       />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto jarvis-scroll">
         {viewMode === 'vin' ? (
           <div className="px-4 py-4 space-y-4">
             <VINScanner onVINDecoded={setVehicleProfile} />

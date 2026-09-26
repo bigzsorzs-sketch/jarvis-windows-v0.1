@@ -13,4 +13,11 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
+  obd: {
+    listPorts: () => ipcRenderer.invoke('jarvis:obd:list-ports'),
+    connect: (options) => ipcRenderer.invoke('jarvis:obd:connect', options),
+    send: (command, timeout) => ipcRenderer.invoke('jarvis:obd:send', { command, timeout }),
+    status: () => ipcRenderer.invoke('jarvis:obd:status'),
+    disconnect: () => ipcRenderer.invoke('jarvis:obd:disconnect'),
+  },
 });

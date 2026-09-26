@@ -1,103 +1,192 @@
 /**
- * BaseOBD2Manager - Közös alaposztály minden OBD2 adapter típushoz.
- * Egységesíti a connect/disconnect/initialize/readPID/readDTCs/clearDTCs interfészt.
+ * Jarvis OBD Core
+ * Original implementation for standard ELM/STN-style OBD-II command flows.
+ * Transport-independent: USB/COM, Bluetooth Classic COM, BLE and Wi-Fi TCP
+ * all use the same parsing and diagnostic layer.
  */
 
 export const PIDS = {
-  ENGINE_RPM:   { service: '01', pid: '0C', name: 'RPM',              unit: 'rpm',  parse: (a, b) => ((a * 256) + b) / 4 },
-  COOLANT_TEMP: { service: '01', pid: '05', name: 'Coolant Temp',     unit: '°C',   parse: (a) => a - 40 },
-  MAF_AIR_FLOW: { service: '01', pid: '10', name: 'MAF Air Flow',     unit: 'g/s',  parse: (a, b) => ((a * 256) + b) / 100 },
-  FUEL_PRESSURE:{ service: '01', pid: '0A', name: 'Fuel Pressure',    unit: 'kPa',  parse: (a) => a * 3 },
-  SPEED:        { service: '01', pid: '0D', name: 'Vehicle Speed',    unit: 'km/h', parse: (a) => a },
-  THROTTLE_POS: { service: '01', pid: '11', name: 'Throttle Position',unit: '%',    parse: (a) => (a / 255) * 100 },
+  ENGINE_LOAD:    { service: '01', pid: '04', name: 'Engine Load',       unit: '%',    bytes: 1, parse: (a) => (a * 100) / 255 },
+  COOLANT_TEMP:   { service: '01', pid: '05', name: 'Coolant Temp',      unit: '°C',   bytes: 1, parse: (a) => a - 40 },
+  FUEL_PRESSURE:  { service: '01', pid: '0A', name: 'Fuel Pressure',     unit: 'kPa',  bytes: 1, parse: (a) => a * 3 },
+  INTAKE_PRESSURE:{ service: '01', pid: '0B', name: 'Intake Pressure',   unit: 'kPa',  bytes: 1, parse: (a) => a },
+  ENGINE_RPM:     { service: '01', pid: '0C', name: 'RPM',               unit: 'rpm',  bytes: 2, parse: (a, b) => ((a * 256) + b) / 4 },
+  SPEED:          { service: '01', pid: '0D', name: 'Vehicle Speed',     unit: 'km/h', bytes: 1, parse: (a) => a },
+  TIMING_ADVANCE: { service: '01', pid: '0E', name: 'Timing Advance',    unit: '°',    bytes: 1, parse: (a) => (a / 2) - 64 },
+  INTAKE_TEMP:    { service: '01', pid: '0F', name: 'Intake Air Temp',   unit: '°C',   bytes: 1, parse: (a) => a - 40 },
+  MAF_AIR_FLOW:   { service: '01', pid: '10', name: 'MAF Air Flow',      unit: 'g/s',  bytes: 2, parse: (a, b) => ((a * 256) + b) / 100 },
+  THROTTLE_POS:   { service: '01', pid: '11', name: 'Throttle Position', unit: '%',    bytes: 1, parse: (a) => (a * 100) / 255 },
+  RUN_TIME:       { service: '01', pid: '1F', name: 'Engine Run Time',   unit: 's',    bytes: 2, parse: (a, b) => (a * 256) + b },
+  FUEL_LEVEL:     { service: '01', pid: '2F', name: 'Fuel Level',        unit: '%',    bytes: 1, parse: (a) => (a * 100) / 255 },
+  BARO_PRESSURE:  { service: '01', pid: '33', name: 'Barometric Pressure', unit: 'kPa', bytes: 1, parse: (a) => a },
+  CONTROL_VOLTAGE:{ service: '01', pid: '42', name: 'Control Voltage',   unit: 'V',    bytes: 2, parse: (a, b) => ((a * 256) + b) / 1000 },
+  AMBIENT_TEMP:   { service: '01', pid: '46', name: 'Ambient Temp',      unit: '°C',   bytes: 1, parse: (a) => a - 40 },
 };
+
+function hasTransportError(response) {
+  return /NO\s*DATA|UNABLE\s*TO\s*CONNECT|BUS\s*ERROR|CAN\s*ERROR|STOPPED|\?/i.test(String(response || ''));
+}
+
+export function extractHexBytes(response) {
+  const raw = String(response || '').toUpperCase();
+  if (!raw || hasTransportError(raw)) return [];
+  const lines = raw.replace(/>/g, '\n').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const bytes = [];
+
+  for (const line of lines) {
+    if (/^(AT|ELM|OBDLINK|STN|SEARCHING|OK)/.test(line)) continue;
+    const matches = line.match(/[0-9A-F]{2}/g);
+    if (matches) bytes.push(...matches);
+  }
+  return bytes;
+}
 
 export class BaseOBD2Manager {
   constructor() {
     this.isConnected = false;
     this.buffer = '';
     this.messageHandlers = [];
+    this.adapterIdentity = '';
+    this.protocol = '';
   }
 
-  // ─── Abstract – subclasses must implement ────────────────────────────────
-  async connect()              { throw new Error('connect() not implemented'); }
-  async sendCommand(cmd, timeout = 1000) { throw new Error('sendCommand() not implemented'); }
+  async connect() { throw new Error('connect() not implemented'); }
+  async sendCommand() { throw new Error('sendCommand() not implemented'); }
+
   async disconnect() {
     this.isConnected = false;
   }
 
-  // ─── Shared initialization (AT commands) ─────────────────────────────────
   async initialize() {
-    const commands = [
-      { cmd: 'AT Z',  desc: 'Reset' },
-      { cmd: 'AT E0', desc: 'Echo off' },
-      { cmd: 'AT S0', desc: 'Space off' },
-      { cmd: 'AT L0', desc: 'Linefeeds off' },
-      { cmd: 'AT SP 0', desc: 'Auto protokoll' },
-      { cmd: 'RV',    desc: 'Voltage check' },
+    const sequence = [
+      { cmd: 'ATZ', desc: 'Reset', wait: 650, timeout: 2600 },
+      { cmd: 'ATE0', desc: 'Echo off' },
+      { cmd: 'ATL0', desc: 'Linefeeds off' },
+      { cmd: 'ATS1', desc: 'Spaces on' },
+      { cmd: 'ATH0', desc: 'Headers off' },
+      { cmd: 'ATSP0', desc: 'Automatic protocol' },
+      { cmd: 'ATI', desc: 'Adapter identity' },
+      { cmd: 'ATRV', desc: 'Voltage' },
+      { cmd: 'ATDP', desc: 'Protocol' },
     ];
 
     const results = {};
-    for (const { cmd, desc } of commands) {
-      const response = await this.sendCommand(cmd);
-      results[desc] = response;
-      if (desc === 'Voltage check' && response.includes('UNABLE')) {
-        return { success: false, error: 'ELM327 klón vagy hibás – feszültség nem olvasható' };
-      }
-      await this.delay(100);
+    for (const item of sequence) {
+      const response = await this.sendCommand(item.cmd, item.timeout || 1800);
+      results[item.desc] = response;
+      if (item.desc === 'Adapter identity') this.adapterIdentity = String(response || '').replace(/[>\r\n]/g, ' ').trim();
+      if (item.desc === 'Protocol') this.protocol = String(response || '').replace(/[>\r\n]/g, ' ').trim();
+      await this.delay(item.wait || 80);
     }
-    return { success: true, results };
+
+    if (hasTransportError(results['Adapter identity'])) {
+      return { success: false, error: 'Az OBD adapter válaszolt, de azonosítani nem sikerült.' };
+    }
+    return { success: true, results, adapterIdentity: this.adapterIdentity, protocol: this.protocol };
   }
 
-  // ─── Shared PID reading ───────────────────────────────────────────────────
+  async query(service, pid = '', timeout = 1800) {
+    return this.sendCommand(String(service) + String(pid), timeout);
+  }
+
   async readPID(pidKey) {
     const pid = PIDS[pidKey];
-    if (!pid) throw new Error(`Ismeretlen PID: ${pidKey}`);
-    const response = await this.sendCommand(pid.service + pid.pid);
-    const values = response.split(' ').slice(2);
-    if (values.length < 1) return null;
-    const parsed = pid.parse(...values.map(v => parseInt(v, 16)));
-    return { name: pid.name, value: parsed, unit: pid.unit };
+    if (!pid) throw new Error('Ismeretlen PID: ' + pidKey);
+
+    const response = await this.query(pid.service, pid.pid);
+    const bytes = extractHexBytes(response);
+    const modeReply = (parseInt(pid.service, 16) + 0x40).toString(16).toUpperCase().padStart(2, '0');
+    const index = bytes.findIndex((value, i) => value === modeReply && bytes[i + 1] === pid.pid);
+
+    if (index < 0) return null;
+    const payload = bytes.slice(index + 2, index + 2 + (pid.bytes || 1)).map((value) => parseInt(value, 16));
+    if (payload.length < (pid.bytes || 1) || payload.some(Number.isNaN)) return null;
+
+    return { key: pidKey, name: pid.name, value: pid.parse(...payload), unit: pid.unit };
   }
 
-  // ─── Shared VIN reading ───────────────────────────────────────────────────
+  async readLiveData(keys = Object.keys(PIDS)) {
+    const output = {};
+    for (const key of keys) {
+      try {
+        const reading = await this.readPID(key);
+        if (reading) output[key] = reading;
+      } catch {
+        // Unsupported PIDs are normal and should not abort a live-data sweep.
+      }
+    }
+    return output;
+  }
+
   async readVIN() {
-    const response = await this.sendCommand('0902');
-    const vin = response.replace(/[^A-Z0-9]/g, '').substring(0, 17);
+    const response = await this.sendCommand('0902', 3000);
+    const bytes = extractHexBytes(response);
+    const vinBytes = [];
+
+    for (let i = 0; i < bytes.length - 3; i += 1) {
+      if (bytes[i] === '49' && bytes[i + 1] === '02') {
+        let cursor = i + 3;
+        while (cursor < bytes.length && !(bytes[cursor] === '49' && bytes[cursor + 1] === '02')) {
+          vinBytes.push(parseInt(bytes[cursor], 16));
+          cursor += 1;
+        }
+        i = cursor - 1;
+      }
+    }
+
+    const vin = String.fromCharCode(...vinBytes)
+      .replace(/[^\x20-\x7E]/g, '')
+      .replace(/\s/g, '')
+      .slice(0, 17);
     return vin.length === 17 ? vin : null;
   }
 
-  // ─── Shared DTC reading ───────────────────────────────────────────────────
   async readDTCs() {
-    const response = await this.sendCommand('03');
+    const response = await this.sendCommand('03', 2500);
+    const bytes = extractHexBytes(response);
+    const start = bytes.indexOf('43');
+    if (start < 0) return [];
+
     const codes = [];
-    const pairs = response.split(' ').slice(1);
-    for (let i = 0; i < pairs.length - 1; i += 2) {
-      const a = parseInt(pairs[i], 16);
-      const b = parseInt(pairs[i + 1], 16);
-      if (a === 0 && b === 0) break;
-      const type = String.fromCharCode(64 + Math.floor(a / 64));
-      const code = String(((a % 64) * 256 + b).toString().padStart(4, '0'));
-      codes.push(`${type}${code}`);
+    for (let i = start + 1; i + 1 < bytes.length; i += 2) {
+      const a = parseInt(bytes[i], 16);
+      const b = parseInt(bytes[i + 1], 16);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || (a === 0 && b === 0)) break;
+
+      const prefix = ['P', 'C', 'B', 'U'][(a >> 6) & 0x03];
+      const firstDigit = (a >> 4) & 0x03;
+      const rest = ((a & 0x0F).toString(16) + b.toString(16).padStart(2, '0')).toUpperCase();
+      codes.push(prefix + firstDigit + rest);
     }
-    return codes;
+    return [...new Set(codes)];
   }
 
-  // ─── Shared DTC clear ────────────────────────────────────────────────────
   async clearDTCs() {
-    const response = await this.sendCommand('04');
-    return response.includes('OK');
+    const response = await this.sendCommand('04', 2500);
+    return /(^|[^0-9A-F])44([^0-9A-F]|$)|OK/i.test(String(response || ''));
   }
 
-  // ─── Utility ─────────────────────────────────────────────────────────────
+  async adapterInfo() {
+    const [identity, voltage, protocol] = await Promise.all([
+      this.sendCommand('ATI').catch(() => ''),
+      this.sendCommand('ATRV').catch(() => ''),
+      this.sendCommand('ATDP').catch(() => ''),
+    ]);
+    return {
+      identity: String(identity).replace(/[>\r\n]/g, ' ').trim(),
+      voltage: String(voltage).replace(/[>\r\n]/g, ' ').trim(),
+      protocol: String(protocol).replace(/[>\r\n]/g, ' ').trim(),
+    };
+  }
+
   delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   onDataReceived(event) {
     const data = new TextDecoder().decode(event.target.value);
     this.buffer += data;
-    this.messageHandlers.forEach(handler => handler(this.buffer));
+    this.messageHandlers.forEach((handler) => handler(this.buffer));
   }
 
   onDisconnect() {

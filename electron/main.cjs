@@ -11,10 +11,12 @@ const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const execFileAsync = promisify(execFile);
 const { PolicyEngine } = require('./security/policy-engine.cjs');
+const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
+let obdBridge;
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(process.resourcesPath, ...parts) : path.join(__dirname, '..', ...parts);
@@ -251,6 +253,40 @@ Start-Process -FilePath $appExe
   return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot};
 }
 
+function configureObdBluetoothChooser(win) {
+  let pendingCallback = null;
+  let cancelTimer = null;
+  const knownObdName = /(OBD|ELM|OBDLINK|VGATE|V-LINK|VLINK|ICAR|VEEPEAK|KONNWEI|STN|CX)/i;
+
+  win.webContents.on('select-bluetooth-device', (event, deviceList, callback) => {
+    event.preventDefault();
+    pendingCallback = callback;
+    const preferred = deviceList.find((device) => knownObdName.test(device.deviceName || ''));
+    if (preferred) {
+      clearTimeout(cancelTimer);
+      pendingCallback = null;
+      callback(preferred.deviceId);
+      return;
+    }
+
+    clearTimeout(cancelTimer);
+    cancelTimer = setTimeout(() => {
+      if (pendingCallback === callback) {
+        pendingCallback = null;
+        callback('');
+      }
+    }, 12000);
+  });
+
+  win.on('closed', () => {
+    clearTimeout(cancelTimer);
+    if (pendingCallback) {
+      try { pendingCallback(''); } catch {}
+      pendingCallback = null;
+    }
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -268,12 +304,14 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
+  configureObdBluetoothChooser(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
 }
 
 app.whenReady().then(() => {
   seedInitialSettings();
+  obdBridge = new NativeObdBridge();
   policy = new PolicyEngine({
     rulesPath:resourcePath('security','core-rules.json'),
     signaturePath:resourcePath('security','core-rules.sig'),
@@ -298,8 +336,14 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
   ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
+  ipcMain.handle('jarvis:obd:list-ports', () => obdBridge.listSerialPorts());
+  ipcMain.handle('jarvis:obd:connect', (_e, options) => obdBridge.connect(options || {}));
+  ipcMain.handle('jarvis:obd:send', (_e, request) => obdBridge.sendCommand(request?.command, request?.timeout));
+  ipcMain.handle('jarvis:obd:status', () => obdBridge.status());
+  ipcMain.handle('jarvis:obd:disconnect', () => obdBridge.disconnect());
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+app.on('before-quit', () => { obdBridge?.disconnect?.().catch(() => {}); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

@@ -1,64 +1,122 @@
 import { BaseOBD2Manager } from './obd2/BaseOBD2Manager.js';
 
-const OBD2_CHARACTERISTICS = {
-  RX_CHARACTERISTIC: '0000ffe1-0000-1000-8000-00805f9b34fb',
-  SPP_SERVICE: '0000110e-0000-1000-8000-00805f9b34fb',
-};
+const BLE_PROFILES = [
+  {
+    name: 'OBDLink CX / FFF0 UART',
+    service: '0000fff0-0000-1000-8000-00805f9b34fb',
+    write: '0000fff1-0000-1000-8000-00805f9b34fb',
+    notify: '0000fff1-0000-1000-8000-00805f9b34fb',
+  },
+  {
+    name: 'Generic ELM327 FFE0',
+    service: '0000ffe0-0000-1000-8000-00805f9b34fb',
+    write: '0000ffe1-0000-1000-8000-00805f9b34fb',
+    notify: '0000ffe1-0000-1000-8000-00805f9b34fb',
+  },
+  {
+    name: 'Nordic UART',
+    service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+    write: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+    notify: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',
+  },
+];
 
-/**
- * OBD2Manager - ELM327 Bluetooth adapter (WebBluetooth API)
- * Extends BaseOBD2Manager for shared AT/PID/DTC logic.
- */
 export class OBD2Manager extends BaseOBD2Manager {
   constructor() {
     super();
     this.device = null;
     this.server = null;
     this.service = null;
-    this.characteristic = null;
+    this.writeCharacteristic = null;
+    this.notifyCharacteristic = null;
+    this.profile = null;
   }
 
   async connect() {
+    if (!navigator.bluetooth) throw new Error('WEB_BLUETOOTH_UNAVAILABLE');
+
     this.device = await navigator.bluetooth.requestDevice({
-      filters: [
-        { name: 'ELM327' },
-        { namePrefix: 'OBD' },
-        { services: [OBD2_CHARACTERISTICS.SPP_SERVICE] }
+      acceptAllDevices: true,
+      optionalServices: [
+        ...BLE_PROFILES.map((profile) => profile.service),
+        '0000180a-0000-1000-8000-00805f9b34fb',
       ],
-      optionalServices: [OBD2_CHARACTERISTICS.SPP_SERVICE]
     });
 
     this.device.addEventListener('gattserverdisconnected', () => this.onDisconnect());
     this.server = await this.device.gatt.connect();
-    this.service = await this.server.getPrimaryService(OBD2_CHARACTERISTICS.SPP_SERVICE);
-    this.characteristic = await this.service.getCharacteristic(OBD2_CHARACTERISTICS.RX_CHARACTERISTIC);
-    await this.characteristic.startNotifications();
-    this.characteristic.addEventListener('characteristicvaluechanged', (e) => this.onDataReceived(e));
-    this.isConnected = true;
-    return { success: true, device: this.device.name };
+
+    let lastError;
+    for (const profile of BLE_PROFILES) {
+      try {
+        const service = await this.server.getPrimaryService(profile.service);
+        const writeCharacteristic = await service.getCharacteristic(profile.write);
+        const notifyCharacteristic = profile.notify === profile.write
+          ? writeCharacteristic
+          : await service.getCharacteristic(profile.notify);
+
+        await notifyCharacteristic.startNotifications();
+        notifyCharacteristic.addEventListener('characteristicvaluechanged', (event) => this.onDataReceived(event));
+
+        this.service = service;
+        this.writeCharacteristic = writeCharacteristic;
+        this.notifyCharacteristic = notifyCharacteristic;
+        this.profile = profile;
+        this.isConnected = true;
+
+        return {
+          success: true,
+          device: this.device.name || 'Bluetooth LE OBD2',
+          profile: profile.name,
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    await this.disconnect();
+    throw lastError || new Error('BLE_OBD_PROFILE_NOT_SUPPORTED');
   }
 
-  async sendCommand(cmd, timeout = 1000) {
-    if (!this.isConnected) throw new Error('Nincs Bluetooth kapcsolat');
+  async writeBytes(bytes) {
+    const characteristic = this.writeCharacteristic;
+    if (!characteristic) throw new Error('BLE_OBD_NOT_CONNECTED');
+    if (characteristic.properties?.writeWithoutResponse && characteristic.writeValueWithoutResponse) {
+      return characteristic.writeValueWithoutResponse(bytes);
+    }
+    if (characteristic.writeValueWithResponse) return characteristic.writeValueWithResponse(bytes);
+    return characteristic.writeValue(bytes);
+  }
+
+  async sendCommand(command, timeout = 1800) {
+    if (!this.isConnected) throw new Error('Nincs Bluetooth LE kapcsolat');
     this.buffer = '';
-    await this.characteristic.writeValue(new TextEncoder().encode(cmd + '\r'));
+
+    const bytes = new TextEncoder().encode(String(command).trim() + '\r');
+    await this.writeBytes(bytes);
+
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(this.buffer), timeout);
-      const handler = (msg) => {
-        if (msg.includes('>')) {
+      const onMessage = (message) => {
+        if (message.includes('>')) {
           clearTimeout(timer);
-          this.messageHandlers = this.messageHandlers.filter(h => h !== handler);
+          this.messageHandlers = this.messageHandlers.filter((handler) => handler !== onMessage);
           resolve(this.buffer);
         }
       };
-      this.messageHandlers.push(handler);
+      const timer = setTimeout(() => {
+        this.messageHandlers = this.messageHandlers.filter((handler) => handler !== onMessage);
+        resolve(this.buffer);
+      }, timeout);
+      this.messageHandlers.push(onMessage);
     });
   }
 
   async disconnect() {
-    if (this.device?.gatt?.connected) {
-      await this.device.gatt.disconnect();
-    }
+    if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+    this.writeCharacteristic = null;
+    this.notifyCharacteristic = null;
+    this.service = null;
+    this.profile = null;
     await super.disconnect();
   }
 }
