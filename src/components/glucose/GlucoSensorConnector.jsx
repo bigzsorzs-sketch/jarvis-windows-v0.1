@@ -4,6 +4,7 @@ import GlucoSensorManager from '@/lib/glucoseSensors/GlucoSensorManager';
 import { Droplet, Bluetooth, Loader2, Zap, TrendingUp, TrendingDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logger } from '@/lib/logger';
+import { listCGMProviders, getLatestCGMReading } from '@/lib/health/cgmProviderRegistry';
 
 export default function GlucoSensorConnector() {
   const [sensorManager] = useState(() => new GlucoSensorManager());
@@ -13,6 +14,8 @@ export default function GlucoSensorConnector() {
   const [lastReading, setLastReading] = useState(null);
   const [status, setStatus] = useState('');
   const [experimentalDirectBluetooth, setExperimentalDirectBluetooth] = useState(false);
+  const [providerId, setProviderId] = useState('local-history');
+  const providers = listCGMProviders();
   const autoSaveRef = useRef(true);
 
   // Cleanup: disconnect sensor on unmount to prevent memory leaks
@@ -59,6 +62,29 @@ export default function GlucoSensorConnector() {
     setSensorInfo(null);
     setLastReading(null);
     setStatus('Szenzor lecsatlakoztatva');
+  };
+
+  const loadProviderReading = async () => {
+    try {
+      const reading = await getLatestCGMReading(providerId);
+      if (!reading) {
+        setLastReading(null);
+        setStatus(providerId === 'demo-cgm' ? 'Nincs demó adat.' : 'Nincs elmentett vércukoradat.');
+        return;
+      }
+
+      const value = Number(reading.value ?? reading.glucose);
+      setLastReading({
+        glucose: value,
+        trend: reading.trend?.direction === 'rising' ? 1 : reading.trend?.direction === 'falling' ? -1 : 0,
+        sensor: reading.simulated ? 'CGM DEMO – SZIMULÁLT' : (reading.sensor || 'Jarvis helyi előzmény'),
+        timestamp: reading.created_date || reading.timestamp || new Date().toISOString(),
+      });
+      setStatus(reading.simulated ? 'ℹ️ Szimulált demó adat betöltve.' : '✅ Legutóbbi helyi vércukoradat betöltve.');
+    } catch (error) {
+      logger.error('GlucoSensorConnector', 'Provider reading failed');
+      setStatus('❌ A provider adatot most nem tudtam betölteni.');
+    }
   };
 
   const saveReading = async (reading) => {
@@ -156,6 +182,32 @@ export default function GlucoSensorConnector() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <div className="rounded-xl border border-border bg-secondary/40 p-3 space-y-2">
+        <div className="flex gap-2">
+          <select
+            value={providerId}
+            onChange={(e) => setProviderId(e.target.value)}
+            className="flex-1 bg-background border border-border rounded-lg px-2 py-2 text-xs text-foreground"
+          >
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name}{provider.mode === 'demo' ? ' — DEMO' : ''}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={loadProviderReading}
+            className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold"
+          >
+            Lekérés
+          </button>
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          A DEMO provider minden adatát szimuláltként jelöljük. A helyi provider csak a Jarvisban már elmentett méréseket olvassa.
+        </p>
+      </div>
 
       {/* Last Reading Display */}
       {lastReading && (
