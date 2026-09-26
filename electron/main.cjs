@@ -421,6 +421,7 @@ app.whenReady().then(() => {
   ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
   ipcMain.handle('jarvis:stability:status', () => getStabilityStatus());
   ipcMain.handle('jarvis:stability:self-test', () => runStabilitySelfTest());
+  ipcMain.handle('jarvis:app:restart', () => { app.relaunch(); app.exit(0); });
   ipcMain.handle('jarvis:stability:open-logs', async () => {
     const file=stabilityLogPath();
     fs.mkdirSync(path.dirname(file),{recursive:true});
