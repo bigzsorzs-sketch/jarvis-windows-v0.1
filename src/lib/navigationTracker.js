@@ -341,6 +341,48 @@ export async function findContactForNavigation(query) {
   return contacts.find((contact) => contact.name?.toLowerCase().includes(normalized)) || null;
 }
 
+export async function findSavedLocationForNavigation(query) {
+  const currentUser = await getCurrentUserOrThrow();
+  const locations = await jarvis.entities.SavedLocation.filter({ created_by: currentUser.email }, '-created_date', 100);
+  const normalized = String(query || '').toLowerCase().trim();
+
+  const typeAlias = {
+    haza: 'otthon',
+    home: 'otthon',
+    otthon: 'otthon',
+    munkába: 'munka',
+    munkaba: 'munka',
+    work: 'munka',
+    boltba: 'bolt',
+    bolt: 'bolt',
+    orvoshoz: 'orvos',
+    edzésre: 'edzes',
+    edzesre: 'edzes',
+  }[normalized];
+
+  return locations.find((location) => location.name?.toLowerCase() === normalized)
+    || locations.find((location) => location.name?.toLowerCase().includes(normalized))
+    || (typeAlias ? locations.find((location) => location.type === typeAlias) : null)
+    || null;
+}
+
+export async function startSavedLocationNavigation(location, options = {}) {
+  if (!location) throw new Error('SAVED_LOCATION_REQUIRED');
+  const lat = Number(location.latitude);
+  const lng = Number(location.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('SAVED_LOCATION_COORDINATES_INVALID');
+
+  const destination = lat.toFixed(6) + ',' + lng.toFixed(6);
+  return startNavigationSession(
+    { name: location.name || 'Mentett hely' },
+    destination,
+    {
+      ...options,
+      destinationCoords: { lat, lng },
+    }
+  );
+}
+
 export async function getLastTripSummary() {
   const currentUser = await getCurrentUserOrThrow();
   const routes = await jarvis.entities.RouteHistory.filter({ created_by: currentUser.email }, '-created_date', 20);

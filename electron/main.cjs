@@ -609,6 +609,14 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('jarvis:obd:serial:disconnect', () => obdSerial.disconnect());
 
+  ipcMain.handle('jarvis:system:open-emergency-call', async (_e, number) => {
+    const normalized=String(number || '').replace(/\D/g,'');
+    if (!['999','112'].includes(normalized)) throw new Error('EMERGENCY_NUMBER_NOT_ALLOWED');
+    await shell.openExternal('tel:' + normalized);
+    appendStabilityEvent('emergency-call-handoff',{number:normalized});
+    return {attempted:true,number:normalized,platformConfirmedConnected:false};
+  });
+
   ipcMain.handle('jarvis:policy:rules', () => policy.getPublicRules());
   ipcMain.handle('jarvis:policy:evaluate', (_e, action) => policy.evaluate(action));
   ipcMain.handle('jarvis:policy:override', (_e, req) => policy.requestOverride(req || {}));

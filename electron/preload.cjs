@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   platform: process.platform,
   invokeFunction: (name, payload) => ipcRenderer.invoke('jarvis:function:invoke', name, payload),
   getSystemContext: () => ipcRenderer.invoke('jarvis:system:context'),
+  openEmergencyCall: (number) => ipcRenderer.invoke('jarvis:system:open-emergency-call', number),
   getRules: () => ipcRenderer.invoke('jarvis:policy:rules'),
   evaluateAction: (action) => ipcRenderer.invoke('jarvis:policy:evaluate', action),
   ownerOverride: (request) => ipcRenderer.invoke('jarvis:policy:override', request),

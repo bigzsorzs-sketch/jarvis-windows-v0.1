@@ -1,0 +1,28 @@
+{
+  "package": "Jarvis Integrations + Situation Layer",
+  "targetVersion": "0.8.0",
+  "minimumInstalledVersion": "0.7.0",
+  "channel": "staged",
+  "releaseGate": "Release only after cross-module voice, saved-place navigation, local/demo CGM, emergency handoff and extension-registry acceptance tests pass.",
+  "delivery": "GitHub stable release -> in-app Frissítés egy kattintással",
+  "includes": [
+    "global deterministic glucose voice query",
+    "explicit emergency call handoff",
+    "saved-place natural-language navigation",
+    "locations contextual capability module",
+    "image-editor contextual capability module",
+    "provider-agnostic CGM registry",
+    "local glucose history provider",
+    "clearly simulated CGM demo provider",
+    "experimental direct-CGM Bluetooth gate",
+    "safe extension manifest registry",
+    "extensions Settings card",
+    "real sequential OBD scan progress",
+    "fixed Image Editor quick generation path"
+  ],
+  "dataMigration": "none",
+  "rollback": "v0.7.0 installer plus pre-update Jarvis backup",
+  "mergeFrom": "develop/v0.8.0-integrations-situation",
+  "mergeInto": "develop/v0.7.0-vision-tool-runtime",
+  "securityBoundary": "Emergency intent is explicit-only; health actions are read-only; simulated data is labelled; direct CGM is experimental-gated; destructive capabilities require confirmation; extension manifests cannot execute arbitrary remote code."
+}

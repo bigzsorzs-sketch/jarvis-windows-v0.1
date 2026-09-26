@@ -14,6 +14,8 @@ import AIEnhancePanel from '@/components/image-editor/AIEnhancePanel';
 import EditorMobileBottomBar from '@/components/image-editor/EditorMobileBottomBar';
 import useImageEditor from '@/hooks/useImageEditor';
 import useProjectManager from '@/hooks/useProjectManager';
+import { jarvis } from '@/api/jarvisClient';
+import { useJarvisModuleContext } from '@/hooks/useJarvisModuleContext';
 
 export default function ImageEditor() {
   const [activeTool, setActiveTool] = useState('pencil');
@@ -54,25 +56,103 @@ export default function ImageEditor() {
     loadSampleImage();
   }, []);
 
-  const handleGenerateImage = async () => {
-    if (!aiPrompt.trim()) return;
+  const generateAndLoadImage = useCallback(async (promptText) => {
+    const prompt = String(promptText || '').trim();
+    if (!prompt) return { success: false, message: 'Mondd meg, milyen képet szeretnél.' };
+
     setAiLoading(true);
     try {
-      const { invokeWithRetry } = await import('@/lib/llmGateway');
-      const { url } = await invokeWithRetry({
-        prompt: aiPrompt,
-        is_image_generation: true, // Signal to llmGateway to use GenerateImage
-      });
-      
-      await editor.importImageFromUrl(url);
-      setAiResponse(`✅ Kép generálva és hozzáadva!`);
+      const generated = await jarvis.integrations.Core.GenerateImage({ prompt });
+      if (!generated?.url) throw new Error('IMAGE_RESULT_MISSING');
+      await editor.importImageFromUrl(generated.url);
+      setLastAiPrompt(prompt);
+      setLastAiRefCount(0);
+      setAiResponse('✅ Kép generálva és hozzáadva!');
       setAiPrompt('');
-    } catch {
-      setAiResponse('A képgenerálás most nem sikerült.');
+      return { success: true, message: 'Elkészítettem és betöltöttem a képet.', data: generated };
+    } catch (error) {
+      const missingKey = String(error?.message || '').includes('OPENROUTER_API_KEY_REQUIRED');
+      const message = missingKey
+        ? 'A képgeneráláshoz előbb add meg az OpenRouter API kulcsot a Beállításokban.'
+        : 'A képgenerálás most nem sikerült.';
+      setAiResponse(message);
+      return { success: false, message, error: error?.message || String(error) };
     } finally {
       setAiLoading(false);
     }
+  }, [editor]);
+
+  const handleGenerateImage = async () => {
+    await generateAndLoadImage(aiPrompt);
   };
+
+  const getImageEditorContext = useCallback(() => ({
+    activeTool,
+    layerCount: editor.layers.length,
+    activeLayer: editor.activeLayer,
+    canUndo: editor.canUndo,
+    canRedo: editor.canRedo,
+    zoom: editor.zoom,
+    lastAiPrompt,
+  }), [activeTool, editor.layers.length, editor.activeLayer, editor.canUndo, editor.canRedo, editor.zoom, lastAiPrompt]);
+
+  const getImageEditorActions = useCallback(() => ({
+    'image.generate': {
+      description: 'AI kép generálása és betöltése a vászonra',
+      risk: 'provider-action',
+      handler: async ({ prompt }) => generateAndLoadImage(prompt),
+    },
+    'image.undo': {
+      description: 'Utolsó képszerkesztési lépés visszavonása',
+      risk: 'local-edit',
+      handler: async () => {
+        if (!editor.canUndo) return { success: false, message: 'Nincs visszavonható lépés.' };
+        editor.undo();
+        return { success: true, message: 'Visszavontam az utolsó lépést.' };
+      },
+    },
+    'image.redo': {
+      description: 'Visszavont képszerkesztési lépés ismétlése',
+      risk: 'local-edit',
+      handler: async () => {
+        if (!editor.canRedo) return { success: false, message: 'Nincs ismételhető lépés.' };
+        editor.redo();
+        return { success: true, message: 'Visszaállítottam a lépést.' };
+      },
+    },
+    'image.zoom_in': {
+      description: 'Kép nagyítása',
+      risk: 'view',
+      handler: async () => {
+        editor.zoomIn();
+        return { success: true, message: 'Nagyítottam a képet.' };
+      },
+    },
+    'image.zoom_out': {
+      description: 'Kép kicsinyítése',
+      risk: 'view',
+      handler: async () => {
+        editor.zoomOut();
+        return { success: true, message: 'Kicsinyítettem a képet.' };
+      },
+    },
+    'image.clear': {
+      description: 'A teljes vászon törlése',
+      risk: 'destructive',
+      confirmationRequired: true,
+      handler: async () => {
+        editor.clearCanvas();
+        return { success: true, message: 'Töröltem a vásznat.' };
+      },
+    },
+  }), [editor, generateAndLoadImage]);
+
+  useJarvisModuleContext({
+    id: 'image-editor',
+    label: 'Képszerkesztő',
+    getContext: getImageEditorContext,
+    getActions: getImageEditorActions,
+  });
 
   const applyCrop = () => {
     if (!cropRect) return;

@@ -1,13 +1,38 @@
 import { TOOLS, loadFullContext, buildSystemPrompt, parseActions, executeActions } from '@/lib/assistantTools';
 import { invokeWithRetry } from '@/lib/llmGateway';
-import { isCallCommand, extractCallTarget, isNavigationVoiceCommand, extractNavigationTarget, isFinishTripCommand, isLastTripSummaryCommand, isShareNavigationDestinationCommand, extractShareNavigationContact } from '@/lib/voiceCommandRouter';
-import { findContactForNavigation, startNavigationSession, finishNavigationSession, getFrequentDestinationSuggestion, getLastTripSummary, shareActiveNavigationDestination } from '@/lib/navigationTracker';
+import { isCallCommand, extractCallTarget, isNavigationVoiceCommand, extractNavigationTarget, isFinishTripCommand, isLastTripSummaryCommand, isShareNavigationDestinationCommand, extractShareNavigationContact, isEmergencyCallCommand, getEmergencyCallNumber, isGlucoseQueryCommand } from '@/lib/voiceCommandRouter';
+import { findContactForNavigation, findSavedLocationForNavigation, startNavigationSession, startSavedLocationNavigation, finishNavigationSession, getFrequentDestinationSuggestion, getLastTripSummary, shareActiveNavigationDestination } from '@/lib/navigationTracker';
 import { executeVoiceWorkflowCommand } from '@/lib/voiceWorkflowCommandCenter';
 import { executeSituationAwareCommand } from '@/lib/situationOrchestrator';
+import { requestEmergencyCall } from '@/lib/emergencyActions';
+import { getLatestGlucoseSummary } from '@/lib/health/healthCapabilities';
 
 export async function executeGlobalVoiceCommand(transcript) {
   const text = transcript?.trim();
   if (!text) return null;
+
+  // Explicit emergency requests bypass AI routing and long-running workflows.
+  if (isEmergencyCallCommand(text)) {
+    const number = getEmergencyCallNumber(text) || '999';
+    const result = await requestEmergencyCall(number);
+    return {
+      handled: true,
+      intent: 'emergency_call_handoff',
+      reply: result.message,
+      actionResults: [{ tool: 'emergency_call_handoff', result }],
+    };
+  }
+
+  // Reading the latest recorded glucose value is deterministic and does not need the AI brain.
+  if (isGlucoseQueryCommand(text)) {
+    const result = await getLatestGlucoseSummary();
+    return {
+      handled: true,
+      intent: 'latest_glucose',
+      reply: result.message,
+      actionResults: [{ tool: 'latest_glucose', result }],
+    };
+  }
 
   // First let the active module interpret the request in its live context.
   // This is what makes "nézd meg, változott-e" meaningful while OBD is open,
@@ -37,19 +62,35 @@ export async function executeGlobalVoiceCommand(transcript) {
     if (!target) return { handled: true, reply: '❌ Nem értettem, hová navigáljak.' };
 
     const contact = await findContactForNavigation(target);
-    if (!contact) {
-      const frequent = getFrequentDestinationSuggestion();
-      return { handled: true, reply: frequent ? `❌ Nem találtam ezt a kontaktot. Gyakran ide mész: ${frequent.contact_name}.` : '❌ Nem találtam ilyen kontaktot.' };
+    if (contact?.address) {
+      const started = await startNavigationSession(contact, contact.address);
+      return {
+        handled: true,
+        reply: `🚗 Navigálok ide: ${contact.name} (${started.eta_min} perc)`,
+        actionResults: [{ tool: 'start_navigation', result: { success: true, route_id: started.local_id } }]
+      };
     }
-    if (!contact.address) {
+
+    const savedLocation = await findSavedLocationForNavigation(target);
+    if (savedLocation) {
+      const started = await startSavedLocationNavigation(savedLocation);
+      return {
+        handled: true,
+        reply: `🚗 Navigálok ide: ${savedLocation.name} (${started.eta_min} perc)`,
+        actionResults: [{ tool: 'start_saved_location_navigation', result: { success: true, route_id: started.local_id, location_id: savedLocation.id } }]
+      };
+    }
+
+    if (contact && !contact.address) {
       return { handled: true, reply: `❌ ${contact.name} névhez nincs cím elmentve, kérlek pontosítsd.` };
     }
 
-    const started = await startNavigationSession(contact, contact.address);
+    const frequent = getFrequentDestinationSuggestion();
     return {
       handled: true,
-      reply: `🚗 Navigálok ide: ${contact.name} (${started.eta_min} perc)`,
-      actionResults: [{ tool: 'start_navigation', result: { success: true, route_id: started.local_id } }]
+      reply: frequent
+        ? `❌ Nem találtam ezt a célpontot. Gyakran ide mész: ${frequent.contact_name}.`
+        : '❌ Nem találtam ilyen kontaktot vagy mentett helyet.'
     };
   }
 

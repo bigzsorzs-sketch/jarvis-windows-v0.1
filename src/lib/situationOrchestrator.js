@@ -17,6 +17,49 @@ function deterministicCapability(text, context) {
   const t = lower(text);
   const moduleId = context?.activeModule?.id;
 
+  if (moduleId === 'image-editor') {
+    if (includesAny(t, ['vond vissza', 'undo', 'utolsó lépést vissza', 'utolso lepest vissza'])) {
+      return { name: 'image.undo', params: {} };
+    }
+
+    if (includesAny(t, ['redo', 'csináld újra', 'csinald ujra', 'állítsd vissza', 'allitsd vissza'])) {
+      return { name: 'image.redo', params: {} };
+    }
+
+    if (includesAny(t, ['nagyíts', 'nagyits', 'zoom in'])) {
+      return { name: 'image.zoom_in', params: {} };
+    }
+
+    if (includesAny(t, ['kicsinyíts', 'kicsinyits', 'zoom out'])) {
+      return { name: 'image.zoom_out', params: {} };
+    }
+
+    if (includesAny(t, ['töröld a vásznat', 'torold a vasznat', 'clear canvas'])) {
+      return { name: 'image.clear', params: {} };
+    }
+
+    const imageMatch = t.match(/(?:készíts|keszits|generálj|generalj|csinálj|csinalj)\s+(?:egy\s+)?(?:képet|kepet)?\s*(.*)$/);
+    if (imageMatch) {
+      const prompt = imageMatch[1]?.trim() || text.trim();
+      return { name: 'image.generate', params: { prompt } };
+    }
+  }
+
+  if (moduleId === 'locations') {
+    if (includesAny(t, ['mentett hely', 'helyeim', 'milyen hely', 'saved places', 'saved locations'])) {
+      return { name: 'locations.list_saved', params: {} };
+    }
+
+    if (includesAny(t, ['aktív navigáció', 'aktiv navigacio', 'merre megyünk', 'merre megyunk', 'mi a célpont', 'mi a celpont'])) {
+      return { name: 'navigation.current_status', params: {} };
+    }
+
+    const navigationMatch = t.match(/(?:navigálj|navigalj|vigyél|vigyel)\s+(.+)$/);
+    if (navigationMatch?.[1]) {
+      return { name: 'navigation.go_saved', params: { query: navigationMatch[1].trim() } };
+    }
+  }
+
   if (moduleId === 'automotive') {
     if (includesAny(t, ['hibakód', 'hibakod', 'dtc', 'error code', 'fault code'])) {
       return { name: 'obd.read_dtcs', params: {} };

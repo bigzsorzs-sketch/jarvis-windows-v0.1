@@ -12,12 +12,12 @@ export function extractCallTarget(text = '') {
 
 export function isNavigationVoiceCommand(text = '') {
   const lower = text.toLowerCase().trim();
-  return lower.includes('navigate to') || lower.includes('take me to') || lower.includes('indulok ') || lower.includes('navigálj ') || lower.includes('navigalj ');
+  return lower.includes('navigate to') || lower.includes('take me to') || lower.includes('indulok ') || lower.includes('navigálj ') || lower.includes('navigalj ') || lower.includes('vigyél ') || lower.includes('vigyel ');
 }
 
 export function extractNavigationTarget(text = '') {
   const lower = text.toLowerCase().trim().replace(/[.!?,]+$/g, '');
-  const match = lower.match(/navigate to\s+(.+)$/) || lower.match(/take me to\s+(.+)$/) || lower.match(/indulok\s+(.+?)(?:-?hoz|-?hez)?$/) || lower.match(/navigálj\s+(.+)$/) || lower.match(/navigalj\s+(.+)$/);
+  const match = lower.match(/navigate to\s+(.+)$/) || lower.match(/take me to\s+(.+)$/) || lower.match(/indulok\s+(.+?)(?:-?hoz|-?hez)?$/) || lower.match(/navigálj\s+(.+)$/) || lower.match(/navigalj\s+(.+)$/) || lower.match(/vigyél\s+(.+)$/) || lower.match(/vigyel\s+(.+)$/);
   return match?.[1]?.trim() || '';
 }
 
@@ -54,5 +54,22 @@ export function isGlobalVoiceCommand(text = '') {
     || isNavigationVoiceCommand(text)
     || isFinishTripCommand(text)
     || isLastTripSummaryCommand(text)
-    || isShareNavigationDestinationCommand(text);
+    || isShareNavigationDestinationCommand(text)
+    || isEmergencyCallCommand(text)
+    || isGlucoseQueryCommand(text);
+}
+export function getEmergencyCallNumber(text = '') {
+  const cleaned = text.toLowerCase().trim().replace(/[.!?]+$/g, '').trim();
+  const match = cleaned.match(/^(?:jarvis[,\s]+)?(?:hívd|hivd|call)\s+(?:a\s+)?(999|112)(?:-?et)?$/i);
+  return match?.[1] || null;
+}
+
+export function isEmergencyCallCommand(text = '') {
+  return Boolean(getEmergencyCallNumber(text));
+}
+
+export function isGlucoseQueryCommand(text = '') {
+  const cleaned = text.toLowerCase().trim();
+  return /(?:mennyi|nézd meg|nezd meg|mondd meg|mutasd).*(?:vércukrom|vercukrom|cukrom|glükózom|glukozom)/i.test(cleaned)
+    || /(?:vércukrom|vercukrom|cukrom).*(?:mennyi|most|aktuális|aktualis)/i.test(cleaned);
 }
