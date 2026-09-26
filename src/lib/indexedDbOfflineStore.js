@@ -1,0 +1,141 @@
+import { logger } from '@/lib/logger';
+
+const DB_NAME = 'jarvis_mobile_offline_v1';
+const DB_VERSION = 1;
+const STORES = {
+  kv: 'kv',
+  syncQueue: 'syncQueue',
+  routes: 'routes',
+  conversations: 'conversations',
+};
+
+let dbPromise = null;
+
+function hasIndexedDb() {
+  return typeof window !== 'undefined' && 'indexedDB' in window;
+}
+
+function openOfflineDb() {
+  if (!hasIndexedDb()) return Promise.resolve(null);
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORES.kv)) db.createObjectStore(STORES.kv, { keyPath: 'key' });
+      if (!db.objectStoreNames.contains(STORES.routes)) db.createObjectStore(STORES.routes, { keyPath: 'local_id' });
+      if (!db.objectStoreNames.contains(STORES.conversations)) db.createObjectStore(STORES.conversations, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(STORES.syncQueue)) {
+        const queue = db.createObjectStore(STORES.syncQueue, { keyPath: 'id' });
+        queue.createIndex('status', 'status', { unique: false });
+        queue.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  }).catch((error) => {
+    logger.warn('IndexedDbOfflineStore', 'Open failed', { message: error?.message });
+    return null;
+  });
+
+  return dbPromise;
+}
+
+async function runStore(storeName, mode, handler) {
+  const db = await openOfflineDb();
+  if (!db) return null;
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, mode);
+    const store = tx.objectStore(storeName);
+    const request = handler(store);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  }).catch((error) => {
+    logger.warn('IndexedDbOfflineStore', `${storeName} operation failed`, { message: error?.message });
+    return null;
+  });
+}
+
+export async function putLocalValue(key, value) {
+  return runStore(STORES.kv, 'readwrite', (store) => store.put({ key, value, updatedAt: Date.now() }));
+}
+
+export async function getLocalValue(key, fallback = null) {
+  const record = await runStore(STORES.kv, 'readonly', (store) => store.get(key));
+  return record?.value ?? fallback;
+}
+
+export async function saveRouteSnapshot(route) {
+  if (!route?.local_id) return null;
+  return runStore(STORES.routes, 'readwrite', (store) => store.put({ ...route, updatedAt: Date.now() }));
+}
+
+export async function saveChatSnapshot(messages, metadata = {}) {
+  const snapshot = {
+    id: 'active_chat',
+    title: metadata.title || 'Mobil beszélgetés',
+    messages: Array.isArray(messages) ? messages.slice(-200) : [],
+    metadata,
+    updatedAt: Date.now(),
+    syncedAt: metadata.syncedAt || null,
+  };
+  await runStore(STORES.conversations, 'readwrite', (store) => store.put(snapshot));
+  await putLocalValue('last_chat_snapshot_id', snapshot.id);
+  return snapshot;
+}
+
+export async function loadChatSnapshot() {
+  return runStore(STORES.conversations, 'readonly', (store) => store.get('active_chat'));
+}
+
+export async function enqueueSyncAction(action) {
+  const entry = {
+    id: action.id || crypto.randomUUID(),
+    type: action.type,
+    payload: action.payload || {},
+    status: 'pending',
+    retry_count: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  await runStore(STORES.syncQueue, 'readwrite', (store) => store.put(entry));
+  return entry;
+}
+
+export async function queueConversationSync(messages, metadata = {}) {
+  const snapshot = await saveChatSnapshot(messages, metadata);
+  return enqueueSyncAction({
+    type: 'conversation_snapshot',
+    id: 'conversation_snapshot_active',
+    payload: snapshot,
+  });
+}
+
+export async function listSyncActions() {
+  return (await runStore(STORES.syncQueue, 'readonly', (store) => store.getAll())) || [];
+}
+
+export async function updateSyncAction(id, updates) {
+  const current = await runStore(STORES.syncQueue, 'readonly', (store) => store.get(id));
+  if (!current) return null;
+  return runStore(STORES.syncQueue, 'readwrite', (store) => store.put({ ...current, ...updates, updatedAt: Date.now() }));
+}
+
+export async function removeSyncAction(id) {
+  return runStore(STORES.syncQueue, 'readwrite', (store) => store.delete(id));
+}
+
+export async function getOfflineStorageStats() {
+  const [conversation, queue] = await Promise.all([loadChatSnapshot(), listSyncActions()]);
+  return {
+    indexedDbAvailable: hasIndexedDb(),
+    storedMessages: conversation?.messages?.length || 0,
+    pendingSync: queue.filter((item) => item.status === 'pending' || item.status === 'failed').length,
+    lastSavedAt: conversation?.updatedAt || null,
+  };
+}
