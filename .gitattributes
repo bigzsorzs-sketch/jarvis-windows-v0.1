@@ -1,0 +1,14 @@
+# Security-sensitive signed files must retain the exact LF byte representation.
+# The Ed25519 signature in core-rules.sig is calculated over core-rules.json bytes.
+security/core-rules.json text eol=lf
+security/core-rules.sig text eol=lf
+security/core-rules-public.pem text eol=lf
+
+# Keep scripts/config predictable across Windows and CI.
+*.js text eol=lf
+*.jsx text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
