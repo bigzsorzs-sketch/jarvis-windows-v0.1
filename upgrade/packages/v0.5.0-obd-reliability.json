@@ -1,0 +1,26 @@
+{
+  "package": "Jarvis OBD Reliability + Windows Native Transport",
+  "targetVersion": "0.5.0",
+  "minimumInstalledVersion": "0.4.0",
+  "channel": "staged",
+  "releaseGate": "Release only after v0.4 contextual voice passes and v0.5 is hardware-smoke-tested with a supported Windows USB adapter.",
+  "delivery": "GitHub stable release -> in-app Frissítés egy kattintással",
+  "includes": [
+    "native Electron serialport bridge",
+    "Windows COM port discovery",
+    "USB baud-rate probing",
+    "serialized ELM command queue",
+    "connection health monitoring",
+    "read-only serial command allow-list",
+    "robust compact/spaced OBD response parser",
+    "correct P/C/B/U DTC decoding",
+    "supported PID discovery",
+    "hardened VIN parsing",
+    "adapter identity and connection metadata"
+  ],
+  "dataMigration": "none",
+  "rollback": "v0.4.0 installer plus pre-update Jarvis backup",
+  "mergeFrom": "develop/v0.5.0-obd-reliability",
+  "mergeInto": "develop/v0.4.0-contextual-voice",
+  "securityBoundary": "Native serial IPC permits AT and read-only standard OBD commands only. ECU writes, DTC clearing and active tests are not exposed through this bridge in v0.5."
+}

@@ -12,11 +12,13 @@ const { pipeline } = require('stream/promises');
 const execFileAsync = promisify(execFile);
 const { PolicyEngine } = require('./security/policy-engine.cjs');
 const { SelfRepairController } = require('./self-repair-controller.cjs');
+const { OBDSerialBridge } = require('./obd-serial.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
 let selfRepair;
+let obdSerial;
 const stabilityState = {
   startedAt: Date.now(),
   rendererRestarts: [],
@@ -419,6 +421,31 @@ app.whenReady().then(() => {
     oneClickUpdate:()=>oneClickUpdate(),
     appendAudit:(event,payload)=>appendStabilityEvent(event,payload),
   });
+
+  obdSerial = new OBDSerialBridge({
+    onEvent:(event,payload)=>appendStabilityEvent('obd-'+event,payload),
+  });
+
+  const isReadOnlyOBDCommand = (command='') => {
+    const clean=String(command).replace(/[\s\r\n]/g,'').toUpperCase();
+    return clean.startsWith('AT')
+      || /^01[0-9A-F]{2}$/.test(clean)
+      || clean === '03'
+      || clean === '07'
+      || /^09[0-9A-F]{2}$/.test(clean);
+  };
+
+  ipcMain.handle('jarvis:obd:serial:list', () => obdSerial.listPorts());
+  ipcMain.handle('jarvis:obd:serial:connect', (_e, options) => obdSerial.connect(options || {}));
+  ipcMain.handle('jarvis:obd:serial:status', () => obdSerial.status());
+  ipcMain.handle('jarvis:obd:serial:send', (_e, request) => {
+    const command=String(request?.command || '');
+    if (!isReadOnlyOBDCommand(command)) {
+      throw new Error('OBD_COMMAND_BLOCKED_REQUIRES_CONFIRMATION');
+    }
+    return obdSerial.send({command,timeout:request?.timeout});
+  });
+  ipcMain.handle('jarvis:obd:serial:disconnect', () => obdSerial.disconnect());
 
   ipcMain.handle('jarvis:policy:rules', () => policy.getPublicRules());
   ipcMain.handle('jarvis:policy:evaluate', (_e, action) => policy.evaluate(action));

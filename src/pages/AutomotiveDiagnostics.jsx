@@ -79,11 +79,21 @@ const TUTORIAL_STEPS = [
 export default function AutomotiveDiagnostics() {
   const [adapterType, setAdapterType] = useState('bluetooth-elm327');
   const [wifiIP, setWifiIP] = useState('192.168.0.10:35000');
-  const [usbPort, setUsbPort] = useState('/dev/ttyUSB0');
+  const [usbPort, setUsbPort] = useState('');
   const [viewMode, setViewMode] = useState('chat');
   const [vehicleProfile, setVehicleProfile] = useState(null);
 
-  const { obd2Manager, obd2Status, obd2Connecting, connect: connectOBDHook, disconnect: disconnectOBDHook } = useOBDData();
+  const {
+    obd2Manager, obd2Status, obd2Connecting, usbPorts, connectionMeta,
+    listUSBPorts, connect: connectOBDHook, disconnect: disconnectOBDHook
+  } = useOBDData();
+
+  useEffect(() => {
+    if (adapterType !== 'usb' || obd2Manager) return;
+    listUSBPorts().then((ports) => {
+      if (!usbPort && ports.length === 1) setUsbPort(ports[0].path);
+    }).catch(() => {});
+  }, [adapterType, obd2Manager, listUSBPorts, usbPort]);
 
   const chat = useAutomotiveChat();
   const { isRecordingTrip, selectedTrip, setSelectedTrip, toggleTripRecording } = useTripLogic(chat.addMessage);
@@ -263,6 +273,8 @@ export default function AutomotiveDiagnostics() {
         adapterType={adapterType} setAdapterType={setAdapterType}
         wifiIP={wifiIP} setWifiIP={setWifiIP}
         usbPort={usbPort} setUsbPort={setUsbPort}
+        usbPorts={usbPorts} onRefreshUsbPorts={listUSBPorts}
+        connectionMeta={connectionMeta}
         viewMode={viewMode} setViewMode={setViewMode}
         lastDiagnosis={chat.lastDiagnosis}
         isRecordingTrip={isRecordingTrip} toggleTripRecording={toggleTripRecording}
