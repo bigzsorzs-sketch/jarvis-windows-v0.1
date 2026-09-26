@@ -59,7 +59,7 @@ export function useAutomotiveChat() {
       .replace(/\s+/g, ' ')
       .trim();
     if (speechText) await runtime.speakText(speechText, 'hu');
-  }, [speakVoiceReply]);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -91,7 +91,7 @@ export function useAutomotiveChat() {
       voiceUnsubRef.current?.();
       unsubState?.();
     };
-  }, []);
+  }, [speakVoiceReply]);
 
   const addMessage = useCallback((content) => {
     setMessages(prev => [...prev, { role: 'assistant', content }]);
