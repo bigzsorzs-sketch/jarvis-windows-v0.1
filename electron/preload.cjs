@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
+  oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
 });
