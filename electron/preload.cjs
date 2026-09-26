@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
+  listImageModels: () => ipcRenderer.invoke('jarvis:function:invoke', 'listImageModels', {}),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
   getStabilityStatus: () => ipcRenderer.invoke('jarvis:stability:status'),
