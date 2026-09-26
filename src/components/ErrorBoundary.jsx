@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, RotateCcw, WifiOff } from 'lucide-react';
+import { AlertTriangle, RotateCcw, WifiOff, Power } from 'lucide-react';
 import { logger } from '@/lib/logger';
 
 /**
@@ -67,12 +67,22 @@ export default class ErrorBoundary extends React.Component {
             <h2 className="text-lg font-bold text-foreground">{offline ? 'Nincs internetkapcsolat. Próbáld újra.' : 'Valami hiba történt'}</h2>
             {!offline && <p className="text-sm text-muted-foreground mt-1">Kérlek próbáld meg újra.</p>}
           </div>
-          <button
-            onClick={this.reset}
-            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold flex items-center gap-2 mx-auto"
-          >
-            <RotateCcw size={14} /> Újrapróbálás
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+            <button
+              onClick={this.reset}
+              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold flex items-center gap-2 justify-center"
+            >
+              <RotateCcw size={14} /> Újrapróbálás
+            </button>
+            {window.jarvisDesktop?.restartApp && (
+              <button
+                onClick={() => window.jarvisDesktop.restartApp()}
+                className="px-4 py-2 rounded-xl bg-secondary border border-border text-foreground font-semibold flex items-center gap-2 justify-center"
+              >
+                <Power size={14} /> Jarvis újraindítása
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
