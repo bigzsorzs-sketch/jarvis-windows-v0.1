@@ -26,4 +26,12 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   getOBDSerialStatus: () => ipcRenderer.invoke('jarvis:obd:serial:status'),
   sendOBDSerial: (request) => ipcRenderer.invoke('jarvis:obd:serial:send', request),
   disconnectOBDSerial: () => ipcRenderer.invoke('jarvis:obd:serial:disconnect'),
+  getDataStatus: () => ipcRenderer.invoke('jarvis:data:status'),
+  importLegacyData: (payload) => ipcRenderer.invoke('jarvis:data:import-legacy', payload),
+  getLocalUser: () => ipcRenderer.invoke('jarvis:data:user:get'),
+  updateLocalUser: (patch) => ipcRenderer.invoke('jarvis:data:user:update', patch),
+  entityFilter: (entityName, query, sort, limit) => ipcRenderer.invoke('jarvis:data:entity:filter', entityName, query, sort, limit),
+  entityCreate: (entityName, data) => ipcRenderer.invoke('jarvis:data:entity:create', entityName, data),
+  entityUpdate: (entityName, rowId, patch) => ipcRenderer.invoke('jarvis:data:entity:update', entityName, rowId, patch),
+  entityDelete: (entityName, rowId) => ipcRenderer.invoke('jarvis:data:entity:delete', entityName, rowId),
 });
