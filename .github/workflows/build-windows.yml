@@ -3,7 +3,7 @@ name: Build Jarvis Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, 'develop/v0.3.0-stability' ]
 
 jobs:
   windows-installer:
@@ -22,6 +22,13 @@ jobs:
 
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis
+
+      - name: Check Electron stability/self-repair syntax
+        run: |
+          node --check electron/main.cjs
+          node --check electron/preload.cjs
+          node --check electron/self-repair-engine.cjs
+          node --check electron/self-repair-controller.cjs
 
       - name: Build renderer
         run: npm run build
