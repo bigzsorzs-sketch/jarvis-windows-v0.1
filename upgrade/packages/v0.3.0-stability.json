@@ -1,0 +1,24 @@
+{
+  "package": "Jarvis Stability Pack",
+  "targetVersion": "0.3.0",
+  "minimumInstalledVersion": "0.2.0",
+  "channel": "staged",
+  "releaseGate": "Do not merge until v0.2.0 is installed and passes real-PC smoke test.",
+  "delivery": "GitHub stable release -> in-app Frissítés egy kattintással",
+  "includes": [
+    "single-instance protection",
+    "renderer crash recovery",
+    "renderer crash-loop protection",
+    "persistent stability log",
+    "uncaught exception and rejection logging",
+    "built-in stability self-test",
+    "settings stability diagnostics card",
+    "controlled full-app restart",
+    "last-good local data recovery",
+    "CI verification of stability/update components"
+  ],
+  "dataMigration": "none",
+  "rollback": "v0.2.0 installer plus pre-update Jarvis backup",
+  "mergeFrom": "develop/v0.3.0-stability",
+  "mergeInto": "main"
+}
