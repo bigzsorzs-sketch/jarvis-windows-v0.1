@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Plus, Bluetooth, AlertCircle, ChevronDown, Check } from 'lucide-react';
+import { Plus, Bluetooth, AlertCircle, ChevronDown, Check, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
@@ -13,8 +13,8 @@ const ADAPTER_OPTIONS = [
 
 const AutomotiveHeader = memo(function AutomotiveHeader({
   obd2Manager, obd2Status, obd2Connecting, adapterType, setAdapterType,
-  wifiIP, setWifiIP, usbPort, setUsbPort, viewMode, setViewMode,
-  lastDiagnosis, isRecordingTrip, toggleTripRecording, vehicleProfile,
+  wifiIP, setWifiIP, usbPort, setUsbPort, usbPorts = [], onRefreshUsbPorts, connectionMeta,
+  viewMode, setViewMode, lastDiagnosis, isRecordingTrip, toggleTripRecording, vehicleProfile,
   onConnect, onDisconnect, onNewChat,
 }) {
   const [showAdapterSheet, setShowAdapterSheet] = useState(false);
@@ -74,9 +74,28 @@ const AutomotiveHeader = memo(function AutomotiveHeader({
       )}
 
       {adapterType === 'usb' && !obd2Manager && (
-        <input type="text" placeholder="USB port (pl. /dev/ttyUSB0 vagy COM3)" value={usbPort}
-          onChange={e => setUsbPort(e.target.value)}
-          className="w-full bg-secondary rounded-xl px-3 py-2.5 text-sm outline-none border border-border text-foreground" />
+        <div className="flex gap-2">
+          <select
+            value={usbPort}
+            onChange={e => setUsbPort(e.target.value)}
+            className="flex-1 bg-secondary rounded-xl px-3 py-2.5 text-sm outline-none border border-border text-foreground"
+          >
+            <option value="">Válassz COM portot</option>
+            {usbPorts.map((port) => (
+              <option key={port.path} value={port.path}>
+                {port.path}{port.manufacturer ? ' — ' + port.manufacturer : ''}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => onRefreshUsbPorts?.()}
+            className="w-11 rounded-xl bg-secondary border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+            title="COM portok újrakeresése"
+          >
+            <RefreshCw size={15} />
+          </button>
+        </div>
       )}
 
       <button onClick={obd2Manager ? onDisconnect : onConnect} disabled={obd2Connecting}
@@ -87,6 +106,15 @@ const AutomotiveHeader = memo(function AutomotiveHeader({
         <Bluetooth size={14} />
         {obd2Connecting ? 'Csatlakozás...' : obd2Manager ? '🟢 OBD2 Csatlakozva' : 'Csatlakoztatás'}
       </button>
+
+      {obd2Manager && connectionMeta && (
+        <div className="text-[11px] text-muted-foreground px-1">
+          {connectionMeta.device || connectionMeta.adapterType}
+          {connectionMeta.port ? ' • ' + connectionMeta.port : ''}
+          {connectionMeta.baudRate ? ' • ' + connectionMeta.baudRate + ' baud' : ''}
+          {connectionMeta.adapterInfo ? ' • ' + connectionMeta.adapterInfo : ''}
+        </div>
+      )}
 
       <AnimatePresence>
         {obd2Status && (
