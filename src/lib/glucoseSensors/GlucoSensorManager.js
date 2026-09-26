@@ -19,7 +19,15 @@ export class GlucoSensorManager {
   /**
    * Szenzor felfedezése és csatlakozás
    */
-  async detectAndConnect() {
+  async detectAndConnect({ allowExperimental = false } = {}) {
+    if (!allowExperimental) {
+      return {
+        success: false,
+        experimental: true,
+        error: 'A közvetlen CGM Bluetooth kapcsolat nincs éles provider-integrációként hitelesítve. Használd a provider réteget vagy kapcsold be külön a kísérleti módot.',
+      };
+    }
+
     try {
       // Bluetooth eszköz keresése - összes sensor típusra
       const filters = Object.values(SENSOR_TYPES).map(sensor => ({
