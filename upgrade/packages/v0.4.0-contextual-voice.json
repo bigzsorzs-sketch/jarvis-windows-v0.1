@@ -1,0 +1,27 @@
+{
+  "package": "Jarvis Contextual Voice + Situation Layer",
+  "targetVersion": "0.4.0",
+  "minimumInstalledVersion": "0.3.0",
+  "channel": "staged",
+  "releaseGate": "Release only after v0.3.0 stability package has passed its real-PC acceptance test.",
+  "delivery": "GitHub stable release -> in-app Frissítés egy kattintással",
+  "includes": [
+    "central capability bus",
+    "active module situation context",
+    "deterministic low-latency voice routing",
+    "optional AI capability routing",
+    "confirmation metadata for consequential actions",
+    "automotive contextual module",
+    "hands-free OBD DTC reading",
+    "hands-free live PID reading",
+    "OBD baseline snapshots",
+    "OBD before/after comparison",
+    "spoken automotive replies",
+    "no-API-key graceful operation for deterministic commands"
+  ],
+  "dataMigration": "none",
+  "rollback": "v0.3.0 installer plus pre-update Jarvis backup",
+  "mergeFrom": "develop/v0.4.0-contextual-voice",
+  "mergeInto": "main",
+  "securityBoundary": "Only read-only automotive capabilities are registered. Consequential actions require explicit confirmation support before they may be added."
+}
