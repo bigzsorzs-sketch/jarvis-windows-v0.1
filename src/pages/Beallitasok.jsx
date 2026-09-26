@@ -15,6 +15,7 @@ import PersonalizationCard from '@/components/settings/PersonalizationCard';
 import FocusModeCard from '@/components/settings/FocusModeCard';
 import AiBehaviorCard from '@/components/settings/AiBehaviorCard';
 import NotificationsCard from '@/components/settings/NotificationsCard';
+import UpdateCard from '@/components/settings/UpdateCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
 
 const Toggle = ({ checked, onChange }) => (
@@ -342,6 +343,8 @@ export default function Beallitasok() {
         <InviteUserCard lang={lang} inviteEmail={inviteEmail} setInviteEmail={setInviteEmail} inviting={inviting} inviteStatus={inviteStatus} onInvite={sendInvite} t={t} />
 
         <SecurityCard Toggle={Toggle} t={t} />
+
+        <UpdateCard />
 
         <CloudSyncCard t={t} />
 
