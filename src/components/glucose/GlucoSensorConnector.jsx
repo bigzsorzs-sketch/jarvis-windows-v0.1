@@ -12,6 +12,7 @@ export default function GlucoSensorConnector() {
   const [sensorInfo, setSensorInfo] = useState(null);
   const [lastReading, setLastReading] = useState(null);
   const [status, setStatus] = useState('');
+  const [experimentalDirectBluetooth, setExperimentalDirectBluetooth] = useState(false);
   const autoSaveRef = useRef(true);
 
   // Cleanup: disconnect sensor on unmount to prevent memory leaks
@@ -26,7 +27,7 @@ export default function GlucoSensorConnector() {
     setStatus('Szenzor keresése...');
 
     try {
-      const result = await sensorManager.detectAndConnect();
+      const result = await sensorManager.detectAndConnect({ allowExperimental: experimentalDirectBluetooth });
 
       if (!result.success) throw new Error(result.error);
 
@@ -129,7 +130,7 @@ export default function GlucoSensorConnector() {
         </div>
         <div className="flex-1">
           <h2 className="text-sm font-semibold text-foreground">Vércukor szenzor</h2>
-          <p className="text-xs text-muted-foreground">Libre2, Dexcom, Medtronic...</p>
+          <p className="text-xs text-muted-foreground">Provider API / helyi előzmény; közvetlen Bluetooth csak kísérleti módban</p>
         </div>
         {isConnected && (
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -191,10 +192,24 @@ export default function GlucoSensorConnector() {
         </label>
       )}
 
+      {!isConnected && (
+        <label className="flex items-start gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3">
+          <input
+            type="checkbox"
+            checked={experimentalDirectBluetooth}
+            onChange={(e) => setExperimentalDirectBluetooth(e.target.checked)}
+            className="mt-0.5 w-4 h-4"
+          />
+          <span className="text-xs text-yellow-300">
+            Kísérleti közvetlen Bluetooth engedélyezése. Ez nem hivatalos Libre/Dexcom provider-integráció és nem része az éles kompatibilitási ígéretnek.
+          </span>
+        </label>
+      )}
+
       {/* Connect/Disconnect Button */}
       <button
         onClick={isConnected ? disconnectSensor : connectSensor}
-        disabled={connecting}
+        disabled={connecting || (!isConnected && !experimentalDirectBluetooth)}
         className={`w-full py-2.5 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
           isConnected
             ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
