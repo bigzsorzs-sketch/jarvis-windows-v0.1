@@ -17,6 +17,7 @@ import AiBehaviorCard from '@/components/settings/AiBehaviorCard';
 import NotificationsCard from '@/components/settings/NotificationsCard';
 import UpdateCard from '@/components/settings/UpdateCard';
 import StabilityCard from '@/components/settings/StabilityCard';
+import SelfRepairCard from '@/components/settings/SelfRepairCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
 
 const Toggle = ({ checked, onChange }) => (
@@ -348,6 +349,8 @@ export default function Beallitasok() {
         <UpdateCard />
 
         <StabilityCard />
+
+        <SelfRepairCard />
 
         <CloudSyncCard t={t} />
 
