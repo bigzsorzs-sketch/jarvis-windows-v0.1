@@ -122,6 +122,7 @@ function getSettingsInternal() {
     language: raw.language || 'hu',
     aiProvider: raw.aiProvider || 'openrouter',
     aiModel: raw.aiModel || 'openrouter/auto',
+    aiImageModel: raw.aiImageModel || 'openai/gpt-image-1',
     hasOpenRouterKey: Boolean(raw.openRouterKey),
     supervisedSelfRepair: raw.supervisedSelfRepair !== false,
   };
@@ -132,6 +133,7 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.language === 'string') raw.language = patch.language;
   if (typeof patch.aiProvider === 'string') raw.aiProvider = patch.aiProvider;
   if (typeof patch.aiModel === 'string') raw.aiModel = patch.aiModel;
+  if (typeof patch.aiImageModel === 'string') raw.aiImageModel = patch.aiImageModel;
   if (typeof patch.supervisedSelfRepair === 'boolean') raw.supervisedSelfRepair = patch.supervisedSelfRepair;
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
@@ -143,11 +145,30 @@ async function openRouterRequest(payload={}) {
   const raw = readJson(settingsPath(), {});
   const apiKey = unprotectSecret(raw.openRouterKey);
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
+
   const requestedModel = String(payload.model || '');
   const model = requestedModel.includes('/') ? requestedModel : (raw.aiModel || 'openrouter/auto');
-  const messages = payload.messages || [{ role:'user', content:String(payload.prompt || '') }];
+
+  let messages = payload.messages;
+  if (!messages) {
+    const prompt = String(payload.prompt || '');
+    const fileUrls = Array.isArray(payload.file_urls) ? payload.file_urls.filter(Boolean).slice(0, 8) : [];
+    if (fileUrls.length > 0) {
+      messages = [{
+        role:'user',
+        content:[
+          { type:'text', text:prompt },
+          ...fileUrls.map((url)=>({ type:'image_url', image_url:{ url:String(url) } }))
+        ]
+      }];
+    } else {
+      messages = [{ role:'user', content:prompt }];
+    }
+  }
+
   const body = { model, messages };
   if (payload.response_json_schema) body.response_format = { type:'json_object' };
+
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method:'POST',
     headers:{
@@ -158,6 +179,7 @@ async function openRouterRequest(payload={}) {
     },
     body:JSON.stringify(body)
   });
+
   if (!res.ok) throw new Error(`OPENROUTER_${res.status}:${(await res.text()).slice(0,500)}`);
   const json = await res.json();
   const content = json?.choices?.[0]?.message?.content ?? '';
@@ -168,6 +190,98 @@ async function openRouterRequest(payload={}) {
   return { success:true, data:{ result, model:json.model || model, usage:json.usage || null } };
 }
 
+async function openRouterImageRequest(payload={}) {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = unprotectSecret(raw.openRouterKey);
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
+
+  const prompt = String(payload.prompt || '').trim();
+  if (!prompt) throw new Error('IMAGE_PROMPT_REQUIRED');
+  if (prompt.length > 12000) throw new Error('IMAGE_PROMPT_TOO_LONG');
+
+  const model = String(payload.model || raw.aiImageModel || 'openai/gpt-image-1');
+  const body = {
+    model,
+    prompt,
+    n:Math.max(1,Math.min(Number(payload.n)||1,4)),
+  };
+
+  const passthrough = ['resolution','aspect_ratio','size','quality','output_format','background','output_compression'];
+  for (const key of passthrough) {
+    if (payload[key] != null && payload[key] !== '') body[key]=payload[key];
+  }
+
+  const refs = Array.isArray(payload.existing_image_urls)
+    ? payload.existing_image_urls.filter(Boolean).slice(0,5)
+    : [];
+  if (refs.length > 0) {
+    body.input_references = refs.map((url)=>({
+      type:'image_url',
+      image_url:{url:String(url)}
+    }));
+  }
+
+  const res = await fetch('https://openrouter.ai/api/v1/images', {
+    method:'POST',
+    headers:{
+      'Authorization':`Bearer ${apiKey}`,
+      'Content-Type':'application/json',
+      'HTTP-Referer':'https://jarvis.local',
+      'X-Title':'Jarvis Desktop'
+    },
+    body:JSON.stringify(body)
+  });
+
+  if (!res.ok) throw new Error(`OPENROUTER_IMAGE_${res.status}:${(await res.text()).slice(0,500)}`);
+  const json = await res.json();
+  const images = (json?.data || []).map((item)=>{
+    const mediaType=item?.media_type || 'image/png';
+    const b64=String(item?.b64_json || '');
+    return {
+      url:b64 ? `data:${mediaType};base64,${b64}` : null,
+      mediaType,
+    };
+  }).filter((item)=>item.url);
+
+  if (images.length === 0) throw new Error('OPENROUTER_IMAGE_EMPTY_RESPONSE');
+
+  return {
+    success:true,
+    data:{
+      url:images[0].url,
+      images,
+      model,
+      usage:json?.usage || null,
+      created:json?.created || null,
+    }
+  };
+}
+
+async function listOpenRouterImageModels() {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = unprotectSecret(raw.openRouterKey);
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
+
+  const res = await fetch('https://openrouter.ai/api/v1/images/models', {
+    headers:{
+      'Authorization':`Bearer ${apiKey}`,
+      'Accept':'application/json',
+      'User-Agent':'Jarvis-Desktop'
+    }
+  });
+  if (!res.ok) throw new Error(`OPENROUTER_IMAGE_MODELS_${res.status}`);
+  const json=await res.json();
+  return (json?.data || []).map((item)=>({
+    id:item.id,
+    name:item.name || item.id,
+    description:item.description || '',
+    inputModalities:item.architecture?.input_modalities || [],
+    outputModalities:item.architecture?.output_modalities || [],
+    supportedParameters:item.supported_parameters || {},
+    supportsStreaming:Boolean(item.supports_streaming),
+  }));
+}
+
 async function invokeJarvisFunction(name, payload={}) {
   switch (name) {
     case 'llmProxy': return openRouterRequest(payload);
@@ -175,7 +289,31 @@ async function invokeJarvisFunction(name, payload={}) {
       const r = await openRouterRequest(payload);
       return { data:{ result:r.data.result, model:r.data.model, usage:r.data.usage } };
     }
-    case 'validateFileUpload': return { data:{ valid:true, allowed:true } };
+    case 'validateFileUpload': {
+      const meta=payload && typeof payload === 'object' ? payload : {};
+      const size=Number(meta.size || 0);
+      const type=String(meta.type || '');
+      const allowedTypes=['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain'];
+      const validSize=!size || size <= 20*1024*1024;
+      const validType=!type || allowedTypes.includes(type);
+      return { data:{ valid:validSize && validType, allowed:validSize && validType, maxBytes:20*1024*1024 } };
+    }
+    case 'generateImage': return openRouterImageRequest(payload);
+    case 'listImageModels': return { data:{ models:await listOpenRouterImageModels() } };
+    case 'generateOBDDiagnosis': {
+      const vehicle=payload.vehicle_info || {};
+      const prompt=[
+        'Te egy óvatos autódiagnosztikai asszisztens vagy.',
+        'A következő standard OBD-II adatok alapján adj rövid, gyakorlati diagnosztikai összefoglalót.',
+        'Ne állíts biztos hibát pusztán hibakódból. Különítsd el a mért tényt, a valószínű okokat és a következő ellenőrzést.',
+        'Jármű: '+JSON.stringify(vehicle),
+        'DTC: '+JSON.stringify(payload.dtc_codes || []),
+        'RPM minták: '+JSON.stringify((payload.rpm_data || []).slice(-30)),
+        'Hűtővíz minták: '+JSON.stringify((payload.temperature_data || []).slice(-30)),
+      ].join('\n');
+      const result=await openRouterRequest({prompt,model:payload.model});
+      return { data:{ diagnosis:result.data.result, model:result.data.model, usage:result.data.usage } };
+    }
     case 'sendFeedback': return { data:{ success:true, storedLocally:true } };
     case 'getActivePromptTunings': return { data:{ tunings:[] } };
     case 'deleteAccount': return { data:{ success:true, localOnly:true } };
