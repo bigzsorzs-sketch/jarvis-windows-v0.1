@@ -16,6 +16,7 @@ import FocusModeCard from '@/components/settings/FocusModeCard';
 import AiBehaviorCard from '@/components/settings/AiBehaviorCard';
 import NotificationsCard from '@/components/settings/NotificationsCard';
 import UpdateCard from '@/components/settings/UpdateCard';
+import StabilityCard from '@/components/settings/StabilityCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
 
 const Toggle = ({ checked, onChange }) => (
@@ -345,6 +346,8 @@ export default function Beallitasok() {
         <SecurityCard Toggle={Toggle} t={t} />
 
         <UpdateCard />
+
+        <StabilityCard />
 
         <CloudSyncCard t={t} />
 
