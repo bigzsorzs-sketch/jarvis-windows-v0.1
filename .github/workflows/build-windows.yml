@@ -27,7 +27,7 @@ jobs:
         run: npm run build
 
       - name: Build Windows installer
-        run: npx electron-builder --win nsis --x64
+        run: npx electron-builder --win nsis --x64 --publish never
 
       - name: Create SHA-256 checksum
         shell: pwsh
