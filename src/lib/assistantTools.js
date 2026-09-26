@@ -1,0 +1,530 @@
+import { jarvis } from '@/api/jarvisClient';
+import { ENV_TOOLS } from './environmentTools';
+import { translateText, SUPPORTED_LANGUAGES } from './languageEngine';
+import { loadEcosystemData, analyzeEcosystem, buildEcosystemContext } from './ecosystemEngine';
+import { sanitizeString, escapePromptValue, validateAction } from './assistantTools/sanitization';
+import { logger } from '@/lib/logger';
+
+const today = () => new Date().toISOString().split('T')[0];
+
+async function getCurrentUserOrThrow() {
+  const currentUser = await jarvis.auth.me().catch(() => null);
+  if (!currentUser?.email) throw new Error('A művelethez be kell jelentkezned.');
+  return currentUser;
+}
+
+function getUserFilter(currentUser) {
+  if (!currentUser?.email) throw new Error('A művelethez be kell jelentkezned.');
+  return { created_by: currentUser.email };
+}
+
+function withOwner(data, currentUser) {
+  return { ...data, created_by: currentUser.email };
+}
+
+// ─── SAFE ACTION LOGGER (never throws) ───────────────────────────────────────
+async function logAction(action_type, description, payload, result, status = 'completed') {
+  try {
+    const currentUser = await getCurrentUserOrThrow();
+    await jarvis.entities.ActionLog.create(withOwner({
+      action_type,
+      description,
+      payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload || ''),
+      result: typeof result === 'object' ? JSON.stringify(result) : String(result || ''),
+      status,
+    }, currentUser));
+  } catch (error) {
+    logger.warn('assistantTools', 'Action log write failed', { action_type, message: error?.message });
+  }
+}
+
+// ─── INPUT VALIDATORS ─────────────────────────────────────────────────────────
+function requireString(val, name) {
+  if (!val || typeof val !== 'string' || !val.trim()) throw new Error(`Hiányzó adat: ${name}`);
+  return val.trim();
+}
+function requireNumber(val, name) {
+  const n = parseFloat(val);
+  if (isNaN(n)) throw new Error(`Érvénytelen szám: ${name}`);
+  return n;
+}
+
+// ─── TOOL DEFINITIONS ────────────────────────────────────────────────────────
+
+export const TOOLS = {
+  create_note: async ({ title, content }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const t = title?.trim() || content?.trim()?.slice(0, 60) || 'Jegyzet';
+    const note = await jarvis.entities.Note.create(withOwner({ title: t, content: content || '' }, currentUser));
+    await logAction('create_note', `Note created: "${t}"`, { title: t, content }, note);
+    return { success: true, message: `✅ Létrehoztam a(z) "${t}" nevű jegyzetet.`, data: note };
+  },
+
+  create_task: async ({ title, description, due_date, category }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const t = title?.trim() || description?.trim()?.slice(0, 60) || 'Feladat';
+    const task = await jarvis.entities.TodoItem.create(withOwner({
+      title: t, description: description || '', due_date: due_date || null,
+      category: category || 'general', is_completed: false
+    }, currentUser));
+    await logAction('create_task', `Task created: "${t}"`, { title: t, due_date }, task);
+    return { success: true, message: `✅ Feladat hozzáadva: "${t}"${due_date ? ` – határidő: ${due_date}` : ''}.`, data: task };
+  },
+
+  create_reminder: async ({ title, description, due_date, due_time, category }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    // Fallback title from description or time if missing
+    const t = title?.trim() || description?.trim()?.slice(0, 60) || (due_time ? `Emlékeztető ${due_time}` : 'Emlékeztető');
+    const reminder = await jarvis.entities.Reminder.create(withOwner({
+      title: t, description: description || '', due_date: due_date || null,
+      due_time: due_time || null, category: category || 'other', is_done: false
+    }, currentUser));
+    await logAction('create_reminder', `Reminder: "${t}"`, { title: t, due_date, due_time }, reminder);
+    return { success: true, message: `⏰ Emlékeztető beállítva: "${t}"${due_date ? ` – ${due_date} ${due_time || ''}` : ''}.`, data: reminder };
+  },
+
+  create_contact: async ({ name, phone, email, relationship, notes }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const n = requireString(name, 'kapcsolat neve');
+    const contact = await jarvis.entities.Contact.create(withOwner({
+      name: n, phone: phone || '', email: email || '',
+      relationship: relationship || '', notes: notes || '', last_contacted: today()
+    }, currentUser));
+    await logAction('create_contact', `Contact added: "${n}"`, { name: n, phone, email }, contact);
+    return { success: true, message: `👤 Kapcsolat hozzáadva: ${n}${phone ? ` (${phone})` : ''}.`, data: contact };
+  },
+
+  search_contacts: async ({ query }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const q = requireString(query, 'keresési feltétel').toLowerCase();
+    const contacts = await jarvis.entities.Contact.filter(getUserFilter(currentUser), '-created_date', 50);
+    const results = contacts.filter(c =>
+      c.name?.toLowerCase().includes(q) ||
+      c.email?.toLowerCase().includes(q) ||
+      c.phone?.includes(q)
+    );
+    await logAction('search_contacts', `Searched contacts: "${q}"`, { query: q }, { count: results.length });
+    return { success: true, message: `🔍 ${results.length} találat: ${results.map(c => c.name).join(', ') || 'nincs'}.`, data: results };
+  },
+
+  search_data: async ({ query, entity }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const q = requireString(query, 'keresési feltétel').toLowerCase();
+    const entityList = entity ? [entity] : ['Note', 'TodoItem', 'Memory', 'Reminder', 'Contact'];
+    const results = {};
+    for (const e of entityList) {
+      if (!jarvis.entities[e]) continue;
+      const items = await jarvis.entities[e].filter(getUserFilter(currentUser), '-created_date', 30);
+      results[e] = items.filter(i => JSON.stringify(i).toLowerCase().includes(q));
+    }
+    const total = Object.values(results).flat().length;
+    await logAction('search_data', `Searched: "${q}"`, { query: q, entity }, { total });
+    return { success: true, message: `🔍 ${total} találat erre: "${q}".`, data: results };
+  },
+
+  call_contact: async ({ name, phone }) => {
+    const n = name || 'Ismeretlen';
+    await logAction('call_contact', `Call trigger: ${n}`, { name: n, phone }, { triggered: true });
+    if (phone) window.location.href = `tel:${phone.replace(/\s/g, '')}`;
+    return { success: true, message: `📞 Hívás indítása: ${n} – ${phone || 'szám ismeretlen'}.`, data: { name: n, phone } };
+  },
+
+  create_invoice: async ({ client_name, client_email, items, notes }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const cn = requireString(client_name, 'ügyfél neve');
+    const inv_number = 'INV-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    const processedItems = (items || []).map(i => ({
+      description: i.description || 'Tétel',
+      quantity: parseFloat(i.quantity) || 1,
+      unit_price: parseFloat(i.unit_price) || 0,
+      total: (parseFloat(i.quantity) || 1) * (parseFloat(i.unit_price) || 0)
+    }));
+    const total = processedItems.reduce((s, i) => s + i.total, 0);
+    const invoice = await jarvis.entities.Invoice.create(withOwner({
+      invoice_number: inv_number, client_name: cn, client_email: client_email || '',
+      items: processedItems, total_amount: total, notes: notes || '',
+      issue_date: today(), status: 'piszkozat'
+    }, currentUser));
+    await logAction('create_invoice', `Invoice: ${inv_number} for ${cn}`, { client_name: cn, total }, invoice);
+    return { success: true, message: `🧾 Számla létrehozva: ${inv_number} – ${cn} – £${total.toFixed(2)}`, data: invoice };
+  },
+
+  generate_pdf: async ({ invoice_id }) => {
+    if (!invoice_id) return { success: false, message: '❌ Kérlek add meg a számlaszámot (invoice_id) a PDF generáláshoz.' };
+    const currentUser = await getCurrentUserOrThrow();
+    const invoices = await jarvis.entities.Invoice.filter(getUserFilter(currentUser));
+    const inv = invoices.find(i => i.id === invoice_id);
+    if (!inv) return { success: false, message: `❌ Nem található számla (id: ${invoice_id}). Kérlek ellenőrizd a számlaszámot.` };
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.text('SZÁMLA / INVOICE', 20, 25);
+    doc.setFontSize(11);
+    doc.text(`Számlaszám: ${inv.invoice_number}`, 20, 45);
+    doc.text(`Dátum: ${inv.issue_date || today()}`, 20, 55);
+    doc.text(`Vevő: ${inv.client_name || 'N/A'}`, 20, 70);
+    let y = 90;
+    (inv.items || []).forEach(item => {
+      if (y > 260) { doc.addPage(); y = 20; }
+      doc.text(`${item.description || ''} – ${item.quantity || 1} × £${item.unit_price || 0} = £${item.total || 0}`, 20, y);
+      y += 10;
+    });
+    doc.setFontSize(14);
+    doc.text(`ÖSSZESEN: £${(inv.total_amount || 0).toFixed(2)}`, 20, y + 10);
+    doc.save(`${inv.invoice_number}.pdf`);
+    await logAction('generate_pdf', `PDF generated: ${inv.invoice_number}`, { invoice_id }, { file: `${inv.invoice_number}.pdf` });
+    return { success: true, message: `📄 PDF letöltve: ${inv.invoice_number}.pdf`, data: { invoice: inv } };
+  },
+
+  draft_email: async ({ to, subject, body }) => {
+    const recipient = requireString(to, 'email cím');
+    const sub = subject || 'Tárgy nélkül';
+
+    // Try Gmail API send first; fall back to mailto on failure
+    try {
+      const res = await jarvis.functions.invoke('gmailSend', { to: recipient, subject: sub, body: body || '' });
+      if (res?.data?.success) {
+        await logAction('draft_email', `Email sent via Gmail API to ${recipient}`, { to: recipient, subject: sub }, { sent: true });
+        return { success: true, message: `📧 Email elküldve: ${recipient} – "${sub}"`, data: { to: recipient, subject: sub, sent: true } };
+      }
+    } catch { /* Gmail connector not set up — fall through to mailto */ }
+
+    const mailto = `mailto:${recipient}?subject=${encodeURIComponent(sub)}&body=${encodeURIComponent(body || '')}`;
+    window.open(mailto);
+    await logAction('draft_email', `Email drafted (mailto) to ${recipient}`, { to: recipient, subject: sub }, { opened: true });
+    return { success: true, message: `📧 Email szerkesztő megnyitva – Címzett: ${recipient}, Tárgy: "${sub}"`, data: { to: recipient, subject: sub, sent: false } };
+  },
+
+  log_blood_sugar: async ({ value, time_of_day }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const v = requireNumber(value, 'vércukorérték');
+    if (v < 1 || v > 40) return { success: false, message: `❌ Érvénytelen vércukorérték: ${v}. Kérlek ellenőrizd (normál: 4–10 mmol/L).` };
+    const bs = await jarvis.entities.BloodSugar.create(withOwner({ value: v, time_of_day: time_of_day || 'reggel', date: today(), unit: 'mmol/L' }, currentUser));
+    await logAction('log_blood_sugar', `Blood sugar: ${v} mmol/L`, { value: v, time_of_day }, bs);
+    const warning = v > 10 ? ' ⚠️ Magas érték!' : v < 4 ? ' ⚠️ Alacsony érték!' : '';
+    return { success: true, message: `🩸 Vércukor rögzítve: ${v} mmol/L (${time_of_day || 'reggel'})${warning}`, data: bs };
+  },
+
+  log_meal: async ({ meal_name, meal_type, calories }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const mn = requireString(meal_name, 'étel neve');
+    const cal = calories ? parseFloat(calories) : 0;
+    const meal = await jarvis.entities.MealLog.create(withOwner({ meal_name: mn, meal_type: meal_type || 'reggeli', calories: cal, date: today() }, currentUser));
+    await logAction('log_meal', `Meal: ${mn}`, { meal_name: mn, calories: cal }, meal);
+    return { success: true, message: `🍽️ Étkezés rögzítve: ${mn}${cal ? ` (${cal} kcal)` : ''}`, data: meal };
+  },
+
+  log_finance: async ({ description, amount, type, category }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const desc = requireString(description, 'leírás');
+    const amt = requireNumber(amount, 'összeg');
+    if (amt <= 0) return { success: false, message: '❌ Az összegnek pozitívnak kell lennie.' };
+    const t = ['income', 'expense'].includes(type) ? type : 'expense';
+    const entry = await jarvis.entities.FinanceEntry.create(withOwner({
+      description: desc, amount: amt, type: t, category: category || 'magan', date: today()
+    }, currentUser));
+    await logAction('log_finance', `Finance: ${desc} £${amt}`, { description: desc, amount: amt, type: t }, entry);
+    return { success: true, message: `💰 Pénzügyi tétel: ${desc} – ${t === 'income' ? '+' : '-'}£${amt}`, data: entry };
+  },
+
+  // Environment tools – delegate to ENV_TOOLS
+  control_device: async (params) => ENV_TOOLS.control_device(params),
+  check_device_status: async (params) => ENV_TOOLS.check_device_status(params),
+  trigger_scene: async (params) => ENV_TOOLS.trigger_scene(params),
+  run_routine: async (params) => ENV_TOOLS.run_routine(params),
+
+  translate_text: async ({ text, target_language }) => {
+    const t = requireString(text, 'fordítandó szöveg');
+    const lang = requireString(target_language, 'célnyelv');
+    const translated = await translateText(t, lang);
+    const langName = SUPPORTED_LANGUAGES.find(l => l.code === lang)?.name || lang;
+    await logAction('translate_text', `Translated to ${langName}`, { target_language: lang, length: t.length }, { translated });
+    return { success: true, message: `🌐 Fordítás (${langName}):\n\n${translated}`, data: { translated, target_language: lang } };
+  },
+
+  save_memory: async ({ content, category, importance }) => {
+    const currentUser = await getCurrentUserOrThrow();
+    const c = requireString(content, 'memória tartalom');
+    const imp = Math.min(10, Math.max(1, parseInt(importance) || 7));
+    const mem = await jarvis.entities.Memory.create(withOwner({ content: c, category: category || 'fact', importance: imp }, currentUser));
+    await logAction('save_memory', `Memory saved`, { content: c }, mem);
+    return { success: true, message: `🧠 Megjegyeztem: "${c}"`, data: mem };
+  },
+
+  analyze_ecosystem: async () => {
+    const data = await loadFullContext();
+    const analysis = analyzeEcosystem({
+      businesses: data.businesses || [],
+      projects: data.projects || [],
+      employees: data.employees || [],
+      clients: data.clients || [],
+      invoices: data.invoices || [],
+      todos: data.todos || [],
+      finance: data.finance || [],
+      reminders: data.reminders || [],
+      meds: data.meds || [],
+    });
+    const summary = `⚡ Ecosystem Score: ${analysis.score}/100 | Bevétel: £${analysis.totalRevenue.toFixed(0)} | Profit: £${analysis.netProfit.toFixed(0)} (${analysis.margin.toFixed(1)}%) | Ineffektivitások: ${analysis.inefficiencies.length} | Top javaslat: ${analysis.recommendations[0]?.title || 'n/a'}`;
+    await logAction('analyze_ecosystem', 'Ecosystem analysis run', {}, { score: analysis.score });
+    return { success: true, data: { summary, analysis } };
+  },
+
+  optimize_workload: async () => {
+    const data = await loadFullContext();
+    const analysis = analyzeEcosystem({
+      businesses: data.businesses || [],
+      projects: data.projects || [],
+      employees: data.employees || [],
+      clients: data.clients || [],
+      invoices: data.invoices || [],
+      todos: data.todos || [],
+      finance: data.finance || [],
+      reminders: data.reminders || [],
+      meds: data.meds || [],
+    });
+    const overloaded = analysis.workloadByBiz.filter(w => w.ratio > 2);
+    if (overloaded.length === 0) {
+      return { success: true, message: '✅ A munkaterhelés egyenletesen van elosztva.', data: analysis.workloadByBiz };
+    }
+    const details = overloaded.map(w => `${w.name}: ${w.projects} projekt / ${w.employees} alkalmazott (${w.ratio.toFixed(1)}×)`).join('\n');
+    await logAction('optimize_workload', 'Workload analysis', {}, { overloaded: overloaded.length });
+    return { success: true, message: `⚖️ Túlterhelt területek:\n${details}\n\nJavaslat: Csökkentsd az egyidejű projekteket vagy bővítsd a csapatot.`, data: overloaded };
+  },
+
+  optimize_revenue: async () => {
+    const data = await loadFullContext();
+    const analysis = analyzeEcosystem({
+      businesses: data.businesses || [],
+      projects: data.projects || [],
+      employees: data.employees || [],
+      clients: data.clients || [],
+      invoices: data.invoices || [],
+      todos: data.todos || [],
+      finance: data.finance || [],
+      reminders: data.reminders || [],
+      meds: data.meds || [],
+    });
+    const lowMargin = analysis.revenueByBiz.filter(b => b.revenue > 0 && b.margin < 25);
+    const topRec = analysis.recommendations.filter(r => r.priority === 'high').map(r => `${r.icon} ${r.title}: ${r.action}`).join('\n');
+    await logAction('optimize_revenue', 'Revenue optimization', {}, { lowMargin: lowMargin.length });
+    return {
+      success: true,
+      message: `💰 Bevétel-optimalizálás:\nTeljes margin: ${analysis.margin.toFixed(1)}% | Kintlévőség: £${analysis.unpaidTotal.toFixed(0)}\n\nAlacsony margójú cégek: ${lowMargin.map(b => `${b.name} (${b.margin.toFixed(0)}%)`).join(', ') || 'nincs'}\n\nSürgős teendők:\n${topRec || 'Nincs sürgős feladat.'}`,
+      data: analysis,
+    };
+  },
+};
+
+// ─── CONTEXT LOADER ──────────────────────────────────────────────────────────
+
+export async function loadFullContext(refreshCache = false) {
+  const startTime = Date.now();
+
+  const currentUser = await getCurrentUserOrThrow();
+
+  const userEmail = currentUser.email;
+  const userFilter = getUserFilter(currentUser);
+
+  const [memories, settings, todos, finance, bs, meals, meds, contacts, reminders, actions,
+    businesses, projects, employees, clients, invoices] = await Promise.all([
+    jarvis.entities.Memory.filter(userFilter, '-importance', 20).catch(() => []),
+    jarvis.entities.UserSettings.filter(userFilter).catch(() => []),
+    jarvis.entities.TodoItem.filter({ ...userFilter, is_completed: false }, '-created_date', 15).catch(() => []),
+    jarvis.entities.FinanceEntry.filter(userFilter, '-date', 30).catch(() => []),
+    jarvis.entities.BloodSugar.filter(userFilter, '-date', 14).catch(() => []),
+    jarvis.entities.MealLog.filter(userFilter, '-date', 14).catch(() => []),
+    jarvis.entities.Medication.filter({ ...userFilter, is_active: true }).catch(() => []),
+    jarvis.entities.Contact.filter(userFilter, '-created_date', 20).catch(() => []),
+    jarvis.entities.Reminder.filter({ ...userFilter, is_done: false }, '-due_date', 10).catch(() => []),
+    jarvis.entities.ActionLog.filter(userFilter, '-created_date', 10).catch(() => []),
+    jarvis.entities.Business.filter(userFilter).catch(() => []),
+    jarvis.entities.BusinessProject.filter(userFilter).catch(() => []),
+    jarvis.entities.Employee.filter(userFilter).catch(() => []),
+    jarvis.entities.BusinessClient.filter(userFilter).catch(() => []),
+    jarvis.entities.Invoice.filter(userFilter, '-created_date', 50).catch(() => []),
+  ]);
+
+  const activePromptTunings = await jarvis.functions.invoke('getActivePromptTunings', {})
+    .then((response) => response.data?.tunings || [])
+    .catch(() => []);
+
+  let ecosystemData = null;
+  try {
+    const ecoRaw = { businesses, projects, employees, clients, invoices, todos, finance, reminders, meds };
+    ecosystemData = analyzeEcosystem(ecoRaw);
+  } catch { /* non-critical */ }
+
+  const executionTime = Date.now() - startTime;
+  if (executionTime > 2000) {
+    logger.warn('loadFullContext', `Slow context load: ${executionTime}ms`);
+  }
+
+  return {
+    memories, settings: settings[0] || null, todos, finance, bs, meals, meds, contacts, reminders, actions,
+    businesses, projects, employees, clients, invoices, ecosystem: ecosystemData, userEmail,
+    promptTunings: activePromptTunings,
+  };
+}
+
+export function buildSystemPrompt(ctx, langInstruction = '', userMood = 'neutral') {
+  if (!ctx) return 'You are a unified AI assistant. Help the user in their language!';
+
+  const { memories, settings, todos, finance, bs, meals, meds, contacts, reminders, actions, invoices, ecosystem, promptTunings } = ctx;
+  const todayStr = today();
+  const now = new Date();
+  const dayNames = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
+  const monthNames = ['január', 'február', 'március', 'április', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
+  const currentDateTime = `${now.getFullYear()}. ${monthNames[now.getMonth()]} ${now.getDate()}., ${dayNames[now.getDay()]} – ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const todayCalories = (meals || []).filter(m => m.date === todayStr).reduce((s, m) => s + (m.calories || 0), 0);
+  const balance = (finance || []).reduce((s, f) => s + (f.type === 'income' ? (f.amount || 0) : -(f.amount || 0)), 0);
+  const lastBS = bs?.[0];
+  const pendingReminders = (reminders || []).filter(r => !r.is_done);
+  const urgentReminders = pendingReminders.filter(r => r.due_date && r.due_date <= todayStr);
+  const overdueInvoices = (invoices || []).filter(inv => inv.status !== 'kifizetve' && inv.due_date && inv.due_date < todayStr);
+  const recentActions = (actions || []).slice(0, 5).map(a => `${a.action_type}: ${a.description}`).join(', ');
+  const openTasks = (todos || []).length;
+  const highPriorityTasks = (todos || []).filter(t => t.priority === 'magas' || t.priority === 'surgos');
+
+  const prioritySignals = [];
+  if (urgentReminders.length > 0) prioritySignals.push(`URGENT REMINDERS: ${urgentReminders.map(r => r.title).join(', ')}`);
+  if (highPriorityTasks.length > 0) prioritySignals.push(`HIGH PRIORITY TASKS: ${highPriorityTasks.map(t => t.title).join(', ')}`);
+
+  // Mood-based tone adjustment
+  const moodInstruction = {
+    'happy': 'Match their enthusiasm! Be upbeat, positive, encouraging.',
+    'sad': 'Be empathetic and supportive. Gently help lift their mood.',
+    'angry': 'Stay calm, acknowledge their frustration. Be factual and solution-focused.',
+    'confused': 'Be extra clear, use simple language. Break down concepts step by step.',
+    'calm': 'Maintain their serenity. Thoughtful, measured responses.',
+    'neutral': ''
+  }[userMood] || '';
+
+  const tuningInstructions = (promptTunings || [])
+    .filter((item) => item.status === 'active' && item.proposed_instruction)
+    .map((item) => `- ${escapePromptValue(item.proposed_instruction, 600)}`)
+    .join('\n');
+
+  return `You are a UNIFIED INTELLIGENCE SYSTEM — a single coherent AI that seamlessly integrates all capabilities below.
+  Name: ${settings?.ai_name || 'Assistant'} | Personality: ${settings?.personality || 'kedves'} | Age group: ${settings?.age_group || 'felnott'} | User Mood: ${userMood}
+  ${moodInstruction ? `\n🎭 TONE: ${moodInstruction}` : ''}
+
+${langInstruction}
+
+━━━ APPROVED PROMPT TUNING ━━━
+${tuningInstructions || 'No approved tuning instructions.'}
+
+━━━ DATE & TIME ━━━
+Current: ${currentDateTime}
+
+━━━ PRIORITY NOW ━━━
+${prioritySignals.length > 0 ? prioritySignals.map(signal => escapePromptValue(signal, 300)).join('\n') : 'No urgent signals – operate in standard mode'}
+
+━━━ USER KNOWLEDGE BASE ━━━
+Memories: ${(memories || []).map(m => `[${escapePromptValue(m.category || 'fact', 40)}] ${escapePromptValue(m.content, 400)}`).join(' | ') || 'none'}
+Medications: ${(meds || []).map(m => `${escapePromptValue(m.name, 80)} ${escapePromptValue(m.dose || '', 40)} ${escapePromptValue(m.frequency || '', 80)}`).join(', ') || 'none'}
+Contacts: ${(contacts || []).slice(0, 8).map(c => `${escapePromptValue(c.name, 80)}${c.phone ? ` (${escapePromptValue(c.phone, 40)})` : ''}${c.email ? ` <${escapePromptValue(c.email, 120)}>` : ''}`).join(' | ') || 'none'}
+
+━━━ LIVE STATUS ━━━
+Tasks: ${openTasks} open | High priority: ${highPriorityTasks.map(t => escapePromptValue(t.title, 120)).join(', ') || 'none'}
+Reminders: ${pendingReminders.slice(0, 3).map(r => `${escapePromptValue(r.title, 120)}${r.due_date ? ` [${escapePromptValue(r.due_date, 20)}]` : ''}`).join(', ') || 'none'}
+Finance: Balance £${balance.toFixed(2)} | Overdue invoices: ${overdueInvoices.length} | Recent: ${(finance || []).slice(0, 3).map(f => `${f.type === 'income' ? '+' : '-'}£${f.amount} ${escapePromptValue(f.description, 120)}`).join(', ') || 'none'}
+Health: Last BG=${lastBS ? `${lastBS.value} mmol/L (${lastBS.time_of_day})` : 'none'} | Today calories=${todayCalories} kcal
+Recent actions: ${recentActions || 'none'}
+
+${ecosystem ? buildEcosystemContext(ecosystem) : ''}
+━━━ CAPABILITY MODULES ━━━
+[MEMORY] save_memory, search_data
+[PRODUCTIVITY] create_task, create_reminder, create_note
+[HEALTH] log_blood_sugar, log_meal
+[FINANCE] log_finance, create_invoice, generate_pdf
+[COMMUNICATION] draft_email, call_contact, create_contact, search_contacts
+[LANGUAGE] translate_text
+[SMART HOME] control_device, check_device_status, trigger_scene, run_routine
+[BUSINESS] analyze_ecosystem, optimize_workload, optimize_revenue
+
+━━━ RULES ━━━
+1. Always respond in the user's language.
+2. When you need to DO something, output actions only inside an actions code block with a JSON array of actions. Do not use legacy [ACTION:...] syntax.
+3. VALIDATE before acting: if critical info is missing (e.g. invoice has no items), ask the user.
+4. If an action fails or seems wrong, explain clearly in the user's language.
+5. Never repeat an action already in Recent actions.
+6. IMPORTANT: Only mention health data, reminders or finances if the user explicitly asks about them, EXCEPT when the user asks for a full ecosystem overview or when a proactive suggestion explicitly connects modules.
+7. Keep responses very short and concrete. In voice use, default to one sentence under 18 words.
+8. Cross-functional: one user message can trigger multiple actions at once.
+9. For simple greetings like "szia", "hello", "hi" — just greet back briefly. Do NOT volunteer unsolicited health/financial advice.
+10. When relevant, notice cross-module patterns such as overdue invoices, missing reminders, negative balance, or health/admin task collisions, and suggest one practical next step.
+
+TOOL SYNTAX: Use an actions code block containing JSON objects with tool and params fields. `;
+}
+
+// ─── ACTION PARSER ────────────────────────────────────────────────────────────
+
+/**
+ * Parse actions from LLM reply.
+ * ONLY accepts JSON block format: ```actions\n[...]\n```
+ * Mixed or legacy [ACTION:...] format is rejected for determinism.
+ */
+export function parseActions(reply) {
+  if (!reply || typeof reply !== 'string') return [];
+
+  const jsonBlockMatch = reply.match(/```actions?\s*([\s\S]*?)```/i);
+  if (!jsonBlockMatch) return [];
+
+  try {
+    const parsed = JSON.parse(jsonBlockMatch[1].trim());
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const valid = arr.filter(a => a && typeof a.tool === 'string' && validateAction(a));
+    // Preserve declaration order — no sorting
+    return valid;
+  } catch (err) {
+    logger.warn('parseActions', 'Failed to parse JSON action block', { err: err?.message });
+    return [];
+  }
+}
+
+/**
+ * Execute parsed actions sequentially, guaranteed order.
+ * Each action: validate → execute → retry once on transient failure → log.
+ * On critical failure, remaining actions still run (partial success model).
+ */
+export async function executeActions(actions) {
+  const results = [];
+
+  for (const action of actions) {
+    if (!validateAction(action)) {
+      results.push({ ...action, result: { success: false, message: '❌ Érvénytelen művelet' } });
+      continue;
+    }
+
+    const toolFn = TOOLS[action.tool];
+    if (!toolFn) {
+      results.push({ ...action, result: { success: false, message: `❌ Ismeretlen művelet: ${action.tool}` } });
+      continue;
+    }
+
+    let result;
+    let lastErr;
+    // One retry for transient failures
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        result = await toolFn(action.params);
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (attempt === 0) await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    if (lastErr) {
+      logger.error('assistantTools', 'Action execution failed', { tool: action.tool, message: lastErr?.message });
+      await logAction(action.tool, `Error: ${lastErr.message}`, action.params, null, 'failed');
+      results.push({ ...action, result: { success: false, message: '❌ Ezt most nem sikerült befejezni. Próbáld meg újra.' } });
+    } else {
+      logger.info('assistantTools', 'Action executed', { tool: action.tool, success: result?.success !== false });
+      results.push({ ...action, result });
+    }
+  }
+
+  return results;
+}
