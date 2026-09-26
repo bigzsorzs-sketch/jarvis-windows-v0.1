@@ -11,10 +11,12 @@ const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const execFileAsync = promisify(execFile);
 const { PolicyEngine } = require('./security/policy-engine.cjs');
+const { SelfRepairController } = require('./self-repair-controller.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
+let selfRepair;
 const stabilityState = {
   startedAt: Date.now(),
   rendererRestarts: [],
@@ -117,6 +119,7 @@ function getSettingsInternal() {
     aiProvider: raw.aiProvider || 'openrouter',
     aiModel: raw.aiModel || 'openrouter/auto',
     hasOpenRouterKey: Boolean(raw.openRouterKey),
+    supervisedSelfRepair: raw.supervisedSelfRepair !== false,
   };
 }
 
@@ -125,6 +128,7 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.language === 'string') raw.language = patch.language;
   if (typeof patch.aiProvider === 'string') raw.aiProvider = patch.aiProvider;
   if (typeof patch.aiModel === 'string') raw.aiModel = patch.aiModel;
+  if (typeof patch.supervisedSelfRepair === 'boolean') raw.supervisedSelfRepair = patch.supervisedSelfRepair;
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
@@ -309,6 +313,7 @@ function attachWindowStabilityHandlers(win) {
     stabilityState.rendererRestarts.push(Date.now());
     pruneRendererRestarts();
     appendStabilityEvent('render-process-gone', crash);
+    selfRepair?.diagnose({type:'renderer_crash',module:'renderer',message:'Renderer process gone: '+String(details.reason||'unknown'),context:crash}).catch(()=>{});
 
     if (stabilityState.rendererRestarts.length <= 2 && !win.isDestroyed()) {
       setTimeout(() => {
@@ -402,6 +407,19 @@ app.whenReady().then(() => {
     auditPath:path.join(app.getPath('userData'),'audit','policy.jsonl')
   });
 
+  selfRepair = new SelfRepairController({
+    app,
+    dialog,
+    shell,
+    getMainWindow:()=>mainWindow,
+    policy,
+    invokeAI:(payload)=>openRouterRequest(payload),
+    getSettings:()=>getSettingsInternal(),
+    saveSettings:(patch)=>saveSettingsInternal(patch),
+    oneClickUpdate:()=>oneClickUpdate(),
+    appendAudit:(event,payload)=>appendStabilityEvent(event,payload),
+  });
+
   ipcMain.handle('jarvis:policy:rules', () => policy.getPublicRules());
   ipcMain.handle('jarvis:policy:evaluate', (_e, action) => policy.evaluate(action));
   ipcMain.handle('jarvis:policy:override', (_e, req) => policy.requestOverride(req || {}));
@@ -421,6 +439,10 @@ app.whenReady().then(() => {
   ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
   ipcMain.handle('jarvis:stability:status', () => getStabilityStatus());
   ipcMain.handle('jarvis:stability:self-test', () => runStabilitySelfTest());
+  ipcMain.handle('jarvis:self-repair:report', (_e, report) => selfRepair?.diagnose(report || {}));
+  ipcMain.handle('jarvis:self-repair:list', () => selfRepair?.list() || []);
+  ipcMain.handle('jarvis:self-repair:approve', (_e, id) => selfRepair?.apply(String(id || '')));
+  ipcMain.handle('jarvis:self-repair:reject', (_e, id) => selfRepair?.reject(String(id || '')));
   ipcMain.handle('jarvis:app:restart', () => { app.relaunch(); app.exit(0); });
   ipcMain.handle('jarvis:stability:open-logs', async () => {
     const file=stabilityLogPath();
