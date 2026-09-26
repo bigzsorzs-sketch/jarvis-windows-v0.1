@@ -3,7 +3,7 @@ name: Build Jarvis Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [ main, 'develop/v0.3.0-stability', 'develop/v0.4.0-contextual-voice', 'develop/v0.5.0-obd-reliability' ]
+    branches: [ main, 'develop/v0.3.0-stability', 'develop/v0.4.0-contextual-voice', 'develop/v0.5.0-obd-reliability', 'develop/v0.6.0-data-memory-core' ]
 
 jobs:
   windows-installer:
@@ -30,6 +30,7 @@ jobs:
           node --check electron/self-repair-engine.cjs
           node --check electron/self-repair-controller.cjs
           node --check electron/obd-serial.cjs
+          node --check electron/data-store.cjs
 
       - name: Build renderer
         run: npm run build
