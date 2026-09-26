@@ -47,7 +47,7 @@ export default function AIImagePanel({ onImageReady, onPromptUsed }) {
   };
 
   const generate = async () => {
-    if (!prompt.trim() || images.length === 0) return;
+    if (!prompt.trim()) return;
     
     // Check rate limit
     const rateLimit = checkRateLimit();
@@ -76,10 +76,15 @@ export default function AIImagePanel({ onImageReady, onPromptUsed }) {
             return { ...img, uploaded_url: cached };
           }
           
-          const uploadForm = new FormData();
-          uploadForm.append('file', img.file);
-          const uploadRes = await jarvis.functions.invoke('validateFileUpload', uploadForm);
-          const file_url = uploadRes?.data?.file_url;
+          const validation = await jarvis.functions.invoke('validateFileUpload', {
+            name: img.file.name,
+            size: img.file.size,
+            type: img.file.type,
+          });
+          if (validation?.data?.allowed === false) throw new Error('File validation failed');
+
+          const uploadRes = await jarvis.integrations.Core.UploadFile({ file: img.file });
+          const file_url = uploadRes?.file_url;
           if (!file_url) throw new Error('Upload failed');
           if (img.hash) setCachedFileUrl(img.hash, file_url);
           setStep(`Képek feltöltése (${i + 1}/${images.length})...`);
@@ -92,18 +97,22 @@ export default function AIImagePanel({ onImageReady, onPromptUsed }) {
       // Log request for rate limiting
       logRequest();
 
-      // 2. Analyze images with LLM — routed through hardened llmProxy
-      setStep('Képek elemzése...');
-      const analysisRes = await jarvis.functions.invoke('llmProxy', {
-        prompt: `A felhasználó ${images.length} képet töltött fel, és ezt az utasítást adta: "${prompt}"\n\nElemezd a képeket és készíts egy részletes képgenerálási promptot angolul. A prompt alapján majd egy AI képgenerátorral készítünk egy új képet. Legyél kreatív és részletes. Válaszolj csak a prompttal, semmi mással.`,
-        file_urls: imageUrls,
-        model: 'gemini_3_flash',
-      });
-      const analysis = analysisRes?.data?.result ?? analysisRes?.data;
+      // 2. If references were supplied, let a vision-capable LLM turn the user's
+      // natural instruction + images into a strong generation/edit prompt.
+      let genPrompt = prompt;
+      if (imageUrls.length > 0) {
+        setStep('Képek elemzése...');
+        const analysisRes = await jarvis.functions.invoke('llmProxy', {
+          prompt: `A felhasználó ${images.length} képet töltött fel, és ezt az utasítást adta: "${prompt}"\n\nElemezd a képeket és készíts egy részletes képgenerálási vagy képszerkesztési promptot angolul. Őrizd meg a felhasználó szándékát. Válaszolj csak a prompttal, semmi mással.`,
+          file_urls: imageUrls,
+          model: 'gemini_3_flash',
+        });
+        const analysis = analysisRes?.data?.result ?? analysisRes?.data;
+        genPrompt = typeof analysis === 'string' ? analysis : (analysis?.result || prompt);
+      }
 
-      // 3. Generate image
+      // 3. Generate/edit image through the configured OpenRouter image model.
       setStep('Kép generálása AI-val...');
-      const genPrompt = typeof analysis === 'string' ? analysis : (analysis?.result || prompt);
       const generated = await jarvis.integrations.Core.GenerateImage({
         prompt: genPrompt,
         existing_image_urls: imageUrls.slice(0, 5), // max 5 reference images
@@ -114,7 +123,11 @@ export default function AIImagePanel({ onImageReady, onPromptUsed }) {
       if (onPromptUsed) onPromptUsed(genPrompt, imageUrls.length);
     } catch (err) {
       console.error('[AIImagePanel]', err?.message);
-      setStep('Hiba történt — próbáld újra.');
+      if (String(err?.message || '').includes('OPENROUTER_API_KEY_REQUIRED')) {
+        setStep('Hiányzik az OpenRouter API kulcs. Add meg a Beállításokban.');
+      } else {
+        setStep('Hiba történt — próbáld újra.');
+      }
     } finally {
       setLoading(false);
     }
@@ -182,11 +195,11 @@ export default function AIImagePanel({ onImageReady, onPromptUsed }) {
 
         <button
           onClick={generate}
-          disabled={loading || images.length === 0 || !prompt.trim()}
+          disabled={loading || !prompt.trim()}
           className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity"
         >
           {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          {loading ? 'Generálás...' : 'Kép generálása'}
+          {loading ? 'Generálás...' : (images.length ? 'Kép szerkesztése / generálása' : 'Kép generálása')}
         </button>
 
 
