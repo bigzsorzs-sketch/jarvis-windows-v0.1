@@ -3,7 +3,7 @@ name: Build Jarvis Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [ main, 'develop/v0.3.0-stability' ]
+    branches: [ main, 'develop/v0.3.0-stability', 'develop/v0.4.0-contextual-voice' ]
 
 jobs:
   windows-installer:

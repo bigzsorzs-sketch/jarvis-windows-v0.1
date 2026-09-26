@@ -49,6 +49,18 @@ export function useAutomotiveChat() {
   const sendMessageRef = useRef(null);
   const voiceUnsubRef = useRef(null);
 
+  const speakVoiceReply = useCallback(async (text) => {
+    const runtime = getVoiceRuntime();
+    if (!runtime?.getState?.().autoSpeakReplies) return;
+    const speechText = String(text || '')
+      .replace(/\*\*/g, '')
+      .replace(/[#>_`]/g, '')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (speechText) await runtime.speakText(speechText, 'hu');
+  }, []);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
@@ -66,10 +78,11 @@ export function useAutomotiveChat() {
           { role: 'user', content: transcript },
           { role: 'assistant', content: globalResult.reply, actionResults: globalResult.actionResults || [] }
         ]);
+        await speakVoiceReply(globalResult.reply);
         return;
       }
 
-      setTimeout(() => sendMessageRef.current?.(transcript), 300);
+      setTimeout(() => sendMessageRef.current?.(transcript, { fromVoice: true }), 300);
     });
     const unsubState = runtime.subscribe('stateChange', (changes) => {
       if ('isListening' in changes) setIsListening(changes.isListening);
@@ -78,7 +91,7 @@ export function useAutomotiveChat() {
       voiceUnsubRef.current?.();
       unsubState?.();
     };
-  }, []);
+  }, [speakVoiceReply]);
 
   const addMessage = useCallback((content) => {
     setMessages(prev => [...prev, { role: 'assistant', content }]);
@@ -118,7 +131,7 @@ export function useAutomotiveChat() {
     }
   }, []);
 
-  const sendMessage = useCallback(async (overrideText) => {
+  const sendMessage = useCallback(async (overrideText, options = {}) => {
     const msg = (overrideText || input).trim();
     if ((!msg && !attachedImage) || loading) return;
 
@@ -150,6 +163,7 @@ export function useAutomotiveChat() {
       });
       setLastParts([]);
       setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+      if (options?.fromVoice) await speakVoiceReply(reply);
     } catch (err) {
       console.error('[AutomotiveChat]', err?.message);
       setMessages(prev => [...prev, {
@@ -159,7 +173,7 @@ export function useAutomotiveChat() {
     } finally {
       setLoading(false);
     }
-  }, [input, attachedImage, loading, messages]);
+  }, [input, attachedImage, loading, messages, speakVoiceReply]);
 
   // Keep ref updated after sendMessage is defined
   useEffect(() => {

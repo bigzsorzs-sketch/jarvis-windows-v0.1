@@ -3,10 +3,17 @@ import { invokeWithRetry } from '@/lib/llmGateway';
 import { isCallCommand, extractCallTarget, isNavigationVoiceCommand, extractNavigationTarget, isFinishTripCommand, isLastTripSummaryCommand, isShareNavigationDestinationCommand, extractShareNavigationContact } from '@/lib/voiceCommandRouter';
 import { findContactForNavigation, startNavigationSession, finishNavigationSession, getFrequentDestinationSuggestion, getLastTripSummary, shareActiveNavigationDestination } from '@/lib/navigationTracker';
 import { executeVoiceWorkflowCommand } from '@/lib/voiceWorkflowCommandCenter';
+import { executeSituationAwareCommand } from '@/lib/situationOrchestrator';
 
 export async function executeGlobalVoiceCommand(transcript) {
   const text = transcript?.trim();
   if (!text) return null;
+
+  // First let the active module interpret the request in its live context.
+  // This is what makes "nézd meg, változott-e" meaningful while OBD is open,
+  // without forcing the user to name menus or repeat the whole situation.
+  const situationResult = await executeSituationAwareCommand(text);
+  if (situationResult?.handled) return situationResult;
 
   const workflowResult = await executeVoiceWorkflowCommand(text, { userMood: 'neutral' });
   if (workflowResult?.handled) return workflowResult;
