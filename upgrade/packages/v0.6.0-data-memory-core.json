@@ -1,0 +1,24 @@
+{
+  "package": "Jarvis Durable Data + Memory Core",
+  "targetVersion": "0.6.0",
+  "minimumInstalledVersion": "0.5.0",
+  "channel": "staged",
+  "releaseGate": "Release only after localStorage migration and backup recovery are smoke-tested on a copy of real Jarvis user data.",
+  "delivery": "GitHub stable release -> in-app Frissítés egy kattintással",
+  "includes": [
+    "versioned Electron local data store",
+    "atomic entity writes",
+    "last-good file backups",
+    "automatic backup recovery",
+    "desktop entity CRUD IPC",
+    "local user IPC",
+    "non-destructive localStorage migration",
+    "browser/dev localStorage fallback",
+    "stable jarvis.entities API compatibility"
+  ],
+  "dataMigration": "One-time non-destructive migration from jarvis_entity_* localStorage records to versioned Electron JSON storage.",
+  "rollback": "v0.5.0 installer plus pre-update Jarvis backup and retained legacy localStorage data",
+  "mergeFrom": "develop/v0.6.0-data-memory-core",
+  "mergeInto": "develop/v0.5.0-obd-reliability",
+  "securityBoundary": "Entity names are path-sanitized; renderer has CRUD access only through isolated preload IPC and receives no direct filesystem access."
+}
