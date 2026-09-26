@@ -12,12 +12,12 @@ export function extractCallTarget(text = '') {
 
 export function isNavigationVoiceCommand(text = '') {
   const lower = text.toLowerCase().trim();
-  return lower.includes('navigate to') || lower.includes('take me to') || lower.includes('indulok ') || lower.includes('navigálj ') || lower.includes('navigalj ');
+  return lower.includes('navigate to') || lower.includes('take me to') || lower.includes('indulok ') || lower.includes('navigálj ') || lower.includes('navigalj ') || lower.includes('vigyél ') || lower.includes('vigyel ');
 }
 
 export function extractNavigationTarget(text = '') {
   const lower = text.toLowerCase().trim().replace(/[.!?,]+$/g, '');
-  const match = lower.match(/navigate to\s+(.+)$/) || lower.match(/take me to\s+(.+)$/) || lower.match(/indulok\s+(.+?)(?:-?hoz|-?hez)?$/) || lower.match(/navigálj\s+(.+)$/) || lower.match(/navigalj\s+(.+)$/);
+  const match = lower.match(/navigate to\s+(.+)$/) || lower.match(/take me to\s+(.+)$/) || lower.match(/indulok\s+(.+?)(?:-?hoz|-?hez)?$/) || lower.match(/navigálj\s+(.+)$/) || lower.match(/navigalj\s+(.+)$/) || lower.match(/vigyél\s+(.+)$/) || lower.match(/vigyel\s+(.+)$/);
   return match?.[1]?.trim() || '';
 }
 
