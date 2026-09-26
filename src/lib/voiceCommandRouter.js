@@ -54,5 +54,22 @@ export function isGlobalVoiceCommand(text = '') {
     || isNavigationVoiceCommand(text)
     || isFinishTripCommand(text)
     || isLastTripSummaryCommand(text)
-    || isShareNavigationDestinationCommand(text);
+    || isShareNavigationDestinationCommand(text)
+    || isEmergencyCallCommand(text)
+    || isGlucoseQueryCommand(text);
+}
+export function getEmergencyCallNumber(text = '') {
+  const cleaned = text.toLowerCase().trim().replace(/[.!?]+$/g, '').trim();
+  const match = cleaned.match(/^(?:jarvis[,\s]+)?(?:hívd|hivd|call)\s+(?:a\s+)?(999|112)(?:-?et)?$/i);
+  return match?.[1] || null;
+}
+
+export function isEmergencyCallCommand(text = '') {
+  return Boolean(getEmergencyCallNumber(text));
+}
+
+export function isGlucoseQueryCommand(text = '') {
+  const cleaned = text.toLowerCase().trim();
+  return /(?:mennyi|nézd meg|nezd meg|mondd meg|mutasd).*(?:vércukrom|vercukrom|cukrom|glükózom|glukozom)/i.test(cleaned)
+    || /(?:vércukrom|vercukrom|cukrom).*(?:mennyi|most|aktuális|aktualis)/i.test(cleaned);
 }
