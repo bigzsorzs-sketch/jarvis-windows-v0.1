@@ -24,6 +24,16 @@ This package is the first post-install upgrade. It focuses on resilience and rec
 - Last-good local-data snapshot: before local entity/user data is overwritten, the previous valid JSON is kept. If the current JSON becomes corrupt, Jarvis automatically attempts recovery from the last-good copy.
 - Existing one-click GitHub updater remains the delivery mechanism.
 
+- Supervised Self-Repair:
+  - renderer/runtime errors are reported locally to the repair engine,
+  - secrets/tokens are redacted before diagnosis,
+  - Jarvis searches GitHub Issues and Stack Overflow for public technical evidence,
+  - the configured OpenRouter model creates a repair plan,
+  - Jarvis always asks the owner before applying a repair,
+  - safe repair actions are allow-listed (renderer/app restart, cache clear, AI model reset, verified update),
+  - source-code changes become a non-executable repair report for the next signed Jarvis release,
+  - Core Rules, Policy Engine and updater verification can never be modified by self-repair.
+
 ## Upgrade path
 
 1. v0.2.0 must be installed and working.
