@@ -9,23 +9,56 @@ jobs:
   windows-installer:
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+
       - name: Install dependencies
         run: npm install
+
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis
+
       - name: Build renderer
         run: npm run build
+
       - name: Build Windows installer
         run: npx electron-builder --win nsis --x64
+
+      - name: Create SHA-256 checksum
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
+          if (-not $exe) { throw "Jarvis installer not found" }
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($exe.Name)" | Set-Content -Path "$($exe.FullName).sha256" -NoNewline
+
       - name: Upload Jarvis installer
         uses: actions/upload-artifact@v4
         with:
           name: Jarvis-Windows-x64
-          path: release/*.exe
+          path: |
+            release/Jarvis-Setup-*-x64.exe
+            release/Jarvis-Setup-*-x64.exe.sha256
           if-no-files-found: error
+
+      - name: Publish stable GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $tag = "v$($pkg.version)"
+          $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
+          $sha = Get-Item "$($exe.FullName).sha256"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $exe.FullName $sha.FullName --clobber
+          } else {
+            gh release create $tag $exe.FullName $sha.FullName --target "$env:GITHUB_SHA" --title "Jarvis $tag" --notes "Stable Windows x64 Jarvis desktop release. Includes SHA-256 verified one-click update support."
+          }
