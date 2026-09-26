@@ -21,4 +21,9 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   listSelfRepairs: () => ipcRenderer.invoke('jarvis:self-repair:list'),
   approveSelfRepair: (id) => ipcRenderer.invoke('jarvis:self-repair:approve', id),
   rejectSelfRepair: (id) => ipcRenderer.invoke('jarvis:self-repair:reject', id),
+  listOBDSerialPorts: () => ipcRenderer.invoke('jarvis:obd:serial:list'),
+  connectOBDSerial: (options) => ipcRenderer.invoke('jarvis:obd:serial:connect', options),
+  getOBDSerialStatus: () => ipcRenderer.invoke('jarvis:obd:serial:status'),
+  sendOBDSerial: (request) => ipcRenderer.invoke('jarvis:obd:serial:send', request),
+  disconnectOBDSerial: () => ipcRenderer.invoke('jarvis:obd:serial:disconnect'),
 });
