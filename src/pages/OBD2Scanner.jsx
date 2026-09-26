@@ -17,6 +17,7 @@ export default function OBD2Scanner() {
   const [vinInput, setVinInput] = useState('');
   const [decodedVIN, setDecodedVIN] = useState(null);
   const [activeScan, setActiveScan] = useState(null);
+  const [scanProgress, setScanProgress] = useState(0);
   const [scanHistory, setScanHistory] = useState([]);
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
@@ -35,6 +36,7 @@ export default function OBD2Scanner() {
 
     const sessionId = `scan_${Date.now()}`;
     setActiveScan(sessionId);
+    setScanProgress(0);
 
     try {
       const session = await jarvis.entities.OBDSession.create({
@@ -48,61 +50,66 @@ export default function OBD2Scanner() {
         adapter_type: 'ELM327'
       });
 
-      // 30 másodpercig adatokat gyűjtünk
+      // 30 másodpercig adatokat gyűjtünk. A ciklus szekvenciális,
+      // így egy lassú adapteren sem csúsznak egymásba a parancsok.
       const startTime = Date.now();
+      const scanDurationMs = 30000;
       const rpmReadings = [];
       const tempReadings = [];
       let dtcCodes = [];
 
-      const collectInterval = setInterval(async () => {
+      while (Date.now() - startTime < scanDurationMs) {
         try {
           const rpmReading = await manager.readPID('ENGINE_RPM');
           const tempReading = await manager.readPID('COOLANT_TEMP');
-          
-          if (rpmReading) rpmReadings.push(Number(rpmReading.value) || 0);
-          if (tempReading) tempReadings.push(Number(tempReading.value) || 0);
 
-          if (Date.now() - startTime > 30000) {
-            clearInterval(collectInterval);
-            
-            // DTC kódok
-            dtcCodes = await manager.readDTCs();
-
-            const completedSession = {
-              end_time: new Date().toISOString(),
-              status: 'completed',
-              rpm_data: rpmReadings,
-              temperature_data: tempReadings,
-              dtc_codes: dtcCodes
-            };
-
-            await jarvis.entities.OBDSession.update(session.id, completedSession);
-
-            if (dtcCodes.length > 0) {
-              jarvis.functions.invoke('generateOBDDiagnosis', {
-                session_id: session.id,
-                vehicle_id: selectedVehicle.id,
-                dtc_codes: dtcCodes,
-                rpm_data: rpmReadings,
-                temperature_data: tempReadings,
-                vehicle_info: selectedVehicle,
-              }).then((response) => {
-                const diagnosis = response.data?.diagnosis;
-                if (diagnosis) {
-                  setScanHistory((prev) => prev.map((item) => item.id === session.id ? { ...item, ...completedSession, ai_diagnosis: diagnosis } : item));
-                }
-              }).catch(() => null);
-            }
-
-            setScanHistory((prev) => [{ ...session, ...completedSession }, ...prev.filter((item) => item.id !== session.id)]);
-            setActiveScan(null);
-          }
-        } catch (err) {
-          console.error('Scan hiba:', err);
+          if (rpmReading && Number.isFinite(Number(rpmReading.value))) rpmReadings.push(Number(rpmReading.value));
+          if (tempReading && Number.isFinite(Number(tempReading.value))) tempReadings.push(Number(tempReading.value));
+        } catch (readError) {
+          console.warn('OBD mintavételi hiba:', readError?.message);
         }
-      }, 2000);
+
+        const elapsed = Date.now() - startTime;
+        setScanProgress(Math.min(95, Math.round((elapsed / scanDurationMs) * 95)));
+        const remaining = scanDurationMs - elapsed;
+        if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(2000, remaining)));
+      }
+
+      dtcCodes = await manager.readDTCs().catch(() => []);
+      setScanProgress(100);
+
+      const completedSession = {
+        end_time: new Date().toISOString(),
+        status: 'completed',
+        rpm_data: rpmReadings,
+        temperature_data: tempReadings,
+        dtc_codes: Array.isArray(dtcCodes) ? dtcCodes : []
+      };
+
+      await jarvis.entities.OBDSession.update(session.id, completedSession);
+
+      if (completedSession.dtc_codes.length > 0) {
+        jarvis.functions.invoke('generateOBDDiagnosis', {
+          session_id: session.id,
+          vehicle_id: selectedVehicle.id,
+          dtc_codes: completedSession.dtc_codes,
+          rpm_data: rpmReadings,
+          temperature_data: tempReadings,
+          vehicle_info: selectedVehicle,
+        }).then((response) => {
+          const diagnosis = response.data?.diagnosis;
+          if (diagnosis) {
+            setScanHistory((prev) => prev.map((item) => item.id === session.id ? { ...item, ...completedSession, ai_diagnosis: diagnosis } : item));
+          }
+        }).catch(() => null);
+      }
+
+      setScanHistory((prev) => [{ ...session, ...completedSession }, ...prev.filter((item) => item.id !== session.id)]);
+      setActiveScan(null);
+      window.setTimeout(() => setScanProgress(0), 400);
     } catch (err) {
       setActiveScan(null);
+      setScanProgress(0);
       console.error('Session létrehozási hiba:', err);
     }
   };
@@ -225,7 +232,7 @@ export default function OBD2Scanner() {
               {activeScan ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Scan folyamatban ({Math.random().toString().slice(-2)}%)...
+                  Scan folyamatban ({scanProgress}%)...
                 </>
               ) : (
                 <>🔍 Diagnosztikai Scan Indítása</>
