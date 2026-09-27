@@ -25,7 +25,8 @@ import { useVoiceStore } from '@/lib/appStore';
 import { createRecordedVoiceIO, canUseRecordedVoiceIO, playLocalAckTone } from '@/lib/mobileVoiceIO';
 import { safeStorage } from '@/lib/safeStorage';
 
-const MIN_RESTART_DELAY_MS = 5000;
+const MIN_RESTART_DELAY_MS = 750;
+const HANDS_FREE_RESTART_DELAY_MS = 180;
 const VOICE_PHASE = {
   IDLE: 'IDLE',
   LISTENING: 'LISTENING',
@@ -393,11 +394,20 @@ class VoiceRuntime {
       this.networkCooldownUntilRef = 0;
       this.watchdogRef?.heartbeat();
       logger.debug(MODULE, 'Transcript received', { lang: this.languageLockRef });
-      this._stopRecognition(true);
       useVoiceStore.getState().setLastTranscript(transcript);
-      this._updateState({ machineState: VOICE_PHASE.PROCESSING });
       this._emit('transcript', transcript);
       this.transcriptQueue.push(transcript);
+
+      // Browser SpeechRecognition is already configured with continuous=true.
+      // In hands-free mode do not stop the microphone after every final phrase:
+      // keep the recognition session alive while the assistant processes text.
+      if (!this.state.handsFree || this.singleCycleActiveRef) {
+        this._stopRecognition(true);
+        this._updateState({ machineState: VOICE_PHASE.PROCESSING });
+      } else {
+        this._updateState({ machineState: VOICE_PHASE.LISTENING, isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
+        logger.debug(MODULE, 'MIC_CONTINUOUS_SESSION', { reason: 'final-transcript' });
+      }
     };
 
     r.onend = () => {
@@ -409,7 +419,7 @@ class VoiceRuntime {
       this._updateState({ isRecognitionActive: false, isRecognitionStarting: false, isListening: false, machineState: this._isProtectedAudioPhase() ? this.state.machineState : VOICE_PHASE.IDLE });
       this.watchdogRef?.heartbeat();
       if (this._canRestartRecognition()) {
-        this._safeStartRecognition();
+        this._scheduleRestart(this.state.handsFree ? HANDS_FREE_RESTART_DELAY_MS : MIN_RESTART_DELAY_MS, 'recognition_end');
       }
     };
 
@@ -464,6 +474,13 @@ class VoiceRuntime {
     // Watchdog setup
     if (!this.watchdogRef) {
       this.watchdogRef = new SpeechWatchdog((reason) => {
+        // Silence is normal in hands-free mode. Never tear down a healthy,
+        // active recognizer merely because no transcript arrived recently.
+        if (reason === 'watchdog_timeout' && (this.recognitionStateRef.isActive || this.state.isListening)) {
+          logger.debug(MODULE, 'WATCHDOG_HEALTHY_SILENCE', { phase: this.state.phase });
+          this.watchdogRef?.heartbeat();
+          return;
+        }
         telemetry.recordRestart(reason);
         logger.warn(MODULE, `Watchdog restart: ${reason}`);
         if (!this._canRestartRecognition()) {
@@ -830,7 +847,7 @@ class VoiceRuntime {
         logger.debug(MODULE, success ? 'TTS_END' : 'TTS_ERROR', { success, chunks: index });
         devVoiceLog(success ? 'TTS_END' : 'TTS_ERROR', { success, chunks: index });
         if (this.state.handsFree && this._canRestartRecognition()) {
-          this._scheduleRestart(MIN_RESTART_DELAY_MS, 'tts_onend');
+          this._scheduleRestart(HANDS_FREE_RESTART_DELAY_MS, 'tts_onend');
         }
         resolve(success);
       };

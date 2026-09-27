@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   },
   developerRepair: {
     plan: (workspace, plan) => ipcRenderer.invoke('jarvis:developer:plan', { workspace, plan }),
+    sandbox: (hash) => ipcRenderer.invoke('jarvis:developer:sandbox', { hash }),
     approve: (hash) => ipcRenderer.invoke('jarvis:developer:approve', { hash }),
     apply: (hash) => ipcRenderer.invoke('jarvis:developer:apply', { hash }),
   },
