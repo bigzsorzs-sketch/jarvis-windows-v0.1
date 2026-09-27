@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { SUPPORTED_LANGUAGES } from '@/lib/languageEngine';
+
 import { useLang } from '@/lib/i18n';
 import PersonalServicesCard from '@/components/settings/PersonalServicesCard';
 import InviteUserCard from '@/components/settings/InviteUserCard';
