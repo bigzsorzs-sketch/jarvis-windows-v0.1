@@ -122,9 +122,9 @@ export default function Layout() {
           })}
         </nav>
         <div className="jarvis-reference-spacer" />
-        <nav className="jarvis-reference-nav jarvis-reference-system-nav">
+        {location.pathname !== '/' && <nav className="jarvis-reference-nav jarvis-reference-system-nav">
           {systemNav.map(({ path, label, icon: Icon }) => <button key={path} onClick={() => navigate(path)} title={label}><Icon size={15}/>{!sidebarCollapsed && <span>{label}</span>}</button>)}
-        </nav>
+        </nav>}
         <button onClick={() => navigate('/beallitasok')} className="jarvis-reference-settings" title="Settings"><Settings size={15}/>{!sidebarCollapsed && <span>Settings</span>}</button>
       </aside>
       <section className="relative flex min-w-0 flex-1 flex-col">
