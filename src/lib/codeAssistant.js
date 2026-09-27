@@ -86,6 +86,7 @@ ${String(message || '').slice(0, 12000)}`;
     model: 'gemini_3_flash',
     file_urls: fileUrls.length ? fileUrls : undefined,
     queueKey: 'code-assistant',
+    contains_sensitive_context: attachedFiles.length > 0,
   }, 1);
 
   return sanitizeAssistantText(normalizeAssistantReply(response));
