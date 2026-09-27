@@ -605,7 +605,7 @@ async function openRouterObdDiagnosis(payload={}) {
     'Temperature data: ' + JSON.stringify(payload.temperature_data || []),
     'Vehicle: ' + JSON.stringify(payload.vehicle_info || {}),
   ].join('\n');
-  const response = await openRouterRequest({ prompt, model:payload.model || 'openrouter/auto' });
+  const response = await openRouterRequest({ prompt, ...(payload.model ? { model:payload.model } : {}) });
   return { data:{ diagnosis:String(response?.data?.result || ''), model:response?.data?.model || null } };
 }
 
