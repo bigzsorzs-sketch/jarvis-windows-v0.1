@@ -50,7 +50,8 @@ export function canUseRecordedVoiceIO() {
   return typeof navigator !== 'undefined'
     && !!navigator.mediaDevices?.getUserMedia
     && typeof window !== 'undefined'
-    && 'MediaRecorder' in window;
+    && 'MediaRecorder' in window
+    && window.jarvisDesktop?.capabilities?.recordedStt === true;
 }
 
 function blobToBase64(blob) {
