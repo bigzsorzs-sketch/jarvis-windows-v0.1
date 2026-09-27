@@ -50,5 +50,8 @@ test('IPC requires exact approval and fixed validation path', () => {
   assert.match(main,/status:'ROLLED_BACK'/);
   assert.doesNotMatch(main,/request\.validationCommands/);
   assert.match(preload,/developerRepair/);
-  assert.match(upgrade,/Pontosan ezt jóváhagyom és alkalmazom/);
+  assert.match(preload,/jarvis:developer:sandbox/);
+  assert.match(upgrade,/Futtatás izolált sandboxban/);
+  assert.match(upgrade,/Sandbox rendben – jóváhagyom és alkalmazom/);
+  assert.match(upgrade,/!validatedPlan\?\.hash \|\| !sandboxVerified/);
 });
