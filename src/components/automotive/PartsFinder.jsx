@@ -85,8 +85,11 @@ Ne adj mást mint JSON-t!`;
         },
       });
 
-      const parsedResponse = typeof response === 'string' ? JSON.parse(response) : response;
-      setParts(parsedResponse.parts || []);
+      const rawResult = response?.data?.result ?? response?.data ?? response;
+      const parsedResponse = typeof rawResult === 'string'
+        ? JSON.parse(rawResult.replace(/```json|```/g, '').trim())
+        : rawResult;
+      setParts(parsedResponse?.parts || []);
     } catch (err) {
       console.error('Parts lookup error:', err);
       setError('Az alkatrészeket most nem tudtuk betölteni. Próbáld meg újra később.');

@@ -1,7 +1,7 @@
 {
   "name": "jarvis-desktop",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Jarvis local-first multi-AI desktop assistant for Windows 10 and 11",
   "type": "module",
   "main": "electron/main.cjs",
@@ -14,7 +14,7 @@
     "desktop:portable": "vite build && electron-builder --win portable --x64",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc -p ./jsconfig.json",
+    "typecheck": "tsc -p ./tsconfig.json",
     "verify:jarvis": "node scripts/verify-jarvis.cjs",
     "postinstall": "electron-builder install-app-deps"
   },
@@ -76,9 +76,8 @@
     "react-hot-toast": "^2.6.0",
     "react-leaflet": "^4.2.1",
     "react-markdown": "^9.0.1",
-    "react-quill": "^2.0.0",
     "react-resizable-panels": "^2.1.7",
-    "react-router-dom": "^6.26.0",
+    "react-router-dom": "^7.18.4",
     "recharts": "^3.8.1",
     "socket.io-parser": "^4.2.6",
     "sonner": "^2.0.1",
@@ -179,5 +178,6 @@
         "to": "Jarvis-OneClick-Upgrade.cmd"
       }
     ]
-  }
+  },
+  "author": "George Nagy"
 }

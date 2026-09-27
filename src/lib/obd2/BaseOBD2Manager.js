@@ -27,6 +27,25 @@ function hasTransportError(response) {
   return /NO\s*DATA|UNABLE\s*TO\s*CONNECT|BUS\s*ERROR|CAN\s*ERROR|STOPPED|\?/i.test(String(response || ''));
 }
 
+function meaningfulObdResponse(command, response) {
+  const commandText = String(command || '').toUpperCase().replace(/\s+/g, '');
+  return String(response || '')
+    .replace(/>/g, '\n')
+    .split(/[\r\n]+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.toUpperCase().replace(/\s+/g, '') !== commandText)
+    .join(' ')
+    .trim();
+}
+
+function assertObdResponse(command, response) {
+  const text = meaningfulObdResponse(command, response);
+  if (!text) throw new Error('OBD_ADAPTER_NO_RESPONSE:' + command);
+  if (hasTransportError(text)) throw new Error('OBD_ADAPTER_ERROR:' + text.slice(0, 160));
+  return text;
+}
+
 export function extractHexBytes(response) {
   const raw = String(response || '').toUpperCase();
   if (!raw || hasTransportError(raw)) return [];
@@ -73,16 +92,26 @@ export class BaseOBD2Manager {
     const results = {};
     for (const item of sequence) {
       const response = await this.sendCommand(item.cmd, item.timeout || 1800);
-      results[item.desc] = response;
-      if (item.desc === 'Adapter identity') this.adapterIdentity = String(response || '').replace(/[>\r\n]/g, ' ').trim();
-      if (item.desc === 'Protocol') this.protocol = String(response || '').replace(/[>\r\n]/g, ' ').trim();
+      const meaningful = assertObdResponse(item.cmd, response);
+      results[item.desc] = meaningful;
+      if (item.desc === 'Adapter identity') this.adapterIdentity = meaningful;
+      if (item.desc === 'Protocol') this.protocol = meaningful;
       await this.delay(item.wait || 80);
     }
 
-    if (hasTransportError(results['Adapter identity'])) {
-      return { success: false, error: 'Az OBD adapter válaszolt, de azonosítani nem sikerült.' };
-    }
-    return { success: true, results, adapterIdentity: this.adapterIdentity, protocol: this.protocol };
+    const probeRaw = await this.sendCommand('0100', 2800);
+    const probe = assertObdResponse('0100', probeRaw);
+    const compact = probe.toUpperCase().replace(/[^0-9A-F]/g, '');
+    const ecuConnected = compact.includes('4100');
+    return {
+      success: true,
+      adapterReady: true,
+      ecuConnected,
+      probe: probe.slice(0, 200),
+      results,
+      adapterIdentity: this.adapterIdentity,
+      protocol: this.protocol
+    };
   }
 
   async query(service, pid = '', timeout = 1800) {

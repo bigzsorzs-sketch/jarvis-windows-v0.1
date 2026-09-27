@@ -70,8 +70,8 @@ Generálj 3 konkrét, értékes upgrade javaslatot JSON tömbként:
 Csak a JSON tömböt add vissza, semmi más.`,
     });
     try {
-      // invokeWithRetry returns result directly (string or object)
-      const jsonStr = typeof result === 'string' ? result : JSON.stringify(result);
+      const rawResult = result?.data?.result ?? result?.data ?? result;
+      const jsonStr = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
       const parsed = JSON.parse(jsonStr.replace(/```json|```/g, '').trim());
       for (const proposal of parsed) {
         const currentUser = await jarvis.auth.me().catch(() => null);
@@ -348,19 +348,16 @@ Csak a JSON tömböt add vissza, semmi más.`,
                                   <Copy size={12} /> Üzenet másolása vágólapra
                                 </button>
                               </div>
-                              <button
-                                onClick={() => updateStatus(proposal.id, 'implemented')}
-                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 text-sm font-medium"
-                              >
-                                <Rocket size={14} /> Megjelölés: Implementálva
-                              </button>
+                              <div className="w-full rounded-xl bg-blue-500/10 border border-blue-500/20 px-3 py-2.5 text-xs text-blue-300">
+                                Az „Implementálva” állapotot nem lehet kézzel beállítani. Csak tényleges kódmódosítás és sikeres CI/release ellenőrzés után tekinthető késznek.
+                              </div>
                             </div>
                           )}
 
                           {proposal.status === 'implemented' && (
                             <div className="flex items-center gap-2 bg-blue-500/10 rounded-xl p-3">
                               <Rocket size={14} className="text-blue-400 shrink-0" />
-                              <p className="text-xs text-foreground">Ez a fejlesztés sikeresen implementálva lett az appba!</p>
+                              <p className="text-xs text-foreground">Ez a fejlesztés korábban implementáltként lett rögzítve. A tényleges kész állapotot mindig a release/CI eredmény igazolja.</p>
                             </div>
                           )}
 

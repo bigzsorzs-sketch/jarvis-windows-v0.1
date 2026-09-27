@@ -16,7 +16,7 @@ export default function AiFeedbackAdmin() {
   const loadData = async () => {
     const me = await jarvis.auth.me();
     setUser(me);
-    if (me?.role !== 'admin') {
+    if (!['admin', 'owner'].includes(me?.role)) {
       setLoading(false);
       return;
     }
@@ -48,7 +48,12 @@ export default function AiFeedbackAdmin() {
       }
     });
 
-    const result = response.data?.data?.result || {};
+    const rawResult = response?.data?.result ?? response?.data ?? response ?? {};
+    let result = rawResult;
+    if (typeof rawResult === 'string') {
+      try { result = JSON.parse(rawResult.replace(/```json|```/g, '').trim()); }
+      catch { result = {}; }
+    }
     const createdResponse = await jarvis.functions.invoke('createPromptTuning', {
       title: result.title || 'Automatikus prompt javaslat',
       reason: result.reason || 'Gyenge értékelések alapján generálva.',
@@ -71,7 +76,7 @@ export default function AiFeedbackAdmin() {
 
   if (loading) return <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
 
-  if (user?.role !== 'admin') {
+  if (!['admin', 'owner'].includes(user?.role)) {
     return (
       <div className="h-full p-4 flex items-center justify-center">
         <div className="rounded-3xl border border-border bg-card p-6 text-center space-y-3">

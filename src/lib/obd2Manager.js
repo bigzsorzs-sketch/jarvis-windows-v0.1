@@ -64,8 +64,16 @@ export class OBD2Manager extends BaseOBD2Manager {
         this.profile = profile;
         this.isConnected = true;
 
+        const readiness = await this.initialize();
+        if (!readiness?.success || readiness.adapterReady !== true) {
+          throw new Error(readiness?.error || 'OBD_ADAPTER_NOT_READY');
+        }
+
         return {
           success: true,
+          adapterReady: true,
+          ecuConnected: readiness.ecuConnected === true,
+          probe: readiness.probe || '',
           device: this.device.name || 'Bluetooth LE OBD2',
           profile: profile.name,
         };
@@ -95,17 +103,21 @@ export class OBD2Manager extends BaseOBD2Manager {
     const bytes = new TextEncoder().encode(String(command).trim() + '\r');
     await this.writeBytes(bytes);
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const onMessage = (message) => {
         if (message.includes('>')) {
           clearTimeout(timer);
           this.messageHandlers = this.messageHandlers.filter((handler) => handler !== onMessage);
-          resolve(this.buffer);
+          const value = String(this.buffer || '').trim();
+          if (!value.replace(/>/g, '').trim()) reject(new Error('OBD_COMMAND_EMPTY_RESPONSE:' + command));
+          else resolve(value);
         }
       };
       const timer = setTimeout(() => {
         this.messageHandlers = this.messageHandlers.filter((handler) => handler !== onMessage);
-        resolve(this.buffer);
+        const value = String(this.buffer || '').trim();
+        if (!value.replace(/>/g, '').trim()) reject(new Error('OBD_COMMAND_TIMEOUT:' + command));
+        else resolve(value);
       }, timeout);
       this.messageHandlers.push(onMessage);
     });

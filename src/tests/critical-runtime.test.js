@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const { LocalDatabase } = require('../../electron/data/local-database.cjs');
 const { NativeObdBridge } = require('../../electron/obd/native-obd-bridge.cjs');
 const { analyzeUploadedFiles, analyzeProjectSpecialists } = require('../../electron/analysis/file-analyzer.cjs');
+const { PolicyEngine } = require('../../electron/security/policy-engine.cjs');
 
 test('failed snapshot restore rolls back and preserves the previous database', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-db-test-'));
@@ -57,4 +58,31 @@ test('local uploaded source analysis reads actual supplied content', () => {
   const specialists = analyzeProjectSpecialists([{ name: 'app.js', kind: 'code', url }]);
   assert.equal(specialists.measured, true);
   assert.equal(specialists.note.includes('not a hard-coded self-rating'), true);
+});
+
+
+test('owner override token is action-bound and consumed exactly once', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-policy-test-'));
+  try {
+    const policy = new PolicyEngine({
+      rulesPath: path.join(process.cwd(), 'security/core-rules.json'),
+      signaturePath: path.join(process.cwd(), 'security/core-rules.sig'),
+      publicKeyPath: path.join(process.cwd(), 'security/core-rules-public.pem'),
+      auditPath: path.join(dir, 'audit.jsonl'),
+      pinVerifierPath: path.join(dir, 'owner-pin.json'),
+    });
+    policy.setOwnerPin('2162');
+    const action = { type:'system_file_write', target:'C:\\Temp\\test.txt', authorised:true };
+    const grant = policy.requestOverride({ ruleId:'RULE-08', pin:'2162', action });
+    assert.equal(grant.ok, true);
+    assert.equal(typeof grant.token, 'string');
+    assert.equal(policy.consumeOverride(grant.token, action), true);
+    assert.equal(policy.consumeOverride(grant.token, action), false);
+
+    const second = policy.requestOverride({ ruleId:'RULE-08', pin:'2162', action });
+    assert.equal(second.ok, true);
+    assert.equal(policy.consumeOverride(second.token, { ...action, target:'C:\\Temp\\other.txt' }), false);
+  } finally {
+    fs.rmSync(dir, { recursive:true, force:true });
+  }
 });

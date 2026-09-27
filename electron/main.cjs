@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -32,6 +32,14 @@ function resourcePath(...parts) {
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
+function localOwnerAuthorised() {
+  try {
+    const user = database?.getUser?.();
+    return Boolean(user?.id === 'local-owner' && user?.role === 'owner');
+  } catch {
+    return false;
+  }
+}
 
 const INSTALLER_LANG_MAP = {
   '1033':'en','1038':'hu','1031':'de','1036':'fr','3082':'es','1034':'es','1040':'it',
@@ -103,6 +111,35 @@ async function saveSettingsInternal(patch={}) {
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
   return getSettingsInternal();
+}
+
+async function deleteAllLocalData() {
+  const userData = app.getPath('userData');
+  const backupDirectory = path.join(app.getPath('documents'), 'Jarvis Backups');
+
+  try { database?.close?.(); } catch {}
+  database = null;
+
+  const targets = [
+    path.join(userData, 'data'),
+    path.join(userData, 'audit'),
+    path.join(userData, 'security'),
+    settingsPath(),
+    backupDirectory,
+  ];
+  for (const target of targets) {
+    try { fs.rmSync(target, { recursive:true, force:true }); } catch {}
+  }
+
+  try { await session.defaultSession.clearStorageData(); } catch {}
+  try { await session.defaultSession.clearCache(); } catch {}
+
+  setTimeout(() => {
+    try { app.relaunch(); } catch {}
+    app.exit(0);
+  }, 700);
+
+  return { data:{ success:true, localOnly:true, restartRequired:true, erased:true } };
 }
 
 async function openRouterRequest(payload={}) {
@@ -228,6 +265,22 @@ async function openRouterGenerateImage(payload={}) {
   };
 }
 
+async function openRouterObdDiagnosis(payload={}) {
+  const prompt = [
+    'You are a cautious automotive diagnostic assistant.',
+    'Explain DTC codes, likely causes, safe checks, urgency and uncertainty.',
+    'Do not claim a repair is confirmed from codes alone.',
+    'Return plain text in Hungarian unless the supplied vehicle context clearly requests another language.',
+    '',
+    'DTC codes: ' + JSON.stringify(payload.dtc_codes || []),
+    'RPM data: ' + JSON.stringify(payload.rpm_data || []),
+    'Temperature data: ' + JSON.stringify(payload.temperature_data || []),
+    'Vehicle: ' + JSON.stringify(payload.vehicle_info || {}),
+  ].join('\n');
+  const response = await openRouterRequest({ prompt, model:payload.model || 'openrouter/auto' });
+  return { data:{ diagnosis:String(response?.data?.result || ''), model:response?.data?.model || null } };
+}
+
 async function invokeJarvisFunction(name, payload={}) {
   switch (name) {
     case 'llmProxy': return openRouterRequest(payload);
@@ -240,13 +293,42 @@ async function invokeJarvisFunction(name, payload={}) {
       return { data:{ valid:Boolean(fileUrl), allowed:Boolean(fileUrl), file_url:fileUrl } };
     }
     case 'generateImage': return openRouterGenerateImage(payload);
-    case 'gmailFetch': return { data:{ emails:[], connected:false, configured:false, reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
+    case 'gmailFetch':
+      return { data:{ emails:[], connected:false, configured:false, capabilities:[], reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
+    case 'gmailSend':
+      return { data:{ success:false, configured:false, reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
+    case 'transcribeVoice':
+      return { data:{ supported:false, reason:'RECORDED_STT_BACKEND_NOT_CONFIGURED', text:'' } };
+    case 'synthesizeVoice':
+      return { data:{ supported:false, reason:'REMOTE_TTS_BACKEND_NOT_CONFIGURED', audioBase64:null } };
+    case 'generateOBDDiagnosis':
+      return openRouterObdDiagnosis(payload);
     case 'analyzeUploadedFiles': return { data:analyzeUploadedFiles(payload?.files || []) };
     case 'analyzeProjectDeep': return { data:analyzeProjectDeep(payload?.files || []) };
     case 'analyzeProjectSpecialists': return { data:analyzeProjectSpecialists(payload?.files || []) };
-    case 'sendFeedback': return { data:{ success:true, storedLocally:true } };
-    case 'getActivePromptTunings': return { data:{ tunings:[] } };
-    case 'deleteAccount': database?.resetAll(); return { data:{ success:true, localOnly:true } };
+    case 'sendFeedback': {
+      const created = database.create('AiFeedback', payload || {});
+      return { data:{ success:true, storedLocally:true, created } };
+    }
+    case 'getAiFeedbackAdminData':
+      return { data:{
+        feedback:database.filter('AiFeedback', {}, '-created_date', 200),
+        tunings:database.filter('PromptTuning', {}, '-created_date', 200)
+      } };
+    case 'createPromptTuning': {
+      const created = database.create('PromptTuning', { ...payload, status:payload?.status || 'pending' });
+      return { data:{ created } };
+    }
+    case 'updatePromptTuning': {
+      if (!payload?.id) throw new Error('PROMPT_TUNING_ID_REQUIRED');
+      const { id, ...patch } = payload;
+      const updated = database.update('PromptTuning', id, patch);
+      return { data:{ updated } };
+    }
+    case 'getActivePromptTunings':
+      return { data:{ tunings:database.filter('PromptTuning', { status:'active' }, '-updated_date', 50) } };
+    case 'deleteAccount':
+      return deleteAllLocalData();
     default: throw new Error(`JARVIS_FUNCTION_NOT_IMPLEMENTED:${name}`);
   }
 }
@@ -281,7 +363,7 @@ async function getSystemContext() {
     homeDirectory:os.homedir(),
     tempDirectory:os.tmpdir(),
     appVersion:app.getVersion(),
-    elevatedExpected:true,
+    elevatedExpected:false,
     windows:win
   };
 }
@@ -323,6 +405,26 @@ async function sha256File(file) {
   });
 }
 function psQuote(value) { return String(value).replace(/'/g,"''"); }
+
+async function getAuthenticodeSignature(filePath) {
+  if (process.platform !== 'win32') return { status:'Unsupported', thumbprint:'', subject:'' };
+  const ps = "$s=Get-AuthenticodeSignature -LiteralPath '" + psQuote(filePath) + "'; [pscustomobject]@{Status=[string]$s.Status;Thumbprint=if($s.SignerCertificate){$s.SignerCertificate.Thumbprint}else{''};Subject=if($s.SignerCertificate){$s.SignerCertificate.Subject}else{''}} | ConvertTo-Json -Compress";
+  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',ps], { timeout:8000, windowsHide:true });
+  return JSON.parse(stdout.trim());
+}
+
+async function verifyUpdateSigner(installerPath) {
+  const current = await getAuthenticodeSignature(process.execPath);
+  const next = await getAuthenticodeSignature(installerPath);
+  if (current.status !== 'Valid' || next.status !== 'Valid' || !current.thumbprint || !next.thumbprint) {
+    throw new Error('UPDATE_SIGNER_UNVERIFIED');
+  }
+  if (String(current.thumbprint).toUpperCase() !== String(next.thumbprint).toUpperCase()) {
+    throw new Error('UPDATE_SIGNER_MISMATCH');
+  }
+  return next;
+}
+
 async function oneClickUpdate() {
   const currentVersion=app.getVersion();
   const release=await fetchLatestRelease();
@@ -346,6 +448,8 @@ async function oneClickUpdate() {
     try { fs.unlinkSync(installerPath); } catch {}
     throw new Error('UPDATE_CHECKSUM_MISMATCH');
   }
+
+  const signer = await verifyUpdateSigner(installerPath);
 
   const stamp=new Date().toISOString().replace(/[:.]/g,'-');
   const backupRoot=path.join(app.getPath('documents'),'Jarvis Backups',stamp);
@@ -375,21 +479,85 @@ Start-Process -FilePath $appExe
   });
   child.unref();
   setTimeout(()=>app.quit(),700);
-  return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot};
+  return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot,signer:signer.subject || signer.thumbprint};
+}
+
+function payloadContainsSensitiveContext(payload={}) {
+  if (payload?.sensitive_context === true || payload?.contains_sensitive_context === true) return true;
+  let text = '';
+  try {
+    text = JSON.stringify({
+      prompt:payload?.prompt || '',
+      messages:payload?.messages || [],
+      vehicle_info:payload?.vehicle_info || null,
+      dtc_codes:payload?.dtc_codes || null
+    });
+  } catch {}
+  return /━━━ USER KNOWLEDGE BASE ━━━/i.test(text)
+    || /Medications:\s*(?!none)/i.test(text)
+    || /Contacts:\s*(?!none)/i.test(text)
+    || /Health:\s*Last BG=(?!none)/i.test(text)
+    || /Finance:\s*Balance £/i.test(text)
+    || /Memories:\s*(?!none)/i.test(text)
+    || /"vehicle_info"\s*:\s*\{[^}]+\}/i.test(text);
+}
+
+function buildLocalDeviceUrl(baseValue, commandValue='') {
+  const baseText = String(baseValue || '').trim();
+  if (!baseText) throw new Error('LOCAL_DEVICE_URL_REQUIRED');
+  const base = new URL(baseText.includes('://') ? baseText : `http://${baseText}`);
+  if (!['http:', 'https:'].includes(base.protocol)) throw new Error('LOCAL_DEVICE_PROTOCOL_BLOCKED');
+
+  const host = base.hostname.toLowerCase();
+  const privateIpv4 = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
+  const privateIpv6 = host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:');
+  if (!(host === 'localhost' || privateIpv4 || privateIpv6)) {
+    throw new Error('LOCAL_DEVICE_HOST_BLOCKED');
+  }
+
+  const command = String(commandValue || '');
+  const combined = command
+    ? base.toString().replace(/\/$/, '') + (command.startsWith('/') ? command : '/' + command)
+    : base.toString();
+  return new URL(combined).toString();
+}
+
+async function requestLocalDevice(request={}) {
+  const targetUrl = buildLocalDeviceUrl(request.base, request.command);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(5000, Math.max(500, Number(request.timeout) || 3000)));
+  try {
+    const response = await fetch(targetUrl, {
+      method:'GET',
+      redirect:'error',
+      signal:controller.signal,
+      headers:{ 'User-Agent':'Jarvis-Local-Device' }
+    });
+    if (!response.ok) throw new Error(`LOCAL_DEVICE_HTTP_${response.status}`);
+    const text = await response.text();
+    let data = text;
+    try { data = JSON.parse(text); } catch {}
+    return { success:true, url:targetUrl, data };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function functionPolicyAction(name, payload={}) {
-  const hasExternalImages = ['llmProxy','runAiTask','generateImage'].includes(String(name))
+  const functionName = String(name || 'unknown');
+  const externalAiFunctions = ['llmProxy','runAiTask','generateImage','generateOBDDiagnosis'];
+  const hasExternalImages = externalAiFunctions.includes(functionName)
     && (
       (Array.isArray(payload?.file_urls) && payload.file_urls.length > 0)
       || (Array.isArray(payload?.image_urls) && payload.image_urls.length > 0)
       || (Array.isArray(payload?.existing_image_urls) && payload.existing_image_urls.length > 0)
     );
+  const sendsSensitiveText = externalAiFunctions.includes(functionName) && payloadContainsSensitiveContext(payload);
   return {
-    type: name === 'deleteAccount' ? 'account_delete' : `function:${String(name || 'unknown')}`,
-    target:String(name || 'unknown'),
-    authorised:true,
-    transmitsSensitiveData:hasExternalImages
+    type: functionName === 'deleteAccount' ? 'account_delete' : `function:${functionName}`,
+    target:functionName,
+    authorised:localOwnerAuthorised(),
+    transmitsSensitiveData:hasExternalImages || sendsSensitiveText
   };
 }
 
@@ -408,7 +576,12 @@ function isPotentiallyMutatingObdCommand(command='') {
 
 async function enforcePolicy(action={}, options={}) {
   if (!policy) throw new Error('JARVIS_POLICY_NOT_READY');
-  const decision = policy.evaluate({ authorised:true, ...action });
+  const securedAction = { ...action, authorised:localOwnerAuthorised() };
+  if (options.overrideToken && policy.consumeOverride(options.overrideToken, securedAction)) {
+    policy.audit('policy_override_consumed_for_operation', { action:securedAction });
+    return { ok:true, status:'allow', ruleIds:['RULE-11','RULE-15'], reason:'OWNER_OVERRIDE_CONSUMED' };
+  }
+  const decision = policy.evaluate(securedAction);
   if (decision.status === 'block') {
     const error = new Error(`JARVIS_POLICY_BLOCKED:${decision.reason}`);
     error.code = 'JARVIS_POLICY_BLOCKED';
@@ -584,22 +757,39 @@ app.whenReady().then(() => {
     rulesPath:resourcePath('security','core-rules.json'),
     signaturePath:resourcePath('security','core-rules.sig'),
     publicKeyPath:resourcePath('security','core-rules-public.pem'),
-    auditPath:path.join(app.getPath('userData'),'audit','policy.jsonl')
+    auditPath:path.join(app.getPath('userData'),'audit','policy.jsonl'),
+    pinVerifierPath:path.join(app.getPath('userData'),'security','owner-pin.json')
   });
 
   ipcMain.handle('jarvis:policy:rules', () => policy.getPublicRules());
-  ipcMain.handle('jarvis:policy:evaluate', (_e, action) => policy.evaluate(action));
-  ipcMain.handle('jarvis:policy:override', (_e, req) => policy.requestOverride(req || {}));
+  ipcMain.handle('jarvis:policy:evaluate', (_e, action={}) => policy.evaluate({ ...action, authorised:localOwnerAuthorised() }));
+  ipcMain.handle('jarvis:policy:override', (_e, req={}) => policy.requestOverride({
+    ...req,
+    action:{ ...(req.action || {}), authorised:localOwnerAuthorised() }
+  }));
+  ipcMain.handle('jarvis:policy:pin:status', () => policy.getPinStatus());
+  ipcMain.handle('jarvis:policy:pin:set', (_e, req={}) => {
+    if (!localOwnerAuthorised()) throw new Error('JARVIS_POLICY_UNAUTHORISED');
+    const status = policy.getPinStatus();
+    if (status.configured) {
+      const current = policy.verifyPin(req.currentPin);
+      if (!current.ok) throw new Error(current.reason || 'INVALID_OWNER_PIN');
+    }
+    return policy.setOwnerPin(req.newPin);
+  });
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
   ipcMain.handle('jarvis:settings:get', () => getSettingsInternal());
   ipcMain.handle('jarvis:settings:save', (_e, patch) => guarded(
     { type:'local_settings_write', target:settingsPath() },
     () => saveSettingsInternal(patch)
   ));
-  ipcMain.handle('jarvis:function:invoke', (_e, name, payload) => guarded(
-    functionPolicyAction(name, payload || {}),
-    () => invokeJarvisFunction(name, payload || {}),
-    { message:'Jarvis egy külső AI-szolgáltatásnak képet vagy más érzékeny adatot küldene.' }
+  ipcMain.handle('jarvis:function:invoke', (_e, name, payload={}) => guarded(
+    functionPolicyAction(name, payload),
+    () => invokeJarvisFunction(name, payload),
+    {
+      message:'Jarvis külső szolgáltatásnak érzékeny adatot küldene, vagy kiemelt műveletet hajtana végre.',
+      overrideToken:payload?.__ownerOverrideToken || null
+    }
   ));
   ipcMain.handle('jarvis:ai:list-models', async () => {
     const raw=readJson(settingsPath(),{}); const key=unprotectSecret(raw.openRouterKey);
@@ -615,6 +805,13 @@ app.whenReady().then(() => {
     () => oneClickUpdate(),
     { message:'Jarvis új telepítőt fog letölteni, ellenőrizni és rendszerszinten futtatni.' }
   ));
+  ipcMain.handle('jarvis:device:request', (_e, request={}) => {
+    const target = buildLocalDeviceUrl(request.base, request.command);
+    return guarded(
+      { type:request.readOnly === true ? 'device_status' : 'device_control', target },
+      () => requestLocalDevice(request)
+    );
+  });
   ipcMain.handle('jarvis:obd:list-ports', () => guarded(
     { type:'obd_list', target:'local-device' },
     () => obdBridge.listSerialPorts()
@@ -652,7 +849,10 @@ app.whenReady().then(() => {
   ));
   ipcMain.handle('jarvis:data:stats', () => database.stats());
   ipcMain.handle('jarvis:data:user:get', () => database.getUser());
-  ipcMain.handle('jarvis:data:user:update', (_e, patch={}) => database.updateUser(patch));
+  ipcMain.handle('jarvis:data:user:update', (_e, patch={}) => guarded(
+    { type:'local_data_write', target:'local-owner-profile' },
+    () => database.updateUser(patch)
+  ));
   ipcMain.handle('jarvis:backup:create', (_e, req={}) => guarded(
     { type:'backup_create', target:'Jarvis Backups' },
     () => backupManager.create(req.passphrase)

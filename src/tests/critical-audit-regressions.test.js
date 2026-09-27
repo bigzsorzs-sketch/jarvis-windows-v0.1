@@ -82,3 +82,100 @@ test('legacy insecure API key fallback is purged during startup', () => {
   assert.equal(main.includes('hasSecureOpenRouterKey'), true);
 });
 
+test('sensitive text context is policy-confirmed before external AI transmission', () => {
+  const main = read('electron/main.cjs');
+  const chat = read('src/lib/chatOrchestrator.js');
+  assert.equal(main.includes('function payloadContainsSensitiveContext'), true);
+  assert.equal(main.includes('transmitsSensitiveData:hasExternalImages || sendsSensitiveText'), true);
+  assert.equal(chat.includes('contains_sensitive_context: containsSensitiveContext'), true);
+});
+
+test('account deletion erases local stores instead of only clearing SQLite rows', () => {
+  const main = read('electron/main.cjs');
+  assert.equal(main.includes('async function deleteAllLocalData()'), true);
+  assert.equal(main.includes("path.join(userData, 'audit')"), true);
+  assert.equal(main.includes("path.join(userData, 'security')"), true);
+  assert.equal(main.includes('session.defaultSession.clearStorageData()'), true);
+  assert.equal(main.includes("path.join(app.getPath('documents'), 'Jarvis Backups')"), true);
+});
+
+test('owner override uses a local salted verifier and one-time action-bound token', () => {
+  const policy = read('electron/security/policy-engine.cjs');
+  assert.equal(policy.includes('PIN_HASH_HEX'), false);
+  assert.equal(policy.includes('crypto.randomBytes(32)'), true);
+  assert.equal(policy.includes('this.overrideTokens.set(token'), true);
+  assert.equal(policy.includes('consumeOverride(token, action)'), true);
+  assert.equal(policy.includes('OVERRIDE_NOT_APPLICABLE_TO_ACTION'), true);
+});
+
+test('previously missing desktop functions no longer fall into NOT_IMPLEMENTED', () => {
+  const main = read('electron/main.cjs');
+  for (const name of ['generateOBDDiagnosis','getAiFeedbackAdminData','createPromptTuning','updatePromptTuning','transcribeVoice','synthesizeVoice','gmailSend']) {
+    assert.equal(main.includes(`case '${name}'`), true, name);
+  }
+});
+
+test('fake multi-user, cloud and unconfigured recorded voice paths are disabled', () => {
+  const client = read('src/api/jarvisClient.js');
+  const preload = read('electron/preload.cjs');
+  const cloud = read('src/components/settings/SecurityCloudCards.jsx');
+  assert.equal(client.includes("throw new Error('LOCAL_SINGLE_OWNER_MODE')"), true);
+  assert.equal(preload.includes('recordedStt:false'), true);
+  assert.equal(preload.includes('gmailOAuth:false'), true);
+  assert.equal(cloud.includes('felhőszinkron nincs engedélyezve'), true);
+});
+
+test('one-click updater verifies installer signer identity in addition to SHA-256', () => {
+  const main = read('electron/main.cjs');
+  assert.equal(main.includes('verifyUpdateSigner(installerPath)'), true);
+  assert.equal(main.includes('UPDATE_SIGNER_UNVERIFIED'), true);
+  assert.equal(main.includes('UPDATE_SIGNER_MISMATCH'), true);
+});
+
+test('production dependency policy removes known vulnerable Quill path and gates moderate audit', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const workflow = read('.github/workflows/build-windows.yml');
+  assert.equal(Boolean(pkg.dependencies?.['react-quill']), false);
+  assert.equal(String(pkg.dependencies?.['react-router-dom'] || '').includes('7.18.4'), true);
+  assert.equal(workflow.includes('npm audit --omit=dev --audit-level=moderate'), true);
+});
+
+test('displayed app version matches package release version and no permanent elevation is expected', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const versionSource = read('src/lib/appVersion.js');
+  const main = read('electron/main.cjs');
+  assert.equal(versionSource.includes(`APP_VERSION = '${pkg.version}'`), true);
+  assert.equal(main.includes('elevatedExpected:false'), true);
+});
+
+test('misleading implementation and random scan UI markers are gone', () => {
+  const upgrade = read('src/pages/UpgradeCenter.jsx');
+  const scanner = read('src/pages/OBD2Scanner.jsx');
+  assert.equal(upgrade.includes("updateStatus(proposal.id, 'implemented')"), false);
+  assert.equal(scanner.includes('Math.random().toString().slice(-2)'), false);
+  assert.equal(scanner.includes('scanProgress'), true);
+});
+
+test('Smart Home physical actions are policy-gated and never mutate state after unverified control', () => {
+  const env = read('src/lib/environmentTools.js');
+  const main = read('electron/main.cjs');
+  const preload = read('electron/preload.cjs');
+  const failureIndex = env.indexOf('if (!apiResult)');
+  const updateIndex = env.indexOf("jarvis.entities.SmartDevice.update(device.id");
+  assert.equal(failureIndex >= 0, true);
+  assert.equal(updateIndex > failureIndex, true);
+  assert.equal(env.includes('real_control:false, verified:false'), true);
+  assert.equal(env.includes('await fetch('), false);
+  assert.equal(preload.includes("ipcRenderer.invoke('jarvis:device:request'"), true);
+  assert.equal(main.includes("ipcMain.handle('jarvis:device:request'"), true);
+  assert.equal(main.includes("type:request.readOnly === true ? 'device_status' : 'device_control'"), true);
+  assert.equal(main.includes('LOCAL_DEVICE_HOST_BLOCKED'), true);
+});
+
+test('release build has a committed dependency lock and CI installs it immutably', () => {
+  const workflow = read('.github/workflows/build-windows.yml');
+  assert.equal(fs.existsSync(path.join(root, 'package-lock.json')), true);
+  assert.equal(workflow.includes('run: npm ci'), true);
+  assert.equal(workflow.includes('npm install'), false);
+});
+
