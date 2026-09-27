@@ -1,14 +1,15 @@
 import { jarvis } from '@/api/jarvisClient';
 import { startLipSyncFromAudioElement, stopLipSync } from '@/lib/lipSyncBus';
-import { speak as speakBrowserTTS } from '@/lib/voiceTTS';
 
-const SEGMENT_MS = 1800;
 const RECORDER_TIMESLICE_MS = 120;
-const AUDIO_BITS_PER_SECOND = 20000;
-const RESUME_AFTER_TRANSCRIPT_MS = 20000;
+const AUDIO_BITS_PER_SECOND = 32000;
+const VAD_POLL_MS = 80;
+const END_OF_SPEECH_SILENCE_MS = 900;
+const NO_SPEECH_TIMEOUT_MS = 6000;
+const MAX_UTTERANCE_MS = 15000;
+const RESUME_AFTER_TRANSCRIPT_MS = 30000;
 const TTS_CACHE_LIMIT = 24;
-const INSTANT_ACKS = ['Értem.', 'Rendben.', 'Oké.'];
-const FAST_BROWSER_TTS_MAX_LENGTH = 420;
+const TTS_SEGMENT_MAX_CHARS = 1400;
 const STT_HALLUCINATION_PATTERNS = [
   /feliratok az amara\.org/i,
   /amara\.org közösségétől/i,
@@ -31,7 +32,7 @@ export function playLocalAckTone() {
     oscillator.frequency.setValueAtTime(660, ctx.currentTime);
     oscillator.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
     gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.13, ctx.currentTime + 0.015);
     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
     oscillator.connect(gain);
     gain.connect(ctx.destination);
@@ -44,7 +45,6 @@ export function playLocalAckTone() {
 }
 
 const ttsCache = new Map();
-let warmupPromise = null;
 
 export function canUseRecordedVoiceIO() {
   return typeof navigator !== 'undefined'
@@ -73,33 +73,24 @@ function isLikelySilenceTranscript(text = '') {
   return STT_HALLUCINATION_PATTERNS.some((pattern) => pattern.test(clean));
 }
 
-function getBrowserSpeechLang(lang = 'hu') {
-  if (lang === 'en') return 'en-GB';
-  if (lang === 'de') return 'de-DE';
-  if (lang === 'fr') return 'fr-FR';
-  if (lang === 'es') return 'es-ES';
-  return 'hu-HU';
-}
-
-function shortenForFastSpeech(text) {
-  const clean = String(text || '').replace(/\s+/g, ' ').replace(/[*_#`]/g, '').trim();
-  if (clean.length <= FAST_BROWSER_TTS_MAX_LENGTH) return clean;
-  return `${clean.slice(0, FAST_BROWSER_TTS_MAX_LENGTH).replace(/\s+\S*$/, '')}.`;
-}
-
 function splitForSpeech(text) {
-  return String(text || '')
+  const sentences = String(text || '')
     .replace(/\s+/g, ' ')
-    .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
-    ?.reduce((chunks, sentence) => {
-      const clean = sentence.trim();
-      if (!clean) return chunks;
-      const last = chunks[chunks.length - 1] || '';
-      if (last && `${last} ${clean}`.length <= 180) chunks[chunks.length - 1] = `${last} ${clean}`;
-      else chunks.push(clean);
-      return chunks;
-    }, [])
-    .slice(0, 10) || [];
+    .trim()
+    .match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+
+  const chunks = [];
+  for (const sentence of sentences) {
+    const clean = sentence.trim();
+    if (!clean) continue;
+    const last = chunks[chunks.length - 1] || '';
+    if (last && `${last} ${clean}`.length <= TTS_SEGMENT_MAX_CHARS) {
+      chunks[chunks.length - 1] = `${last} ${clean}`;
+    } else {
+      chunks.push(clean);
+    }
+  }
+  return chunks;
 }
 
 export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) {
@@ -107,50 +98,129 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   let stream = null;
   let recorder = null;
   let chunks = [];
-  let segmentTimer = null;
+  let vadTimer = null;
   let resumeTimer = null;
   let processing = false;
   let paused = false;
   let discardCurrent = false;
   let audio = null;
+  let audioContext = null;
+  let analyser = null;
+  let mediaSource = null;
+  let vadSamples = null;
+  let segmentStartedAt = 0;
+  let speechDetected = false;
+  let lastSpeechAt = 0;
+  let noiseFloor = 0.008;
 
   const emitError = (type, message) => onError?.({ type, message });
 
-  const warmupVoiceEndpoints = () => {
-    if (warmupPromise || !navigator.onLine) return warmupPromise;
-    const warmAck = (text) => jarvis.functions.invoke('synthesizeVoice', { text, lang: 'hu' })
-      .then((response) => {
-        const audioBase64 = response.data?.audioBase64;
-        const mimeType = response.data?.mimeType || 'audio/mpeg';
-        if (audioBase64) ttsCache.set(`hu:${text.toLowerCase()}`, { audioBase64, mimeType });
-      });
-    warmupPromise = Promise.allSettled([
-      jarvis.functions.invoke('transcribeVoice', { warmup: true }),
-      ...INSTANT_ACKS.map(warmAck),
-    ]).catch(() => null);
-    return warmupPromise;
+  const clearVad = () => {
+    if (vadTimer) window.clearInterval(vadTimer);
+    vadTimer = null;
   };
 
   const clearTimers = () => {
-    if (segmentTimer) window.clearTimeout(segmentTimer);
+    clearVad();
     if (resumeTimer) window.clearTimeout(resumeTimer);
-    segmentTimer = null;
     resumeTimer = null;
+  };
+
+  const closeAudioInputGraph = async () => {
+    try { mediaSource?.disconnect?.(); } catch {}
+    mediaSource = null;
+    analyser = null;
+    vadSamples = null;
+    if (audioContext && audioContext !== localAckAudioContext) {
+      try { await audioContext.close(); } catch {}
+    }
+    audioContext = null;
   };
 
   const ensureStream = async () => {
     if (stream?.active) return stream;
+
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
     });
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      audioContext = new AudioContextClass();
+      try { await audioContext.resume(); } catch {}
+      mediaSource = audioContext.createMediaStreamSource(stream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.25;
+      vadSamples = new Uint8Array(analyser.fftSize);
+      mediaSource.connect(analyser);
+    }
+
     return stream;
   };
 
+  const currentRms = () => {
+    if (!analyser || !vadSamples) return 0;
+    analyser.getByteTimeDomainData(vadSamples);
+    let sum = 0;
+    for (let i = 0; i < vadSamples.length; i += 1) {
+      const normalized = (vadSamples[i] - 128) / 128;
+      sum += normalized * normalized;
+    }
+    return Math.sqrt(sum / vadSamples.length);
+  };
+
   const stopRecorder = (discard = false) => {
-    discardCurrent = discard;
+    discardCurrent = discardCurrent || discard;
+    clearVad();
     if (recorder?.state === 'recording') {
       try { recorder.stop(); } catch {}
     }
+  };
+
+  const startVad = () => {
+    clearVad();
+    segmentStartedAt = performance.now();
+    speechDetected = false;
+    lastSpeechAt = 0;
+    noiseFloor = 0.008;
+
+    vadTimer = window.setInterval(() => {
+      if (!recorder || recorder.state !== 'recording') return;
+
+      const now = performance.now();
+      const elapsed = now - segmentStartedAt;
+      const rms = currentRms();
+
+      if (!speechDetected && rms > 0) {
+        noiseFloor = (noiseFloor * 0.94) + (Math.min(rms, 0.035) * 0.06);
+      }
+
+      const speechThreshold = Math.max(0.012, Math.min(0.06, (noiseFloor * 2.6) + 0.003));
+      if (rms >= speechThreshold) {
+        speechDetected = true;
+        lastSpeechAt = now;
+      }
+
+      if (speechDetected && lastSpeechAt && now - lastSpeechAt >= END_OF_SPEECH_SILENCE_MS) {
+        stopRecorder(false);
+        return;
+      }
+
+      if (!speechDetected && elapsed >= NO_SPEECH_TIMEOUT_MS) {
+        stopRecorder(true);
+        return;
+      }
+
+      if (elapsed >= MAX_UTTERANCE_MS) {
+        stopRecorder(!speechDetected);
+      }
+    }, VAD_POLL_MS);
   };
 
   const scheduleResumeFallback = () => {
@@ -174,7 +244,10 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       audioBase64,
       mimeType: blob.type || 'audio/webm',
     });
-    console.info('[voiceTiming] STT finished', { ms: Math.round(performance.now() - started), lang: 'hu-HU' });
+    console.info('[voiceTiming] Model STT finished', {
+      ms: Math.round(performance.now() - started),
+      model: response.data?.model || null,
+    });
     return String(response.data?.text || '').trim();
   };
 
@@ -185,8 +258,14 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       const currentStream = await ensureStream();
       chunks = [];
       discardCurrent = false;
-      const mimeType = MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      recorder = new MediaRecorder(currentStream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
+      const mimeType = MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+
+      recorder = new MediaRecorder(currentStream, {
+        mimeType,
+        audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
+      });
 
       recorder.ondataavailable = (event) => {
         if (event.data?.size) chunks.push(event.data);
@@ -195,14 +274,15 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       recorder.onerror = () => emitError('recording_failed', 'A hangrögzítés megszakadt.');
 
       recorder.onstop = async () => {
-        const shouldDiscard = discardCurrent;
+        clearVad();
+        const shouldDiscard = discardCurrent || !speechDetected;
         const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
         recorder = null;
         chunks = [];
         discardCurrent = false;
 
         if (!active || shouldDiscard || blob.size < 700) {
-          if (active && !paused) window.setTimeout(startSegment, 120);
+          if (active && !paused) window.setTimeout(startSegment, 140);
           return;
         }
 
@@ -213,25 +293,36 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
           const text = await transcribeBlob(blob);
           if (text && !isLikelySilenceTranscript(text)) {
             paused = true;
-            console.info('[voiceLanguage] STT detected input language', { lang: 'hu-HU', text });
+            console.info('[voiceLanguage] Model STT transcript received', { text });
             onTranscript?.(text);
             scheduleResumeFallback();
           }
-        } catch {
+        } catch (error) {
+          const message = error?.message || '';
           if (!navigator.onLine) {
             emitError('network_offline', 'Nincs internetkapcsolat, a hangfelismerés szünetel.');
+          } else {
+            emitError('stt_failed', `A modell alapú hangfelismerés nem sikerült. ${message}`.trim());
           }
         } finally {
           processing = false;
-          if (active && !paused) window.setTimeout(startSegment, 120);
+          if (active && !paused) window.setTimeout(startSegment, 140);
         }
       };
 
       recorder.start(RECORDER_TIMESLICE_MS);
+      startVad();
       onStateChange?.({ phase: 'listening', isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
-      segmentTimer = window.setTimeout(() => stopRecorder(false), SEGMENT_MS);
-    } catch {
-      emitError('microphone_denied', 'A mikrofon nem érhető el vagy nincs engedélyezve.');
+    } catch (error) {
+      const name = error?.name || '';
+      const message = name === 'NotAllowedError'
+        ? 'A mikrofon hozzáférése nincs engedélyezve.'
+        : name === 'NotFoundError'
+          ? 'Nem találok használható mikrofont.'
+          : name === 'NotReadableError'
+            ? 'A mikrofont egy másik alkalmazás használja, vagy a Windows nem tudja megnyitni.'
+            : 'A mikrofon nem érhető el vagy nincs engedélyezve.';
+      emitError('microphone_denied', message);
       active = false;
       onStateChange?.({ phase: 'idle', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
     }
@@ -240,9 +331,19 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   const resumeCapture = () => {
     if (!active) return;
     if (resumeTimer) window.clearTimeout(resumeTimer);
+    resumeTimer = null;
     paused = false;
     onStateChange?.({ phase: 'listening', isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
     window.setTimeout(startSegment, 180);
+  };
+
+  const cancelTTS = () => {
+    try {
+      audio?.pause?.();
+      if (audio) audio.currentTime = 0;
+    } catch {}
+    audio = null;
+    stopLipSync();
   };
 
   return {
@@ -256,8 +357,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       active = true;
       paused = false;
       await ensureStream();
-      warmupVoiceEndpoints();
-      window.setTimeout(startSegment, 250);
+      window.setTimeout(startSegment, 180);
       return true;
     },
 
@@ -277,13 +377,14 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       stopRecorder(true);
       stopStream(stream);
       stream = null;
+      closeAudioInputGraph();
       onStateChange?.({ phase: 'idle', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
     },
 
-    async speakInstantAck(lang = 'hu') {
-      if (playLocalAckTone()) return true;
-      const ack = INSTANT_ACKS[Math.floor(Math.random() * INSTANT_ACKS.length)];
-      return this.speakText(ack, lang, { resumeAfter: false });
+    cancelTTS,
+
+    async speakInstantAck() {
+      return playLocalAckTone();
     },
 
     async speakText(text, lang = 'hu', options = {}) {
@@ -291,22 +392,15 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       if (!safeText) return false;
 
       this.pauseCapture();
+      cancelTTS();
       onStateChange?.({ phase: 'tts_pending', isSpeaking: false, isListening: false });
 
       try {
-        const fastSpeechText = shortenForFastSpeech(safeText);
-        if (fastSpeechText.length <= FAST_BROWSER_TTS_MAX_LENGTH) {
-          onStateChange?.({ phase: 'speaking', isSpeaking: true, isListening: false });
-          await new Promise((resolve) => speakBrowserTTS(fastSpeechText, getBrowserSpeechLang(lang), resolve));
-          return true;
-        }
-
         if (!navigator.onLine) {
-          emitError('network_offline', 'Nincs internetkapcsolat, a hangválasz nem játszható le.');
+          emitError('network_offline', 'Nincs internetkapcsolat, a modellhang most nem játszható le.');
           return false;
         }
 
-        audio?.pause?.();
         const started = performance.now();
         const chunksToSpeak = splitForSpeech(safeText);
         if (chunksToSpeak.length === 0) return false;
@@ -315,11 +409,18 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
           const cacheKey = `${lang}:${chunk.toLowerCase()}`;
           const cached = ttsCache.get(cacheKey);
           if (cached) return cached;
+
           const response = await jarvis.functions.invoke('synthesizeVoice', { text: chunk, lang });
           const audioBase64 = response.data?.audioBase64;
           const mimeType = response.data?.mimeType || 'audio/mpeg';
-          if (!audioBase64) return null;
-          const next = { audioBase64, mimeType };
+          if (!audioBase64) throw new Error(response.data?.reason || 'MODEL_TTS_EMPTY_AUDIO');
+
+          const next = {
+            audioBase64,
+            mimeType,
+            model: response.data?.model || null,
+            voice: response.data?.voice || null,
+          };
           ttsCache.set(cacheKey, next);
           if (ttsCache.size > TTS_CACHE_LIMIT) ttsCache.delete(ttsCache.keys().next().value);
           return next;
@@ -328,27 +429,36 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         let nextAudioPromise = fetchChunk(chunksToSpeak[0]);
         for (let i = 0; i < chunksToSpeak.length; i += 1) {
           const cached = await nextAudioPromise;
-          if (!cached) continue;
-          nextAudioPromise = chunksToSpeak[i + 1] ? fetchChunk(chunksToSpeak[i + 1]) : Promise.resolve(null);
+          nextAudioPromise = chunksToSpeak[i + 1]
+            ? fetchChunk(chunksToSpeak[i + 1])
+            : Promise.resolve(null);
 
           audio = new Audio(`data:${cached.mimeType};base64,${cached.audioBase64}`);
           audio.preload = 'auto';
           audio.volume = 1;
           onStateChange?.({ phase: 'speaking', isSpeaking: true, isListening: false });
           startLipSyncFromAudioElement(audio);
-          await audio.play();
-          if (i === 0) console.info('[voiceTiming] TTS first audio', { ms: Math.round(performance.now() - started), mode: 'chunked-prefetch' });
-          await new Promise((resolve) => {
+
+          await new Promise((resolve, reject) => {
             audio.onended = resolve;
-            audio.onerror = resolve;
+            audio.onerror = () => reject(new Error('MODEL_TTS_PLAYBACK_FAILED'));
+            audio.play().catch(reject);
           });
+
+          if (i === 0) {
+            console.info('[voiceTiming] Model TTS first audio', {
+              ms: Math.round(performance.now() - started),
+              model: cached.model,
+              voice: cached.voice,
+            });
+          }
         }
         return true;
-      } catch {
-        emitError('tts_failed', 'A hangválasz lejátszása most nem sikerült.');
+      } catch (error) {
+        emitError('tts_failed', `A modellhang lejátszása most nem sikerült. ${error?.message || ''}`.trim());
         return false;
       } finally {
-        stopLipSync();
+        cancelTTS();
         onStateChange?.({ phase: 'idle', isSpeaking: false });
         if (options.resumeAfter !== false) resumeCapture();
       }
