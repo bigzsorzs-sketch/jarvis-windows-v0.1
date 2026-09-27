@@ -1018,7 +1018,8 @@ app.whenReady().then(() => {
       const hash=String(request.hash||'');
       const entry=developerPlans.get(hash);
       if(!entry || !entry.approved) throw new Error('DEV_REPAIR_APPROVAL_REQUIRED');
-      if(developerRepair.proposalHash({...entry.plan,hash:undefined}) !== hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
+      const { hash:_storedHash, ...approvedPlan } = entry.plan;
+      if(developerRepair.proposalHash(approvedPlan) !== hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
       const backup=developerRepair.snapshot(entry.workspace,entry.plan,developerBackupRoot());
       try {
         developerRepair.apply(entry.workspace,entry.plan);
