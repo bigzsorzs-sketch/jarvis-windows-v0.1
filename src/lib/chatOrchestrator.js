@@ -61,13 +61,45 @@ function hasStoredPrivateContext(ctx) {
     || Boolean(ctx?.ecosystem);
 }
 
-function publicOnlyContext(ctx) {
-  return {
-    settings: ctx?.settings || null,
-    promptTunings: ctx?.promptTunings || [],
-    memories: [], todos: [], finance: [], bs: [], meals: [], meds: [], contacts: [], reminders: [], actions: [], invoices: [],
-    ecosystem: null,
-  };
+function buildPublicSystemPrompt(ctx, langInstruction = '', userMood = 'neutral') {
+  const settings = ctx?.settings || {};
+  const tuningInstructions = (ctx?.promptTunings || [])
+    .filter((item) => item.status === 'active' && item.proposed_instruction)
+    .map((item) => `- ${escapePromptValue(item.proposed_instruction, 600)}`)
+    .join('\n');
+  const currentDateTime = new Intl.DateTimeFormat('hu-HU', {
+    dateStyle: 'full',
+    timeStyle: 'short',
+  }).format(new Date());
+
+  return `You are a unified desktop AI assistant.
+Name: ${settings.ai_name || 'Jarvis'} | Personality: ${settings.personality || 'kedves'} | User Mood: ${userMood}
+${langInstruction}
+
+CURRENT LOCAL DATE AND TIME: ${currentDateTime}
+
+APPROVED PROMPT TUNING:
+${tuningInstructions || 'No approved tuning instructions.'}
+
+CAPABILITIES:
+[MEMORY] save_memory, search_data
+[PRODUCTIVITY] create_task, create_reminder, create_note
+[HEALTH] log_blood_sugar, log_meal
+[FINANCE] log_finance, create_invoice, generate_pdf
+[COMMUNICATION] draft_email, call_contact, create_contact, search_contacts
+[LANGUAGE] translate_text
+[SMART HOME] control_device, check_device_status, trigger_scene, run_routine
+[BUSINESS] analyze_ecosystem, optimize_workload, optimize_revenue
+
+RULES:
+1. Always respond in the user's language.
+2. Never assume or invent personal data that is not present in the current request.
+3. When you need to perform an action, output actions only inside an actions code block containing a JSON array.
+4. Ask for missing critical information before acting.
+5. Keep responses short and concrete.
+6. For simple conversation, answer directly without generating actions.
+
+TOOL SYNTAX: Use an actions code block containing JSON objects with tool and params fields.`;
 }
 
 function safeHistoryForCloud(history = [], allowPrivate = false) {
@@ -91,8 +123,9 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
     : '\nAnswer concisely by default.';
 
   const privateContextRequested = attachedFiles.length > 0 || requestsPrivateContext(message);
-  const promptContext = privateContextRequested ? ctx : publicOnlyContext(ctx);
-  const systemPrompt = `${buildSystemPrompt(promptContext, langInstruction, userMood)}${voiceSpeedInstruction}`;
+  const systemPrompt = `${privateContextRequested
+    ? buildSystemPrompt(ctx, langInstruction, userMood)
+    : buildPublicSystemPrompt(ctx, langInstruction, userMood)}${voiceSpeedInstruction}`;
 
   const selectedHistory = safeHistoryForCloud(history, privateContextRequested);
   const compactHistory = selectedHistory
