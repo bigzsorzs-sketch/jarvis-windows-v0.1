@@ -56,7 +56,7 @@ export default function UpgradeCenter() {
   };
 
   const runDeveloperSandbox = async () => {
-    if (!validatedPlan?.hash || !sandboxVerified) return;
+    if (!validatedPlan?.hash) return;
     setDevBusy(true); setSandboxVerified(false);
     try {
       const result = await window.jarvisDesktop.developerRepair.sandbox(validatedPlan.hash);
@@ -68,7 +68,7 @@ export default function UpgradeCenter() {
   };
 
   const approveAndApplyDeveloperPlan = async () => {
-    if (!validatedPlan?.hash) return;
+    if (!validatedPlan?.hash || !sandboxVerified) return;
     setDevBusy(true);
     try {
       await window.jarvisDesktop.developerRepair.approve(validatedPlan.hash);
