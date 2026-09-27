@@ -754,6 +754,7 @@ function buildRepairPlan(report) {
     if (check.id === 'backup') repairs.push({ id:'repair-backup-directory', checkId:check.id, title:'Backup mappa helyreállítása', description:'Újralétrehozza a Jarvis Backups mappát és ellenőrzi az írhatóságát.', risk:'low', automatic:true });
     else if (check.id === 'network') repairs.push({ id:'repair-network-cache', checkId:check.id, title:'Hálózati gyorsítótár frissítése', description:'Törli az Electron hálózati gyorsítótárát, majd újraellenőrzi a GitHub frissítési csatornát.', risk:'low', automatic:true });
     else if (check.id === 'obd') repairs.push({ id:'repair-obd-reset', checkId:check.id, title:'OBD kapcsolat újraindítása', description:'Biztonságosan bontja az aktuális OBD kapcsolatot, hogy tiszta állapotból lehessen újracsatlakozni.', risk:'low', automatic:true });
+    else if (check.id === 'ai') repairs.push({ id:'repair-ai-session', checkId:check.id, title:'AI kapcsolat helyreállítása', description:'Törli a hálózati gyorsítótárat és újraellenőrzi az OpenRouter kapcsolatot. Az API-kulcsot nem módosítja.', risk:'low', automatic:true });
     else repairs.push({ id:'manual-' + check.id, checkId:check.id, title:check.label + ' – kézi beavatkozás szükséges', description:check.detail, risk:check.severity === 'critical' ? 'high' : 'medium', automatic:false });
   }
   return { generatedAt:new Date().toISOString(), repairs };
@@ -773,6 +774,10 @@ async function runApprovedRepair(repairId) {
       break;
     case 'repair-obd-reset':
       await obdBridge.disconnect().catch(() => {});
+      break;
+    case 'repair-ai-session':
+      await session.defaultSession.clearCache();
+      await testOpenRouterConnection();
       break;
     default:
       throw new Error('JARVIS_REPAIR_NOT_ALLOWLISTED');
