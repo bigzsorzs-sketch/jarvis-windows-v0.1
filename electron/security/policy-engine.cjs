@@ -153,6 +153,13 @@ class PolicyEngine {
       return { ok:false, status:'blocked', ruleIds:[ruleId], reason:'OVERRIDE_ACTION_REQUIRED' };
     }
 
+    const decision = this.evaluate(action);
+    if (decision.status !== 'confirm' || !decision.ruleIds.includes(ruleId)) {
+      const result = { ok:false, status:'blocked', ruleIds:decision.ruleIds, reason:'OVERRIDE_NOT_APPLICABLE_TO_ACTION' };
+      this.audit('override_denied_not_applicable', { ruleId, action, result });
+      return result;
+    }
+
     const pinResult = this.verifyPin(pin);
     if (!pinResult.ok) {
       const result = { ok:false, status:'blocked', ruleIds:[ruleId], reason:pinResult.reason, retryAt:pinResult.retryAt || null };
