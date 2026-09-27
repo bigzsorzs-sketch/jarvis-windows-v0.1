@@ -22,11 +22,12 @@ export default function OBD2ConnectButton({ onConnected, onError }) {
         throw new Error(result.error);
       }
 
-      setStatusMsg('Inicializálás...');
-      const initResult = await obd2.initialize();
-
-      if (!initResult.success) {
-        throw new Error(initResult.error);
+      if (result.adapterReady !== true) {
+        setStatusMsg('Inicializálás...');
+        const initResult = await obd2.initialize();
+        if (!initResult?.success || initResult.adapterReady !== true) {
+          throw new Error(initResult?.error || 'OBD_ADAPTER_NOT_READY');
+        }
       }
 
       setManager(obd2);
