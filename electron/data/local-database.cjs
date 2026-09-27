@@ -77,7 +77,12 @@ class LocalDatabase {
   }
 
   updateUser(patch = {}) {
-    const user = { ...this.getUser(), ...clone(patch), updated_date: now() };
+    const current = this.getUser();
+    const safePatch = { ...clone(patch) };
+    delete safePatch.id;
+    delete safePatch.role;
+    delete safePatch.created_date;
+    const user = { ...current, ...safePatch, id:'local-owner', role:'owner', updated_date: now() };
     this.setMeta('local_user', user);
     return clone(user);
   }
