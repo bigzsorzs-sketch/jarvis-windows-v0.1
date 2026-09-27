@@ -87,6 +87,36 @@ function apply(root,plan){
     fs.renameSync(tmp,target);
   }
 }
+function createSandbox(root, plan, sandboxRoot) {
+  const base = validateWorkspace(root);
+  fs.mkdirSync(sandboxRoot,{recursive:true});
+  const dir = path.join(sandboxRoot, Date.now()+'-'+plan.hash.slice(0,12));
+  const ignored = new Set(['.git','release','dist','.jarvis-sandbox']);
+  fs.cpSync(base,dir,{recursive:true,filter:(source)=>{
+    const rel=path.relative(base,source).replace(/\\/g,'/');
+    if(!rel) return true;
+    const first=rel.split('/')[0];
+    return !ignored.has(first) && first !== 'node_modules';
+  }});
+  const sourceModules=path.join(base,'node_modules');
+  const sandboxModules=path.join(dir,'node_modules');
+  if(fs.existsSync(sourceModules)){
+    try { fs.symlinkSync(sourceModules,sandboxModules,process.platform==='win32'?'junction':'dir'); }
+    catch { fs.cpSync(sourceModules,sandboxModules,{recursive:true}); }
+  }
+  apply(dir,plan);
+  fs.writeFileSync(path.join(dir,'.jarvis-sandbox.json'),JSON.stringify({
+    hash:plan.hash, source:base, createdAt:new Date().toISOString(), files:plan.patches.map(p=>p.file)
+  },null,2));
+  return dir;
+}
+function destroySandbox(dir, sandboxRoot) {
+  if(!dir || !sandboxRoot) return;
+  const base=path.resolve(sandboxRoot);
+  const target=path.resolve(dir);
+  if(target===base || !target.startsWith(base+path.sep)) throw new Error('DEV_REPAIR_SANDBOX_PATH_INVALID');
+  fs.rmSync(target,{recursive:true,force:true});
+}
 function rollback(root,dir){
   const manifest=JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'),'utf8'));
   for(const item of manifest){
@@ -96,4 +126,4 @@ function rollback(root,dir){
     else if(fs.existsSync(target)) fs.rmSync(target,{force:true});
   }
 }
-module.exports={validateWorkspace,validatePlan,proposalHash,snapshot,apply,rollback,PROTECTED};
+module.exports={validateWorkspace,validatePlan,proposalHash,snapshot,apply,createSandbox,destroySandbox,rollback,PROTECTED};
