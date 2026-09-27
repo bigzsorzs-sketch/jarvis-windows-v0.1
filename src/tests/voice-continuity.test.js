@@ -19,3 +19,8 @@ test('hands-free recovery is fast while error backoff remains available', () => 
   assert.match(voice,/_scheduleRestart\(this\.state\.handsFree \? HANDS_FREE_RESTART_DELAY_MS : MIN_RESTART_DELAY_MS, 'recognition_end'\)/);
   assert.match(voice,/_scheduleRestart\(HANDS_FREE_RESTART_DELAY_MS, 'tts_onend'\)/);
 });
+
+test('watchdog does not tear down an active microphone just because the user is silent', () => {
+  assert.match(voice,/WATCHDOG_HEALTHY_SILENCE/);
+  assert.match(voice,/reason === 'watchdog_timeout' && \(this\.recognitionStateRef\.isActive \|\| this\.state\.isListening\)/);
+});
