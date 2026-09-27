@@ -13,9 +13,12 @@ export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", sub
 
   return (
     <section className="jarvis-command-stage" aria-label="Jarvis voice command center">
-      <div className="jarvis-energy-field" aria-hidden="true">
-        <span className={active ? 'energy-line energy-line-a active' : 'energy-line energy-line-a'} />
-        <span className={active ? 'energy-line energy-line-b active' : 'energy-line energy-line-b'} />
+      <div className={active ? 'jarvis-energy-field is-active' : 'jarvis-energy-field'} aria-hidden="true">
+        <svg viewBox="0 0 1200 220" preserveAspectRatio="none">
+          <path className="energy-wave wave-one" d="M0 112 C90 35 150 35 240 112 S390 189 480 112 S630 35 720 112 S870 189 960 112 S1110 35 1200 112" />
+          <path className="energy-wave wave-two" d="M0 112 C90 178 150 178 240 112 S390 46 480 112 S630 178 720 112 S870 46 960 112 S1110 178 1200 112" />
+          <path className="energy-wave wave-three" d="M0 112 C110 72 170 72 260 112 S410 152 500 112 S650 72 740 112 S890 152 980 112 S1120 72 1200 112" />
+        </svg>
       </div>
 
       <motion.div
