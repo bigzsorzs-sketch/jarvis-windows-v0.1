@@ -36,7 +36,7 @@ jobs:
           node --check electron/analysis/file-analyzer.cjs
 
       - name: Run source tests
-        run: node --test src/tests/production-readiness.test.js
+        run: node --test src/tests/*.test.js
 
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis
