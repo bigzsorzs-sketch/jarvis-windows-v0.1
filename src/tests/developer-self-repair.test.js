@@ -8,6 +8,8 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const engine = require('../../electron/developer-repair.cjs');
 const main = fs.readFileSync('electron/main.cjs','utf8');
+const preload = fs.readFileSync('electron/preload.cjs','utf8');
+const upgrade = fs.readFileSync('src/pages/UpgradeCenter.jsx','utf8');
 
 function workspace() {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-dev-repair-'));
