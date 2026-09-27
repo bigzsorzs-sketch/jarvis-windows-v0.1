@@ -17,6 +17,8 @@ import AiBehaviorCard from '@/components/settings/AiBehaviorCard';
 import NotificationsCard from '@/components/settings/NotificationsCard';
 import UpdateCard from '@/components/settings/UpdateCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
+import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
+import { getVoicePreferences, saveVoicePreferences } from '@/lib/speechPresentation';
 
 const Toggle = ({ checked, onChange }) => (
   <button
@@ -65,7 +67,9 @@ export default function Beallitasok() {
   });
   const [settingsId, setSettingsId] = useState(null);
   const [interestInput, setInterestInput] = useState('');
-  const [darkMode, setDarkMode] = useState(true);
+  const [themeMode, setThemeMode] = useState(() => getThemeMode());
+  const [ttsVoices, setTtsVoices] = useState([]);
+  const [ttsPrefs, setTtsPrefs] = useState(() => getVoicePreferences());
   const [saved, setSaved] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting] = useState(false);
@@ -117,16 +121,22 @@ export default function Beallitasok() {
         command_languages: me?.command_languages || ['hu', 'en']
       });
     });
-    // Init dark mode from localStorage first, then system preference
-    const savedTheme = localStorage.getItem('theme');
-    const isDark = savedTheme !== null ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setDarkMode(isDark);
+    setThemeMode(getThemeMode());
+    const unsubTheme = subscribeTheme(({ mode }) => setThemeMode(mode));
+    const loadVoices = () => setTtsVoices((window.speechSynthesis?.getVoices?.() || []).filter(v => /^hu[-_]/i.test(v.lang || '')));
+    loadVoices();
+    window.speechSynthesis?.addEventListener?.('voiceschanged', loadVoices);
+    // Cleanup is handled by the component-level effect return below.
     window.jarvisDesktop?.getSettings?.().then((desktop) => {
       if (desktop) setDesktopAi(desktop);
       if (desktop?.hasOpenRouterKey) {
         window.jarvisDesktop?.listModels?.().then(setAiModels).catch(() => {});
       }
     }).catch(() => {});
+    return () => {
+      unsubTheme?.();
+      window.speechSynthesis?.removeEventListener?.('voiceschanged', loadVoices);
+    };
   }, []);
 
   const saveDesktopAi = async () => {
@@ -146,21 +156,15 @@ export default function Beallitasok() {
     } catch (e) { setAiStatus(`Error: ${e?.message || e}`); }
   };
 
-  const applyTheme = (isDark) => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  const changeTheme = (mode) => {
+    applyThemeMode(mode);
+    setThemeMode(mode);
   };
 
-  const toggleDarkMode = () => {
-    setDarkMode(d => {
-      const next = !d;
-      applyTheme(next);
-      return next;
-    });
+  const changeTts = (updates) => {
+    const next = { ...ttsPrefs, ...updates };
+    setTtsPrefs(next);
+    saveVoicePreferences(next);
   };
 
   // Csak helyi state frissítés – mentés csak a gombbal
@@ -291,7 +295,24 @@ export default function Beallitasok() {
           </div>
         </div>
 
-        <ThemeToggleCard darkMode={darkMode} onToggle={toggleDarkMode} Toggle={Toggle} t={t} />
+        <ThemeToggleCard themeMode={themeMode} onChange={changeTheme} t={t} />
+
+        <div className="bg-card border border-border rounded-2xl p-4 mb-4">
+          <h3 className="font-semibold text-foreground mb-1">Beszédhang</h3>
+          <p className="text-xs text-muted-foreground mb-3">Ez külön beállítás az AI-modelltől. A Jarvis a Windows által elérhető magyar hangokat használja.</p>
+          <select value={ttsPrefs.name} onChange={(e)=>changeTts({name:e.target.value})} className="w-full mb-3 px-3 py-2 rounded-xl bg-background border border-border text-sm">
+            <option value="">Automatikus – legjobb elérhető magyar hang</option>
+            {ttsVoices.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+          </select>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-muted-foreground">Sebesség
+              <input type="range" min="0.8" max="1.15" step="0.01" value={ttsPrefs.rate} onChange={(e)=>changeTts({rate:Number(e.target.value)})} className="w-full" />
+            </label>
+            <label className="text-xs text-muted-foreground">Hangmagasság
+              <input type="range" min="0.85" max="1.2" step="0.01" value={ttsPrefs.pitch} onChange={(e)=>changeTts({pitch:Number(e.target.value)})} className="w-full" />
+            </label>
+          </div>
+        </div>
 
         <PersonalizationCard
           settings={settings}
