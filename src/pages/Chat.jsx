@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { jarvis } from '@/api/jarvisClient';
 import { loadFullContext, TOOLS, executeActions } from '@/lib/assistantTools';
 import { getGreeting } from '@/components/chat/chatGreeting';
@@ -15,10 +15,10 @@ import { runWorkflow } from '@/lib/workflowEngine';
 import { getActiveRoute, finishNavigationSession, findContactForNavigation, getFrequentDestinationSuggestion, startNavigationSession, handleRouteLifecycle, restoreActiveRouteSession, retryRouteSync, setTrackingMode } from '@/lib/navigationTracker';
 import { useRouteTrackingStore } from '@/lib/routeTrackingStore';
 import { requestMotionAccessIfNeeded, startDrivingDetection } from '@/lib/drivingDetection';
-import { invokeWithRetry } from '@/lib/llmGateway';
 import { telemetry } from '@/lib/speechTelemetry';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
+import { getAssistantErrorMessage } from '@/lib/assistantErrorMessage';
 import { networkMonitor } from '@/lib/networkMonitor';
 import { sessionPersistence } from '@/lib/sessionPersistence';
 import { loadChatSnapshot, queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
@@ -42,6 +42,7 @@ import ActiveRouteCard from '@/components/chat/ActiveRouteCard';
 export default function Chat() {
   const { lang, t } = useLang();
   const navigate = useNavigate();
+  const location = useLocation();
   const voice = useVoiceRuntime();
   const setSystemState = useSystemStore((state) => state.setSystemState);
 
@@ -209,35 +210,8 @@ export default function Chat() {
     return spoken;
   }, [voice]);
 
-  // Real-time, non-blocking memory extractor with deduplication
-  const extractAndSaveMemory = useCallback(async (msg, existingMemories) => {
-    try {
-      const safeMsg = msg.substring(0, 300).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const mc = await invokeWithRetry({
-        prompt: `Does this user message contain a personal fact worth remembering? Message: "${safeMsg}"
-Return JSON: {"save": boolean, "content": "string (the fact)", "category": "preference|fact|habit|interest|other"}
-Only save if genuinely new personal info (name, health fact, preference, habit). Return save:false for questions or generic statements.`,
-        response_json_schema: {
-          type: 'object',
-          properties: {
-            save: { type: 'boolean' },
-            content: { type: 'string' },
-            category: { type: 'string' }
-          }
-        }
-      });
-      const parsed = typeof mc === 'string' ? JSON.parse(mc) : (mc?.data ?? mc);
-      if (!parsed?.save || !parsed?.content || parsed.content.length < 5) return;
-      // Deduplication: skip if similar memory already exists
-      const isDuplicate = existingMemories.some(m =>
-        m.content?.toLowerCase().includes(parsed.content.toLowerCase().slice(0, 20))
-      );
-      if (isDuplicate) return;
-      await TOOLS.save_memory({ content: parsed.content, category: parsed.category || 'fact', importance: 6 });
-    } catch {
-      // Non-blocking — never surface to user
-    }
-  }, []);
+  // Personal memories are saved only through explicit/local actions. Ordinary chat is never
+  // sent to a second cloud request for automatic memory extraction.
 
   const handleVoiceCall = async (contactName) => {
     if ('contacts' in navigator && 'ContactsManager' in window) {
@@ -390,11 +364,6 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
             setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Az adatok frissítése sikertelen. Kérlek frissítsd az oldalt.' }]);
           }
         }, 1500);
-      } else {
-        // Real-time memory extraction — async, non-blocking, runs on every message
-        if (msg.length > 8 && ctx && !msg.startsWith('?') && !msg.startsWith('/')) {
-          extractAndSaveMemory(msg, ctx.memories || []);
-        }
       }
 
       setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: reply, actionResults }]));
@@ -415,15 +384,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       } else if (!networkMonitor.isOnline()) {
         setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: 'Most offline vagy. Az üzenetet később újra megpróbálhatod.' }]));
       } else {
-        const errorMessage = String(err?.message || '');
-        let userMsg = `${t('error_occurred')}. ${t('try_again')}`;
-        if (errorMessage.includes('OPENROUTER_API_KEY_REQUIRED')) {
-          userMsg = '⚠️ Az AI funkciókhoz még nincs OpenRouter API-kulcs beállítva. A helyi Jarvis-funkciók ettől továbbra is működnek.';
-        } else if (errorMessage.includes('401') || errorMessage.includes('OPENROUTER_401')) {
-          userMsg = '⚠️ Az OpenRouter API-kulcsot a szolgáltató elutasította. Ellenőrizd a Beállításokban.';
-        } else if (errorMessage.includes('429')) {
-          userMsg = '⚠️ Rendszer túlterhelt. Próbáld újra pár másodperc múlva.';
-        }
+        const userMsg = getAssistantErrorMessage(err, `${t('error_occurred')}. ${t('try_again')}`);
         setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: userMsg }]));
       }
     } finally {
@@ -434,6 +395,18 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
   // Keep ref always pointing to latest sendMessage
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
+  // Home/demo cards can hand a request to Chat. Consume it exactly once.
+  const initialMessageConsumedRef = useRef('');
+  useEffect(() => {
+    const initialMessage = String(location.state?.initialMessage || '').trim();
+    if (!initialMessage || initialMessageConsumedRef.current === initialMessage || !sendMessageRef.current) return;
+    initialMessageConsumedRef.current = initialMessage;
+    navigate(location.pathname, { replace: true, state: null });
+    const timer = window.setTimeout(() => sendMessageRef.current?.(initialMessage), 60);
+    return () => window.clearTimeout(timer);
+  }, [location.pathname, location.state, navigate, sendMessage]);
+
 
   const confirmAndExecute = async () => {
     if (!pendingConfirm) return;
@@ -528,7 +501,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
   };
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="jarvis-chat-stage flex flex-col h-full bg-background">
       {showSetup && (
         <SetupWizard onComplete={(newSettings) => {
           setShowSetup(false);
