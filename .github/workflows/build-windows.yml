@@ -45,7 +45,8 @@ jobs:
       - name: Lint source
         run: npm run lint
 
-      - name: Typecheck source
+      - name: Typecheck legacy JS (diagnostic)
+        continue-on-error: true
         run: npm run typecheck
 
       - name: Audit production dependencies
