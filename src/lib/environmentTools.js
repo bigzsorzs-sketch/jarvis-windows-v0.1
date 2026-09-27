@@ -39,12 +39,26 @@ export const ENV_TOOLS = {
 
     const newStatus = command === 'on' ? 'on' : command === 'off' ? 'off' : device.status;
     const apiResult = await callDeviceAPI(device, command === 'on' ? '/cm?cmnd=Power%20On' : '/cm?cmnd=Power%20Off');
-    await jarvis.entities.SmartDevice.update(device.id, { status: newStatus, last_seen: new Date().toISOString() });
+    if (!apiResult) {
+      await jarvis.entities.ActionLog.create({
+        action_type: 'control_device',
+        description: `${device.name} → ${command} (not verified)`,
+        status: 'failed',
+        created_by: currentUser.email
+      });
+      return {
+        success: false,
+        message: `⚠️ ${device.name}: a parancsot nem tudtam a fizikai eszközön igazolni, ezért az alkalmazásban sem módosítottam az állapotát.`,
+        data: { device, command, real_control:false, verified:false }
+      };
+    }
+    const updated = await jarvis.entities.SmartDevice.update(device.id, { status: newStatus, last_seen: new Date().toISOString() });
     await jarvis.entities.ActionLog.create({ action_type: 'control_device', description: `${device.name} → ${command}`, status: 'completed', created_by: currentUser.email });
-    const note = apiResult
-      ? ' ✅ (helyi API kapcsolaton – valós vezérlés)'
-      : ' ⚠️ (csak biztonságos állapotfrissítés – közvetlen hálózati vezérlés nem elérhető)';
-    return { success: true, message: `${command === 'on' ? '💡' : '🔌'} ${device.name}: ${command.toUpperCase()}${note}`, data: { device, command, real_control: !!apiResult } };
+    return {
+      success: true,
+      message: `${command === 'on' ? '💡' : '🔌'} ${device.name}: ${command.toUpperCase()} ✅ (fizikai eszköz válasza alapján)`,
+      data: { device:updated, command, real_control:true, verified:true, apiResult }
+    };
   },
 
   check_device_status: async ({ device_name }) => {
@@ -56,7 +70,19 @@ export const ENV_TOOLS = {
     }
     const device = devices.find(d => d.name.toLowerCase().includes(device_name.toLowerCase()));
     if (!device) return { success: false, message: `❌ Nem találom: "${device_name}"` };
-    return { success: true, message: `${device.type === 'light' ? '💡' : '🔌'} ${device.name} – Állapot: ${device.status} | Helyszín: ${device.location || 'ismeretlen'}`, data: device };
+    const live = await callDeviceAPI(device, '/cm?cmnd=Power');
+    if (!live) {
+      return {
+        success: true,
+        message: `${device.type === 'light' ? '💡' : '🔌'} ${device.name} – Mentett állapot: ${device.status}. A fizikai eszköz aktuális állapota nem volt ellenőrizhető.`,
+        data: { ...device, verified:false }
+      };
+    }
+    return {
+      success: true,
+      message: `${device.type === 'light' ? '💡' : '🔌'} ${device.name} – Élő állapot lekérve.`,
+      data: { ...device, verified:true, live }
+    };
   },
 
   trigger_scene: async ({ scene_name }) => {
