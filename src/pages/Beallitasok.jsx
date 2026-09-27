@@ -19,6 +19,8 @@ import UpdateCard from '@/components/settings/UpdateCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
 import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
 import { getVoicePreferences, saveVoicePreferences } from '@/lib/speechPresentation';
+import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
+import { getVoicePreferences, saveVoicePreferences } from '@/lib/speechPresentation';
 
 const Toggle = ({ checked, onChange }) => (
   <button
@@ -137,6 +139,10 @@ export default function Beallitasok() {
       unsubTheme?.();
       window.speechSynthesis?.removeEventListener?.('voiceschanged', loadVoices);
     };
+    return () => {
+      unsubTheme?.();
+      window.speechSynthesis?.removeEventListener?.('voiceschanged', loadVoices);
+    };
   }, []);
 
   const saveDesktopAi = async () => {
@@ -161,6 +167,252 @@ export default function Beallitasok() {
     setThemeMode(mode);
   };
 
+  const changeTts = (updates) => {
+    const next = { ...ttsPrefs, ...updates };
+    setTtsPrefs(next);
+    saveVoicePreferences(next);
+  };
+
+  // Csak helyi state frissítés – mentés csak a gombbal
+  const update = (updates) => {
+    setSettings(s => ({ ...s, ...updates }));
+    setSaved(false);
+  };
+
+  const saveAll = async () => {
+    const currentUser = await jarvis.auth.me().catch(() => null);
+    if (!currentUser?.email) return;
+    if (settingsId) {
+      await updateOwnedEntity(jarvis.entities.UserSettings, settingsId, settings);
+    } else {
+      const created = await jarvis.entities.UserSettings.create({ ...settings, created_by: currentUser.email });
+      setSettingsId(created.id);
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  // Régi save alias – azonnali mentés nélkül, csak state update
+  const save = (updates) => update(updates);
+
+  const addInterest = (e) => {
+    if (e.key === 'Enter' && interestInput.trim()) {
+      const updated = [...(settings.interests || []), interestInput.trim()];
+      save({ interests: updated });
+      setInterestInput('');
+    }
+  };
+
+  const removeInterest = (interest) => {
+    const updated = (settings.interests || []).filter(i => i !== interest);
+    save({ interests: updated });
+  };
+
+  const sendInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviting(true);
+    setInviteStatus(null);
+    await jarvis.users.inviteUser(inviteEmail.trim(), 'user');
+    setInviteStatus('sent');
+    setInviteEmail('');
+    setInviting(false);
+    setTimeout(() => setInviteStatus(null), 3000);
+  };
+
+  const toggleChannelPreference = async (channel) => {
+    const next = userChannelPrefs.includes(channel)
+      ? userChannelPrefs.filter((item) => item !== channel)
+      : [...userChannelPrefs, channel];
+
+    setUserChannelPrefs(next);
+    await jarvis.auth.updateMe({ enabled_channels: next });
+  };
+
+  const saveBehaviorProfile = async (updates) => {
+    const next = { ...behaviorProfile, ...updates };
+    setBehaviorProfile(next);
+    await jarvis.auth.updateMe({
+      assistant_directness: next.directness,
+      assistant_vocabulary: next.vocabulary,
+      assistant_casual_mode: next.casual_mode,
+      assistant_allow_swearing: next.allow_swearing,
+      command_languages: next.command_languages,
+    });
+  };
+
+  const toggleCommandLanguage = async (code) => {
+    const nextLanguages = behaviorProfile.command_languages.includes(code)
+      ? behaviorProfile.command_languages.filter((item) => item !== code)
+      : [...behaviorProfile.command_languages, code];
+    await saveBehaviorProfile({ command_languages: nextLanguages.length ? nextLanguages : ['hu'] });
+  };
+
+  // Request notification permission
+  const requestNotifications = async () => {
+    if (!('Notification' in window)) {
+      setNotifStatus('unsupported');
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      setNotifStatus('denied');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotifStatus(permission);
+    if (permission === 'granted') {
+      new Notification(t('notif_enabled'), {
+        body: t('notif_desc'),
+        icon: '/favicon.ico'
+      });
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto jarvis-scroll">
+      <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-10 max-w-[1500px] mx-auto">
+        <SettingsPageHeader title={t('settings')} saved={saved} onSave={saveAll} t={t} />
+
+        <div className="settings-desktop-grid">
+        <div className="bg-card border border-primary/15 rounded-2xl p-4 md:p-5 mb-4 app-surface">
+          <h3 className="font-semibold text-foreground mb-1">{lang === 'hu' ? 'AI agy / modellek' : 'AI brain / models'}</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            {lang === 'hu' ? 'OpenRouteren keresztül a Jarvis az aktuálisan elérhető modelleket tölti be. A kulcs Windows titkosított tárhelyen marad.' : 'Jarvis loads currently available models through OpenRouter. The key stays in Windows encrypted storage.'}
+          </p>
+          <input
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            placeholder={desktopAi.hasOpenRouterKey ? '•••••••• (key saved)' : 'OpenRouter API key'}
+            className="w-full mb-3 px-3 py-2 rounded-xl bg-background border border-border text-sm"
+          />
+          <select
+            value={desktopAi.aiModel || 'openrouter/auto'}
+            onChange={(e) => setDesktopAi(d => ({ ...d, aiModel:e.target.value }))}
+            className="w-full mb-3 px-3 py-2 rounded-xl bg-background border border-border text-sm"
+          >
+            <option value="openrouter/auto">AUTO – Jarvis / OpenRouter</option>
+            {aiModels.map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+          </select>
+          <div className="flex items-center gap-3">
+            <button onClick={saveDesktopAi} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold">
+              {lang === 'hu' ? 'AI beállítások mentése' : 'Save AI settings'}
+            </button>
+            {aiStatus && <span className="text-xs text-muted-foreground">{aiStatus}</span>}
+          </div>
+        </div>
+
+        <ThemeToggleCard themeMode={themeMode} onChange={changeTheme} t={t} />
+
+        <div className="bg-card border border-border rounded-2xl p-4 mb-4">
+          <h3 className="font-semibold text-foreground mb-1">Beszédhang</h3>
+          <p className="text-xs text-muted-foreground mb-3">Ez külön beállítás az AI-modelltől. A Jarvis a Windows által elérhető magyar hangokat használja.</p>
+          <select value={ttsPrefs.name} onChange={(e)=>changeTts({name:e.target.value})} className="w-full mb-3 px-3 py-2 rounded-xl bg-background border border-border text-sm">
+            <option value="">Automatikus – legjobb elérhető magyar hang</option>
+            {ttsVoices.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+          </select>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-muted-foreground">Sebesség
+              <input type="range" min="0.8" max="1.15" step="0.01" value={ttsPrefs.rate} onChange={(e)=>changeTts({rate:Number(e.target.value)})} className="w-full" />
+            </label>
+            <label className="text-xs text-muted-foreground">Hangmagasság
+              <input type="range" min="0.85" max="1.2" step="0.01" value={ttsPrefs.pitch} onChange={(e)=>changeTts({pitch:Number(e.target.value)})} className="w-full" />
+            </label>
+          </div>
+        </div>
+
+        <PersonalizationCard
+          settings={settings}
+          personalities={personalities}
+          ageGroups={ageGroups}
+          interestInput={interestInput}
+          setInterestInput={setInterestInput}
+          onUpdate={update}
+          onSave={save}
+          onAddInterest={addInterest}
+          onRemoveInterest={removeInterest}
+          t={t}
+        />
+
+        <div className="bg-card border border-border rounded-2xl p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-foreground">{t('formal_tone')}</p>
+              <p className="text-xs text-muted-foreground">{t('formal_tone_desc')}</p>
+            </div>
+            <Toggle checked={!!settings.formal_tone} onChange={val => save({ formal_tone: val })} />
+          </div>
+        </div>
+
+        <FocusModeCard focusModes={focusModes} activeMode={settings.focus_mode} onSelect={save} t={t} />
+
+        <AiBehaviorCard
+          settings={settings}
+          labels={[
+            { key: 'learning_memory', label: lang === 'hu' ? 'Tanuló memória' : lang === 'es' ? 'Memoria de aprendizaje' : lang === 'de' ? 'Lerngedächtnis' : lang === 'fr' ? 'Mémoire d\'apprentissage' : 'Learning memory' },
+            { key: 'web_search', label: lang === 'hu' ? 'Webes keresés' : lang === 'es' ? 'Búsqueda web' : lang === 'de' ? 'Websuche' : lang === 'fr' ? 'Recherche web' : 'Web search' },
+            { key: 'stock_analysis', label: lang === 'hu' ? 'Tőzsdei elemzés' : lang === 'es' ? 'Análisis bursátil' : lang === 'de' ? 'Börsenanalyse' : lang === 'fr' ? 'Analyse boursière' : 'Stock analysis' },
+            { key: 'auto_market', label: lang === 'hu' ? 'Autópiac' : lang === 'es' ? 'Mercado de autos' : lang === 'de' ? 'Automarkt' : lang === 'fr' ? 'Marché auto' : 'Auto market' },
+          ]}
+          Toggle={Toggle}
+          onSave={save}
+          t={t}
+        />
+
+        <NotificationsCard notifStatus={notifStatus} onRequest={requestNotifications} lang={lang} t={t} />
+
+        <BehaviorProfileSection
+          behaviorProfile={behaviorProfile}
+          onSaveBehaviorProfile={saveBehaviorProfile}
+          onToggleCommandLanguage={toggleCommandLanguage}
+        />
+
+        <PersonalServicesCard lang={lang} userChannelPrefs={userChannelPrefs} onToggle={toggleChannelPreference} />
+
+        <InviteUserCard lang={lang} inviteEmail={inviteEmail} setInviteEmail={setInviteEmail} inviting={inviting} inviteStatus={inviteStatus} onInvite={sendInvite} t={t} />
+
+        <SecurityCard Toggle={Toggle} t={t} />
+
+        <UpdateCard />
+
+        <CloudSyncCard t={t} />
+
+        <SettingsMenuItems t={t} />
+
+        <DeleteAccountCard lang={lang} onOpen={() => setShowDeleteConfirm(true)} t={t} />
+        </div>
+      </div>
+
+      {/* Delete confirmation sheet */}
+      <Sheet open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <SheetContent side="bottom" className="rounded-t-3xl pb-8">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="text-red-400">{t('delete_confirm_title')}</SheetTitle>
+          </SheetHeader>
+          <p className="text-sm text-muted-foreground mb-6 text-center">
+            {lang === 'hu'
+              ? 'Biztosan törölni szeretnéd a fiókodat? Ez a művelet visszafordíthatatlan és minden adatod elvész.'
+              : 'Are you sure you want to delete your account? This action cannot be undone and all your data will be lost.'}
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="flex-1 py-3 rounded-2xl bg-secondary text-foreground font-semibold text-sm"
+            >
+              {t('cancel')}
+            </button>
+            <button
+              onClick={deleteAccount}
+              disabled={deleting}
+              className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-semibold text-sm disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {deleting ? t('deleting') : t('confirm_delete_btn')}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+  const changeTheme = (mode) => { applyThemeMode(mode); setThemeMode(mode); };
   const changeTts = (updates) => {
     const next = { ...ttsPrefs, ...updates };
     setTtsPrefs(next);
