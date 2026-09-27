@@ -16,22 +16,20 @@ test('image editor does not pass an invalid React onColorpicked prop', () => {
   assert.equal(source.includes("addEventListener('colorpicked'"), true);
 });
 
-test('voice runtime uses recorded continuous audio path for Android/WebView', () => {
-  const source = read('src/lib/voiceRuntime.js');
-  assert.equal(source.includes('isAndroidMobileWebView'), true);
-  assert.equal(source.includes('canUseBrowserSpeechRuntime'), true);
-  assert.equal(source.includes("voiceInputMode === 'recorded'"), true);
-  assert.equal(source.includes('startContinuous'), true);
-  assert.equal(source.includes('resumeListening'), true);
+test('voice runtime only selects recorded audio mode when a real backend capability exists', () => {
+  const runtime = read('src/lib/voiceRuntime.js');
+  const mobile = read('src/lib/mobileVoiceIO.js');
+  const preload = read('electron/preload.cjs');
+  assert.equal(runtime.includes('canUseBrowserSpeechRuntime'), true);
+  assert.equal(runtime.includes("if (canUseRecordedVoiceIO()) return 'recorded';"), true);
+  assert.equal(mobile.includes("window.jarvisDesktop?.capabilities?.recordedStt === true"), true);
+  assert.equal(preload.includes('recordedStt:false'), true);
 });
 
-test('mobile voice IO uses continuous MediaRecorder with backend STT and TTS', () => {
-  const source = read('src/lib/mobileVoiceIO.js');
-  assert.equal(source.includes('startContinuous'), true);
-  assert.equal(source.includes('stopContinuous'), true);
-  assert.equal(source.includes('resumeCapture'), true);
-  assert.equal(source.includes('MediaRecorder'), true);
-  assert.equal(source.includes('SpeechRecognition'), false);
-  assert.equal(source.includes("jarvis.functions.invoke('transcribeVoice'"), true);
-  assert.equal(source.includes("jarvis.functions.invoke('synthesizeVoice'"), true);
+test('unconfigured recorded voice endpoints return explicit capability results instead of NOT_IMPLEMENTED', () => {
+  const main = read('electron/main.cjs');
+  assert.equal(main.includes("case 'transcribeVoice'"), true);
+  assert.equal(main.includes("case 'synthesizeVoice'"), true);
+  assert.equal(main.includes('RECORDED_STT_BACKEND_NOT_CONFIGURED'), true);
+  assert.equal(main.includes('REMOTE_TTS_BACKEND_NOT_CONFIGURED'), true);
 });
