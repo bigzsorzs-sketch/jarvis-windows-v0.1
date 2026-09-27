@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Mic, MicOff, FileText, Bell, CheckSquare, TrendingUp,
-  Droplets, ChevronRight, ArrowRight, Sparkles, Cpu, ShieldCheck, Radio
+  Droplets, ChevronRight, ArrowRight, Cpu, ShieldCheck, Radio
 } from 'lucide-react';
 import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
 import { loadFullContext } from '@/lib/assistantTools';
