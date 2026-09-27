@@ -1,16 +1,68 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, MicOff, Square } from 'lucide-react';
+import { requestMicrophonePermission } from '@/lib/microphonePermission';
 
-export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", subtitle = 'I can think, plan, create, and take action with you.' }) {
-  const phase = voice?.state?.phase || 'idle';
-  const active = ['listening','processing','speaking'].includes(phase);
+export default function JarvisVoiceStage({
+  voice,
+  busy = false,
+  busyLabel = '',
+  actions = null,
+  title = "Hi, I'm Jarvis.",
+  subtitle = 'I can think, plan, create, and take action with you.'
+}) {
+  const [micError, setMicError] = useState('');
+  const runtimePhase = voice?.state?.phase || 'idle';
+  const phase = busy && runtimePhase !== 'speaking' ? 'processing' : runtimePhase;
+  const active = ['listening', 'processing', 'speaking'].includes(phase);
   const listening = phase === 'listening';
+  const working = phase === 'processing';
   const speaking = phase === 'speaking';
 
-  const status = speaking ? 'Beszélek…' : phase === 'processing' ? 'Gondolkodom…' : listening ? 'Figyelek…' : 'Speak naturally… I’m listening.';
+  const status = micError
+    || (speaking
+      ? 'Beszélek…'
+      : working
+        ? (busyLabel || 'Gondolkodom…')
+        : listening
+          ? 'Figyelek…'
+          : 'Speak naturally… I’m listening.');
+
+  const orbPhaseClass = speaking
+    ? ' is-speaking'
+    : working
+      ? ' is-working'
+      : listening
+        ? ' is-listening'
+        : '';
+
+  const orbScale = speaking
+    ? [1, 1.085, 1.012, 1.115, 1]
+    : working
+      ? [1, 1.065, 1.01, 1.1, 1]
+      : listening
+        ? [1, 1.028, 1]
+        : [1, 1.012, 1];
+
+  const orbDuration = speaking ? 0.82 : working ? 1.05 : listening ? 2.1 : 5.2;
+
+  const toggleMicrophone = async () => {
+    setMicError('');
+    if (voice?.state?.handsFree) {
+      voice?.setHandsFree?.(false);
+      return;
+    }
+
+    const permission = await requestMicrophonePermission();
+    if (!permission.ok) {
+      setMicError(permission.message);
+      return;
+    }
+    voice?.setHandsFree?.(true);
+  };
 
   return (
-    <section className="jarvis-command-stage" aria-label="Jarvis voice command center">
+    <section className="jarvis-command-stage" aria-label="Jarvis voice command center" data-voice-phase={phase}>
       <div className={active ? 'jarvis-energy-field is-active' : 'jarvis-energy-field'} aria-hidden="true">
         <svg viewBox="0 0 1200 220" preserveAspectRatio="none">
           <path className="energy-wave wave-one" d="M0 112 C90 35 150 35 240 112 S390 189 480 112 S630 35 720 112 S870 189 960 112 S1110 35 1200 112" />
@@ -23,9 +75,9 @@ export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", sub
       </div>
 
       <motion.div
-        className={active ? 'jarvis-hero-orb is-active' : 'jarvis-hero-orb'}
-        animate={{ scale: active ? [1, 1.045, 1] : [1, 1.018, 1], rotate: [0, 2, -2, 0] }}
-        transition={{ duration: active ? 1.5 : 4.8, repeat: Infinity, ease: 'easeInOut' }}
+        className={`jarvis-hero-orb${active ? ' is-active' : ''}${orbPhaseClass}`}
+        animate={{ scale: orbScale }}
+        transition={{ duration: orbDuration, repeat: Infinity, ease: 'easeInOut' }}
         aria-hidden="true"
       >
         <span className="jarvis-orb-core" />
@@ -38,11 +90,13 @@ export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", sub
         <p>{subtitle}</p>
       </div>
 
+      {actions}
+
       <div className={active ? 'jarvis-wave-console is-active' : 'jarvis-wave-console'}>
         <button
           type="button"
           className={voice?.state?.handsFree ? 'jarvis-wave-mic enabled' : 'jarvis-wave-mic'}
-          onClick={() => voice?.setHandsFree?.(!voice.state.handsFree)}
+          onClick={toggleMicrophone}
           aria-label={voice?.state?.handsFree ? 'Mikrofon kikapcsolása' : 'Mikrofon bekapcsolása'}
         >
           {voice?.state?.handsFree ? <Mic size={20} /> : <MicOff size={20} />}
@@ -56,7 +110,7 @@ export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", sub
         <button type="button" className="jarvis-wave-stop" onClick={() => voice?.setHandsFree?.(false)} aria-label="Hangvezérlés leállítása">
           <Square size={15} />
         </button>
-        <div className="jarvis-wave-status">{status}</div>
+        <div className={micError ? 'jarvis-wave-status is-error' : 'jarvis-wave-status'}>{status}</div>
       </div>
     </section>
   );
