@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home, MessageCircle, BarChart3, Brain, Wrench, Settings, MoreHorizontal, X,
-  Car, Activity, ShieldCheck, Wifi, Radio, Cpu, ChevronRight, Database
+  Car, Activity, Cpu, Database, CalendarDays, Folder, Grid3X3, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import LocationSensor from './jarvis/LocationSensor';
 import LanguagePicker from './chat/LanguagePicker';
@@ -23,6 +23,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const [showMore, setShowMore] = useState(false);
   const [clock, setClock] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { t } = useLang();
 
   useEffect(() => {
@@ -48,12 +49,13 @@ export default function Layout() {
   ];
 
   const desktopNav = [
-    { path: '/', label: t('home'), eyebrow: 'CORE', icon: Home },
-    { path: '/chat', label: t('assistant'), eyebrow: 'AI', icon: MessageCircle },
-    { path: '/muszerfal', label: t('dashboard'), eyebrow: 'DATA', icon: BarChart3 },
-    { path: '/memoria', label: t('page_memory') || 'Memória', eyebrow: 'MEMORY', icon: Brain },
-    { path: '/eszkozok', label: t('tools'), eyebrow: 'TOOLS', icon: Wrench },
-    { path: '/beallitasok', label: t('settings'), eyebrow: 'SYSTEM', icon: Settings },
+    { path: '/', label: 'Home', icon: Home },
+    { path: '/chat', label: 'Chat', icon: MessageCircle },
+    { path: '/reminders', label: 'Tasks', icon: Activity },
+    { path: '/memoria', label: 'Knowledge', icon: Brain },
+    { path: '/eszkozok', label: 'Files', icon: Folder },
+    { path: '/tools/calendar', label: 'Calendar', icon: CalendarDays },
+    { path: '/muszerfal', label: 'Apps', icon: Grid3X3 },
   ];
 
   const systemNav = [
@@ -96,104 +98,35 @@ export default function Layout() {
 
   const currentItem = [...desktopNav, ...systemNav].find(item => isDesktopActive(item.path));
   const pageTitle = currentItem?.label || 'Jarvis';
-  const pageEyebrow = currentItem?.eyebrow || 'MODULE';
+  const pageEyebrow = 'JARVIS';
   const isMoreActive = mobileMoreNav.some(n => n.path === location.pathname);
 
   return (
     <div className="jarvis-shell flex h-[100dvh] w-full overflow-hidden bg-background text-foreground">
-      <aside className="jarvis-sidebar hidden md:flex w-[268px] xl:w-[292px] shrink-0 flex-col">
-        <div className="px-5 pt-6 pb-5">
-          <button
-            onClick={() => navigate('/')}
-            className="group flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left"
-          >
-            <div className="jarvis-core-orb relative flex h-12 w-12 items-center justify-center rounded-2xl">
-              <Cpu size={22} className="relative z-10 text-primary" />
-              <span className="absolute inset-0 rounded-2xl border border-primary/30 animate-pulse" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-black tracking-[0.22em] text-foreground">JARVIS</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_12px_hsl(var(--primary))]" />
-              </div>
-              <p className="mt-0.5 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">DESKTOP INTELLIGENCE</p>
-            </div>
+      <aside className={`jarvis-reference-sidebar hidden md:flex shrink-0 flex-col ${sidebarCollapsed ? 'is-collapsed' : ''}`}>
+        <div className="jarvis-reference-brand">
+          <button onClick={() => navigate('/')} className="jarvis-reference-logo" aria-label="Jarvis home">
+            <span className="jarvis-reference-logo-orb" />
+            {!sidebarCollapsed && <strong>Jarvis</strong>}
+          </button>
+          <button className="jarvis-sidebar-collapse" onClick={() => setSidebarCollapsed(v => !v)} aria-label="Oldalsáv összecsukása">
+            {sidebarCollapsed ? <PanelLeftOpen size={15}/> : <PanelLeftClose size={15}/>}
           </button>
         </div>
-
-        <div className="px-4">
-          <div className="mb-2 px-3 text-[10px] font-bold tracking-[0.2em] text-muted-foreground/70">PRIMARY SYSTEMS</div>
-          <nav className="space-y-1.5">
-            {desktopNav.map(({ path, label, eyebrow, icon: Icon }) => {
-              const active = isDesktopActive(path);
-              return (
-                <button
-                  key={path}
-                  onClick={() => navigate(path)}
-                  aria-current={active ? 'page' : undefined}
-                  className={active
-                    ? 'jarvis-nav-item jarvis-nav-item-active w-full'
-                    : 'jarvis-nav-item w-full text-muted-foreground hover:text-foreground'}
-                >
-                  <div className={active ? 'jarvis-nav-icon bg-primary/15 text-primary' : 'jarvis-nav-icon bg-secondary/70 text-muted-foreground'}>
-                    <Icon size={18} />
-                  </div>
-                  <div className="min-w-0 flex-1 text-left">
-                    <div className="truncate text-sm font-semibold">{label}</div>
-                    <div className="text-[9px] font-bold tracking-[0.18em] opacity-45">{eyebrow}</div>
-                  </div>
-                  {active && <ChevronRight size={14} className="text-primary" />}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="mx-5 my-5 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 jarvis-scroll">
-          <div className="mb-2 px-3 text-[10px] font-bold tracking-[0.2em] text-muted-foreground/70">QUICK MODULES</div>
-          <nav className="space-y-1">
-            {systemNav.map(({ path, label, icon: Icon }) => {
-              const active = isDesktopActive(path);
-              return (
-                <button
-                  key={path}
-                  onClick={() => navigate(path)}
-                  className={active
-                    ? 'flex w-full items-center gap-3 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2.5 text-sm font-medium text-primary'
-                    : 'flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:border-border hover:bg-secondary/50 hover:text-foreground'}
-                >
-                  <Icon size={16} />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="m-4 rounded-2xl border border-primary/15 bg-primary/[0.045] p-4 backdrop-blur-xl">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-              </span>
-              <span className="text-[10px] font-bold tracking-[0.16em] text-primary">SYSTEM ONLINE</span>
-            </div>
-            <ShieldCheck size={15} className="text-primary/70" />
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1.5"><Wifi size={12} /> NETWORK</div>
-            <div className="flex items-center gap-1.5"><Radio size={12} /> LOCAL CORE</div>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-3">
-            <LanguagePicker />
-            <span className="font-mono text-xs text-muted-foreground">{clock}</span>
-          </div>
-        </div>
+        <nav className="jarvis-reference-nav">
+          {desktopNav.map(({ path, label, icon: Icon }) => {
+            const active = isDesktopActive(path);
+            return <button key={path} onClick={() => navigate(path)} className={active ? 'active' : ''} title={label}>
+              <Icon size={15}/>{!sidebarCollapsed && <span>{label}</span>}
+            </button>;
+          })}
+        </nav>
+        <div className="jarvis-reference-spacer" />
+        <nav className="jarvis-reference-nav jarvis-reference-system-nav">
+          {systemNav.map(({ path, label, icon: Icon }) => <button key={path} onClick={() => navigate(path)} title={label}><Icon size={15}/>{!sidebarCollapsed && <span>{label}</span>}</button>)}
+        </nav>
+        <button onClick={() => navigate('/beallitasok')} className="jarvis-reference-settings" title="Settings"><Settings size={15}/>{!sidebarCollapsed && <span>Settings</span>}</button>
       </aside>
-
       <section className="relative flex min-w-0 flex-1 flex-col">
         <div className="md:hidden">
           <MobileHeader />
