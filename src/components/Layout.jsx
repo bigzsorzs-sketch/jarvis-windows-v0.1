@@ -24,7 +24,7 @@ export default function Layout() {
   const [showMore, setShowMore] = useState(false);
   const [clock, setClock] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { t } = useLang();
+  const { t, lang } = useLang();
 
   useEffect(() => {
     recordTabPath(location.pathname);
@@ -49,20 +49,20 @@ export default function Layout() {
   ];
 
   const desktopNav = [
-    { path: '/', label: 'Home', icon: Home },
-    { path: '/chat', label: 'Chat', icon: MessageCircle },
-    { path: '/reminders', label: 'Tasks', icon: Activity },
-    { path: '/memoria', label: 'Knowledge', icon: Brain },
-    { path: '/eszkozok', label: 'Files', icon: Folder },
-    { path: '/tools/calendar', label: 'Calendar', icon: CalendarDays },
-    { path: '/muszerfal', label: 'Apps', icon: Grid3X3 },
+    { path: '/', label: t('home'), icon: Home },
+    { path: '/chat', label: t('chat'), icon: MessageCircle },
+    { path: '/reminders', label: t('tasks'), icon: Activity },
+    { path: '/memoria', label: t('memories'), icon: Brain },
+    { path: '/eszkozok', label: t('tools'), icon: Folder },
+    { path: '/tools/calendar', label: t('page_calendar'), icon: CalendarDays },
+    { path: '/muszerfal', label: t('dashboard'), icon: Grid3X3 },
   ];
 
   const systemNav = [
-    { path: '/automotive', label: 'Automotive', icon: Car },
+    { path: '/automotive', label: t('page_automotive'), icon: Car },
     { path: '/obd2', label: 'OBD-II', icon: Activity },
-    { path: '/tools/finance', label: 'Finance', icon: BarChart3 },
-    { path: '/system-center', label: 'System Center', icon: Database },
+    { path: '/tools/finance', label: t('finance'), icon: BarChart3 },
+    { path: '/system-center', label: lang === 'hu' ? 'Rendszerközpont' : 'System Center', icon: Database },
   ];
 
   const activeMobileTab = (() => {
@@ -125,7 +125,7 @@ export default function Layout() {
         {location.pathname !== '/' && <nav className="jarvis-reference-nav jarvis-reference-system-nav">
           {systemNav.map(({ path, label, icon: Icon }) => <button key={path} onClick={() => navigate(path)} title={label}><Icon size={15}/>{!sidebarCollapsed && <span>{label}</span>}</button>)}
         </nav>}
-        <button onClick={() => navigate('/beallitasok')} className="jarvis-reference-settings" title="Settings"><Settings size={15}/>{!sidebarCollapsed && <span>Settings</span>}</button>
+        <button onClick={() => navigate('/beallitasok')} className="jarvis-reference-settings" title={t('settings')}><Settings size={15}/>{!sidebarCollapsed && <span>{t('settings')}</span>}</button>
       </aside>
       <section className="relative flex min-w-0 flex-1 flex-col">
         <div className="md:hidden">

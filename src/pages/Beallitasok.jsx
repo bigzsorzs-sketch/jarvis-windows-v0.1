@@ -72,7 +72,15 @@ export default function Beallitasok() {
   const [inviting, setInviting] = useState(false);
   const [inviteStatus, setInviteStatus] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [desktopAi, setDesktopAi] = useState({ aiProvider: 'openrouter', aiModel: 'openrouter/auto', hasOpenRouterKey: false });
+  const [desktopAi, setDesktopAi] = useState({
+    aiProvider: 'openrouter',
+    aiModel: 'openrouter/auto',
+    aiRoutingMode: 'smart',
+    ttsModel: 'google/gemini-3.8-flash-tts',
+    ttsGender: 'male',
+    ttsVoice: 'Charon',
+    hasOpenRouterKey: false
+  });
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [aiModels, setAiModels] = useState([]);
   const [aiStatus, setAiStatus] = useState('');
@@ -135,9 +143,11 @@ export default function Beallitasok() {
     if (!window.jarvisDesktop?.saveSettings) { setAiStatus('Desktop API unavailable'); return; }
     setAiStatus(lang === 'hu' ? 'Mentés...' : 'Saving...');
     try {
+      const selectedModel = desktopAi.aiModel || 'openrouter/auto';
       const next = await window.jarvisDesktop.saveSettings({
         aiProvider: 'openrouter',
-        aiModel: desktopAi.aiModel || 'openrouter/auto',
+        aiModel: selectedModel,
+        aiRoutingMode: selectedModel === 'openrouter/auto' ? 'smart' : 'manual',
         ...(apiKeyInput.trim() ? { openRouterApiKey: apiKeyInput.trim() } : {})
       });
       setDesktopAi(next);
@@ -146,6 +156,24 @@ export default function Beallitasok() {
       setAiModels(list);
       setAiStatus(lang === 'hu' ? '✓ AI beállítások mentve' : '✓ AI settings saved');
     } catch (e) { setAiStatus(`Error: ${e?.message || e}`); }
+  };
+
+  const saveVoiceSettings = async () => {
+    if (!window.jarvisDesktop?.saveSettings) return;
+    setAiStatus(lang === 'hu' ? 'Hangbeállítás mentése...' : 'Saving voice settings...');
+    try {
+      const gender = desktopAi.ttsGender === 'female' ? 'female' : 'male';
+      const voice = gender === 'female' ? 'Kore' : 'Charon';
+      const next = await window.jarvisDesktop.saveSettings({
+        ttsModel: desktopAi.ttsModel || 'google/gemini-3.8-flash-tts',
+        ttsGender: gender,
+        ttsVoice: voice
+      });
+      setDesktopAi(next);
+      setAiStatus(lang === 'hu' ? '✓ Hangbeállítás mentve' : '✓ Voice settings saved');
+    } catch (e) {
+      setAiStatus(`Error: ${e?.message || e}`);
+    }
   };
 
   const changeTheme = (mode) => {
@@ -284,19 +312,46 @@ export default function Beallitasok() {
         <ThemeToggleCard themeMode={themeMode} onChange={changeTheme} t={t} />
 
         <div className="bg-card border border-border rounded-2xl p-4 mb-4">
-          <h3 className="font-semibold text-foreground mb-1">Beszédhang</h3>
+          <h3 className="font-semibold text-foreground mb-1">{lang === 'hu' ? 'Beszédhang' : 'Voice'}</h3>
           <p className="text-xs text-muted-foreground mb-3">
-            Modellgenerált hang az OpenRouteren keresztül. A Windows rendszerhang nincs használva a Jarvis válaszaihoz.
+            {lang === 'hu'
+              ? 'Modellgenerált hang. Válaszd ki a TTS modellt és a hang nemét; a Windows rendszerhang nincs használva.'
+              : 'Model-generated voice. Choose the TTS model and voice gender; Windows system speech is not used.'}
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div className="rounded-xl border border-border bg-background px-3 py-2">
-              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground">TTS modell</span>
-              <strong className="text-foreground">{desktopAi.ttsModel || 'google/gemini-3.8-flash-tts'}</strong>
-            </div>
-            <div className="rounded-xl border border-border bg-background px-3 py-2">
-              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground">Hang</span>
-              <strong className="text-foreground">{desktopAi.ttsVoice || 'Charon'}</strong>
-            </div>
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'TTS modell' : 'TTS model'}</span>
+              <select
+                value={desktopAi.ttsModel || 'google/gemini-3.8-flash-tts'}
+                onChange={(e) => setDesktopAi(d => ({ ...d, ttsModel:e.target.value }))}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+              >
+                <option value="google/gemini-3.8-flash-tts">Gemini 3.8 Flash TTS</option>
+                <option value="google/gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'Hang neme' : 'Voice gender'}</span>
+              <select
+                value={desktopAi.ttsGender || ((desktopAi.ttsVoice || 'Charon') === 'Kore' ? 'female' : 'male')}
+                onChange={(e) => {
+                  const gender = e.target.value;
+                  setDesktopAi(d => ({ ...d, ttsGender:gender, ttsVoice:gender === 'female' ? 'Kore' : 'Charon' }));
+                }}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+              >
+                <option value="male">{lang === 'hu' ? 'Férfi – Charon' : 'Male – Charon'}</option>
+                <option value="female">{lang === 'hu' ? 'Női – Kore' : 'Female – Kore'}</option>
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">
+              {lang === 'hu' ? 'Aktív hang:' : 'Active voice:'} <strong className="text-foreground">{desktopAi.ttsVoice || 'Charon'}</strong>
+            </span>
+            <button onClick={saveVoiceSettings} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold">
+              {lang === 'hu' ? 'Hang mentése' : 'Save voice'}
+            </button>
           </div>
         </div>
 
