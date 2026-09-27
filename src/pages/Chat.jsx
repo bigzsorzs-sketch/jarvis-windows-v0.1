@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { jarvis } from '@/api/jarvisClient';
-import { loadFullContext, TOOLS, executeActions } from '@/lib/assistantTools';
+import { loadFullContext, executeActions } from '@/lib/assistantTools';
 import { getGreeting } from '@/components/chat/chatGreeting';
 import { getWindowedMessages, buildFileLabel } from '@/components/chat/chatUtils';
 import { detectLanguage } from '@/lib/languageEngine';
