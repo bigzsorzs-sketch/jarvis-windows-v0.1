@@ -474,6 +474,13 @@ class VoiceRuntime {
     // Watchdog setup
     if (!this.watchdogRef) {
       this.watchdogRef = new SpeechWatchdog((reason) => {
+        // Silence is normal in hands-free mode. Never tear down a healthy,
+        // active recognizer merely because no transcript arrived recently.
+        if (reason === 'watchdog_timeout' && (this.recognitionStateRef.isActive || this.state.isListening)) {
+          logger.debug(MODULE, 'WATCHDOG_HEALTHY_SILENCE', { phase: this.state.phase });
+          this.watchdogRef?.heartbeat();
+          return;
+        }
         telemetry.recordRestart(reason);
         logger.warn(MODULE, `Watchdog restart: ${reason}`);
         if (!this._canRestartRecognition()) {
