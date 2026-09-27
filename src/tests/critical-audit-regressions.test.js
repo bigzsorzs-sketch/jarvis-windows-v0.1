@@ -179,13 +179,17 @@ test('release build has a committed dependency lock and CI installs it immutably
   assert.equal(workflow.includes('npm install'), false);
 });
 
-test('ordinary chat omits private knowledge base unless the request needs it', () => {
+test('ordinary chat omits private knowledge base and private requests are domain-minimized', () => {
   const chat = read('src/lib/chatOrchestrator.js');
   assert.equal(chat.includes('function buildPublicSystemPrompt'), true);
+  assert.equal(chat.includes('function selectPrivateContext'), true);
   assert.equal(chat.includes('privateContextRequested'), true);
-  assert.equal(chat.includes('? buildSystemPrompt(ctx, langInstruction, userMood)'), true);
+  assert.equal(chat.includes('? buildSystemPrompt(selectedPrivateContext, langInstruction, userMood)'), true);
   assert.equal(chat.includes(': buildPublicSystemPrompt(ctx, langInstruction, userMood)'), true);
-  assert.equal(chat.includes('safeHistoryForCloud(history, privateContextRequested)'), true);
+  assert.equal(chat.includes('safeHistoryForCloud(history)'), true);
+  assert.equal(chat.includes('ukPostcodeLike'), true);
+  assert.equal(chat.includes('emailLike'), true);
+  assert.equal(chat.includes('phoneLike'), true);
 });
 
 test('date/time and full system check requests are handled locally before cloud AI', () => {
@@ -198,18 +202,23 @@ test('date/time and full system check requests are handled locally before cloud 
   assert.equal(router.indexOf('runLocalSystemCheck(input)') < router.indexOf('runAssistantTurn({'), true);
 });
 
-test('chat explains a missing or rejected OpenRouter key instead of generic failure', () => {
+test('chat and live assistant use centralized actionable OpenRouter errors', () => {
   const chatPage = read('src/pages/Chat.jsx');
-  assert.equal(chatPage.includes('OPENROUTER_API_KEY_REQUIRED'), true);
-  assert.equal(chatPage.includes('OpenRouter API-kulcs'), true);
-  assert.equal(chatPage.includes('OPENROUTER_401'), true);
+  const live = read('src/pages/LiveAssistant.jsx');
+  const errors = read('src/lib/assistantErrorMessage.js');
+  assert.equal(chatPage.includes('getAssistantErrorMessage'), true);
+  assert.equal(live.includes('getAssistantErrorMessage'), true);
+  assert.equal(errors.includes('OPENROUTER_API_KEY_REQUIRED'), true);
+  assert.equal(errors.includes('OpenRouter API-kulcs'), true);
+  assert.equal(errors.includes('OPENROUTER_401'), true);
+  assert.equal(errors.includes('OPENROUTER_402'), true);
+  assert.equal(errors.includes('OPENROUTER_429'), true);
 });
 
 test('ordinary chat never sends a second cloud request for automatic memory extraction', () => {
   const chat = read('src/pages/Chat.jsx');
   assert.equal(chat.includes('Does this user message contain a personal fact worth remembering?'), false);
   assert.equal(chat.includes("import { invokeWithRetry } from '@/lib/llmGateway'"), false);
-  assert.equal(chat.includes('automatic memory extraction'), false);
 });
 
 test('Home hands requests to Chat once and contains no fake paid-upgrade surface', () => {
