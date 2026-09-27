@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
@@ -10,7 +10,7 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ErrorBoundary from './components/ErrorBoundary';
 import { LangProvider } from '@/lib/i18n';
 import { AnimatePresence, motion } from 'framer-motion';
-import { applyThemeMode, getThemeMode } from '@/lib/themeManager';
+import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
 import PushNotificationManager from './components/jarvis/PushNotificationManager';
 import NativeDialogBridge from './components/common/NativeDialogBridge';
 import Layout from './components/Layout';
@@ -129,9 +129,18 @@ const AuthenticatedApp = () => {
 // Apply persisted light/dark/system theme before rendering.
 applyThemeMode(getThemeMode());
 
+function ThemeRuntime() {
+  useEffect(() => {
+    applyThemeMode(getThemeMode());
+    return subscribeTheme(() => {});
+  }, []);
+  return null;
+}
+
 function App() {
   return (
     <ErrorBoundary>
+      <ThemeRuntime />
       <LangProvider>
         <AuthProvider>
           <QueryClientProvider client={queryClientInstance}>
