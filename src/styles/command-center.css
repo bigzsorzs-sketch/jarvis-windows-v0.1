@@ -3,20 +3,20 @@
 .jarvis-energy-field{position:absolute;inset:0;z-index:-1;opacity:.8}.energy-line{position:absolute;left:-8%;right:-8%;top:45%;height:2px;background:linear-gradient(90deg,transparent,#086dff 18%,#46c8ff 50%,#086dff 82%,transparent);filter:drop-shadow(0 0 7px #168cff);transform-origin:center}.energy-line-b{top:51%;opacity:.45;transform:scaleY(-1)}.energy-line.active{animation:jarvis-energy 1.2s ease-in-out infinite}.energy-line-b.active{animation-delay:-.55s}@keyframes jarvis-energy{0%,100%{transform:scaleX(.96) scaleY(1);opacity:.45}50%{transform:scaleX(1.05) scaleY(2);opacity:1}}
 .jarvis-hero-orb{position:relative;width:116px;height:116px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 36% 30%,#56d8ff 0,#087dff 19%,#06399f 48%,#02091d 76%);box-shadow:0 0 18px #25baff,0 0 55px rgba(0,112,255,.75),inset -18px -22px 35px rgba(0,0,35,.8);border:2px solid rgba(94,221,255,.8)}.jarvis-hero-orb.is-active{box-shadow:0 0 25px #73e6ff,0 0 82px rgba(0,119,255,.92),inset -18px -22px 35px rgba(0,0,35,.8)}.jarvis-orb-core{width:62%;height:62%;border-radius:50%;background:radial-gradient(circle at 42% 38%,rgba(102,220,255,.8),rgba(0,70,210,.12) 45%,rgba(0,0,0,.2));filter:blur(1px)}.jarvis-orb-ring{position:absolute;border:1px solid rgba(80,209,255,.35);border-radius:50%;inset:9px}.jarvis-orb-ring-two{inset:19px;opacity:.45}
 .jarvis-command-copy{text-align:center;margin-top:18px;z-index:2}.jarvis-command-copy h2{font-size:31px;font-weight:800;letter-spacing:-.035em;color:#f5f9ff}.jarvis-command-copy p{margin-top:5px;color:#91a9c7;font-size:13px}
-.jarvis-command-actions{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;max-width:920px;margin:-2px auto 12px}.jarvis-command-action{display:flex;align-items:center;gap:8px;min-width:0;padding:10px 11px;border-radius:12px;border:1px solid rgba(43,124,238,.2);background:linear-gradient(180deg,rgba(9,32,67,.82),rgba(5,19,43,.88));color:#55c8ff;text-align:left;transition:.18s ease}.jarvis-command-action:hover{border-color:rgba(63,175,255,.55);transform:translateY(-1px)}.jarvis-command-action span{display:flex;min-width:0;flex-direction:column}.jarvis-command-action strong{font-size:12px;color:#dfeeff}.jarvis-command-action small{font-size:8px;color:#6784a9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jarvis-command-actions{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;max-width:920px;margin:18px auto 12px}.jarvis-command-action{display:flex;align-items:center;gap:8px;min-width:0;padding:10px 11px;border-radius:12px;border:1px solid rgba(43,124,238,.2);background:linear-gradient(180deg,rgba(9,32,67,.82),rgba(5,19,43,.88));color:#55c8ff;text-align:left;transition:.18s ease}.jarvis-command-action:hover{border-color:rgba(63,175,255,.55);transform:translateY(-1px)}.jarvis-command-action span{display:flex;min-width:0;flex-direction:column}.jarvis-command-action strong{font-size:12px;color:#dfeeff}.jarvis-command-action small{font-size:8px;color:#6784a9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .jarvis-wave-console{position:relative;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;width:min(760px,92%);min-height:66px;margin-top:19px;padding:0 9px 15px;border:1px solid rgba(35,113,220,.2);border-radius:18px;background:linear-gradient(180deg,rgba(4,20,48,.86),rgba(3,13,32,.94));box-shadow:inset 0 0 28px rgba(0,90,255,.055),0 10px 40px rgba(0,0,0,.2);z-index:4}.jarvis-wave-console.is-active{border-color:rgba(45,168,255,.4)}.jarvis-wave-mic,.jarvis-wave-stop{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#7ab9e9;border:1px solid rgba(67,155,255,.22);background:#071a37}.jarvis-wave-mic.enabled{color:#55dcff;box-shadow:0 0 18px rgba(0,174,255,.35)}.jarvis-wave-stop{color:#7b94b5}.jarvis-waveform{height:43px;display:flex;align-items:center;justify-content:center;gap:3px;padding:0 18px}.jarvis-waveform span{width:3px;min-height:4px;border-radius:4px;background:linear-gradient(180deg,#7be8ff,#0878ff);box-shadow:0 0 7px rgba(29,158,255,.85)}.jarvis-wave-status{position:absolute;bottom:5px;left:50%;transform:translateX(-50%);font-size:9px;color:#7693b6;white-space:nowrap}
 @media(max-width:900px){.jarvis-command-actions{grid-template-columns:repeat(3,1fr)}.jarvis-command-stage{min-height:310px}.jarvis-command-copy h2{font-size:27px}}@media(max-width:560px){.jarvis-command-center-hero{padding:12px 10px 6px}.jarvis-command-actions{grid-template-columns:repeat(2,1fr)}.jarvis-command-stage{min-height:290px}.jarvis-hero-orb{width:92px;height:92px}.jarvis-command-copy h2{font-size:24px}.jarvis-wave-console{width:96%}}
 .jarvis-reference-sidebar{width:154px;background:linear-gradient(180deg,#041329 0%,#031023 62%,#020b18 100%);border-right:1px solid rgba(38,111,205,.16);padding:24px 13px 16px;transition:width .22s ease;box-shadow:inset -18px 0 35px rgba(0,21,61,.16);z-index:20}.jarvis-reference-sidebar.is-collapsed{width:62px;padding-left:9px;padding-right:9px}.jarvis-reference-brand{display:flex;align-items:center;justify-content:space-between;margin:0 4px 20px}.jarvis-reference-logo{display:flex;align-items:center;gap:9px;color:#edf6ff;font-size:18px;font-style:italic;letter-spacing:-.02em}.jarvis-reference-logo-orb{width:28px;height:28px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#80e8ff 0,#0c91ff 24%,#0644ba 53%,#03152d 76%);border:1px solid #57d5ff;box-shadow:0 0 8px #1fa9ff,0 0 18px rgba(0,118,255,.65)}.jarvis-sidebar-collapse{display:grid;place-items:center;width:24px;height:24px;border-radius:7px;color:#58799f}.jarvis-sidebar-collapse:hover{color:#6edcff;background:rgba(26,117,230,.1)}.is-collapsed .jarvis-reference-brand{justify-content:center;flex-direction:column;gap:10px}.jarvis-reference-nav{display:flex;flex-direction:column;gap:3px}.jarvis-reference-nav button,.jarvis-reference-settings{display:flex;align-items:center;gap:10px;width:100%;min-height:32px;padding:0 10px;border-radius:7px;color:#7891b0;font-size:10px;font-weight:600;text-align:left;transition:.15s ease}.jarvis-reference-nav button:hover,.jarvis-reference-settings:hover{color:#d9edff;background:rgba(20,82,161,.13)}.jarvis-reference-nav button.active{color:#d9f1ff;background:linear-gradient(90deg,rgba(12,111,244,.48),rgba(11,83,190,.28));border:1px solid rgba(38,144,255,.22);box-shadow:inset 0 0 14px rgba(0,113,255,.12)}.jarvis-reference-nav button.active svg{color:#66cfff}.jarvis-reference-spacer{flex:1}.jarvis-reference-system-nav{margin-bottom:12px;padding-top:10px;border-top:1px solid rgba(43,103,180,.1)}.jarvis-reference-settings{margin-top:3px}.is-collapsed .jarvis-reference-nav button,.is-collapsed .jarvis-reference-settings{justify-content:center;padding:0}.is-collapsed .jarvis-sidebar-collapse{margin:auto}
 
 .jarvis-reference-topbar{background:#031126;border-bottom:1px solid rgba(37,104,193,.11)}.jarvis-reference-topbar h1{font-size:12px}.jarvis-reference-topbar .jarvis-status-chip{transform:scale(.82);transform-origin:right center}
-@media(min-width:901px){.jarvis-command-center-hero{min-height:520px;padding:26px 32px 18px;display:flex;flex-direction:column;justify-content:center}.jarvis-command-stage{min-height:390px;overflow:visible}.jarvis-command-actions{width:min(860px,94%);grid-template-columns:repeat(6,1fr);margin:-30px auto 12px;position:relative;z-index:8}.jarvis-wave-console{width:min(860px,94%);min-height:72px}.jarvis-command-copy h2{font-size:35px}.jarvis-command-copy p{font-size:12px}}
+@media(min-width:901px){.jarvis-command-center-hero{min-height:520px;padding:26px 32px 18px;display:flex;flex-direction:column;justify-content:center}.jarvis-command-stage{min-height:390px;overflow:visible}.jarvis-command-actions{width:min(860px,94%);grid-template-columns:repeat(6,1fr);margin:18px auto 12px;position:relative;z-index:8}.jarvis-wave-console{width:min(860px,94%);min-height:72px}.jarvis-command-copy h2{font-size:35px}.jarvis-command-copy p{font-size:12px}}
 
 .jarvis-energy-field{top:50%;left:50%;width:112%;height:220px;transform:translate(-50%,-50%);overflow:visible}.jarvis-energy-field svg{width:100%;height:100%;overflow:visible}.energy-wave{fill:none;stroke:#087fff;stroke-width:1.5;opacity:.32;filter:drop-shadow(0 0 5px #0a86ff)}.wave-two{stroke:#36bdff;opacity:.26}.wave-three{stroke:#125cd7;opacity:.22}.jarvis-energy-field.is-active .wave-one{animation:wave-pulse 1.4s ease-in-out infinite}.jarvis-energy-field.is-active .wave-two{animation:wave-pulse 1.05s ease-in-out infinite reverse}.jarvis-energy-field.is-active .wave-three{animation:wave-pulse 1.8s ease-in-out infinite -.4s}@keyframes wave-pulse{0%,100%{transform:scaleY(.72);opacity:.22}50%{transform:scaleY(1.3);opacity:.68}}
-@media(min-width:901px){.jarvis-command-center-hero{height:100%;min-height:0;padding:0 32px 20px;justify-content:center}.jarvis-command-stage{flex:1;min-height:0;max-height:520px}.jarvis-hero-orb{width:124px;height:124px}.jarvis-command-copy{margin-top:22px}.jarvis-command-actions{margin:-18px auto 12px}.jarvis-wave-console{margin-top:6px}}
+@media(min-width:901px){.jarvis-command-center-hero{height:100%;min-height:0;padding:0 32px 20px;justify-content:center}.jarvis-command-stage{flex:1;min-height:0;max-height:520px}.jarvis-hero-orb{width:124px;height:124px}.jarvis-command-copy{margin-top:22px}.jarvis-command-actions{margin:18px auto 12px}.jarvis-wave-console{margin-top:6px}}
 
 /* Approved 9404.jpg reference lock */
 @media(min-width:901px){
-  .jarvis-reference-sidebar{width:15.2%;min-width:138px;max-width:166px;padding:28px 14px 16px}
+  .jarvis-reference-sidebar{width:15.2%;min-width:148px;max-width:184px;padding:38px 14px 16px}
   .jarvis-reference-sidebar.is-collapsed{width:62px;min-width:62px}
   .jarvis-command-center-hero{height:100%;padding:18px 3.4% 20px;background:radial-gradient(ellipse at 52% 42%,rgba(0,105,255,.16) 0%,rgba(0,47,119,.055) 35%,transparent 62%),linear-gradient(180deg,#020d21 0%,#03132c 100%)}
   .jarvis-command-stage{flex:1;min-height:0;max-height:none;justify-content:center;border-radius:0;background:transparent;overflow:hidden}
@@ -25,7 +25,7 @@
   .jarvis-command-copy{margin-top:20px}
   .jarvis-command-copy h2{font-size:34px;line-height:1.05}
   .jarvis-command-copy p{margin-top:8px;font-size:12px}
-  .jarvis-command-actions{width:92%;max-width:900px;gap:6px;margin:-4px auto 12px}
+  .jarvis-command-actions{width:92%;max-width:900px;gap:6px;margin:18px auto 12px}
   .jarvis-command-action{min-height:48px;padding:8px 10px;border-radius:9px}
   .jarvis-command-action strong{font-size:11px}.jarvis-command-action small{font-size:7.5px}
   .jarvis-wave-console{width:92%;max-width:900px;min-height:66px;margin:0 auto 2px;border-radius:14px}
@@ -54,3 +54,40 @@
 .jarvis-energy-field.is-active .wave-four{animation:wave-pulse 2.35s ease-in-out infinite reverse}
 .jarvis-energy-field.is-active .wave-five{animation:wave-pulse 2.8s ease-in-out infinite}
 .jarvis-energy-field.is-active .wave-six{animation:wave-pulse 3.15s ease-in-out infinite reverse}
+
+
+/* v0.3.1 reference fidelity + live Jarvis state */
+@media(min-width:901px){
+  .jarvis-shell::before{
+    content:"";
+    position:fixed;
+    top:0;
+    left:0;
+    right:138px;
+    height:30px;
+    z-index:9998;
+    -webkit-app-region:drag;
+  }
+  .jarvis-command-actions{
+    width:92%;
+    max-width:900px;
+    margin:18px auto 12px;
+  }
+  .jarvis-wave-console{margin-top:0}
+}
+.jarvis-hero-orb.is-listening{
+  box-shadow:0 0 12px #7eeaff,0 0 34px rgba(28,183,255,.92),0 0 82px rgba(0,102,255,.66),inset -20px -24px 38px rgba(0,0,35,.82);
+}
+.jarvis-hero-orb.is-working{animation:jarvis-orb-working-glow 1.05s ease-in-out infinite}
+.jarvis-hero-orb.is-speaking{animation:jarvis-orb-speaking-glow .82s ease-in-out infinite}
+@keyframes jarvis-orb-working-glow{
+  0%,100%{box-shadow:0 0 12px #78e8ff,0 0 30px rgba(35,190,255,.88),0 0 74px rgba(0,103,255,.64),inset -20px -24px 38px rgba(0,0,35,.82)}
+  42%{box-shadow:0 0 22px #c8f9ff,0 0 52px rgba(60,211,255,.98),0 0 112px rgba(0,111,255,.92),inset -18px -20px 34px rgba(0,0,35,.72)}
+  58%{box-shadow:0 0 10px #62ddff,0 0 27px rgba(21,169,255,.78),0 0 68px rgba(0,92,244,.58),inset -22px -25px 40px rgba(0,0,35,.86)}
+}
+@keyframes jarvis-orb-speaking-glow{
+  0%,100%{box-shadow:0 0 14px #8aefff,0 0 36px rgba(49,200,255,.92),0 0 88px rgba(0,113,255,.72),inset -20px -24px 38px rgba(0,0,35,.82)}
+  38%{box-shadow:0 0 26px #e1fcff,0 0 58px rgba(96,228,255,1),0 0 126px rgba(0,128,255,.96),inset -17px -19px 32px rgba(0,0,35,.7)}
+  63%{box-shadow:0 0 11px #66deff,0 0 30px rgba(30,176,255,.78),0 0 72px rgba(0,94,242,.6),inset -22px -26px 40px rgba(0,0,35,.86)}
+}
+.jarvis-wave-status.is-error{color:#ff9d9d}
