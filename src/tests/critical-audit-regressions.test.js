@@ -205,3 +205,51 @@ test('chat explains a missing or rejected OpenRouter key instead of generic fail
   assert.equal(chatPage.includes('OPENROUTER_401'), true);
 });
 
+test('ordinary chat never sends a second cloud request for automatic memory extraction', () => {
+  const chat = read('src/pages/Chat.jsx');
+  assert.equal(chat.includes('Does this user message contain a personal fact worth remembering?'), false);
+  assert.equal(chat.includes("import { invokeWithRetry } from '@/lib/llmGateway'"), false);
+  assert.equal(chat.includes('automatic memory extraction'), false);
+});
+
+test('Home hands requests to Chat once and contains no fake paid-upgrade surface', () => {
+  const home = read('src/pages/Home.jsx');
+  assert.equal(home.includes("invokeWithRetry"), false);
+  assert.equal(home.includes("state: { initialMessage: msg }"), true);
+  assert.equal(home.includes('PLAN_TIER_KEYS'), false);
+  assert.equal(home.includes("upgrade_to_pro"), false);
+});
+
+test('Chat consumes Home and demo handoff exactly once', () => {
+  const chat = read('src/pages/Chat.jsx');
+  assert.equal(chat.includes('useLocation, useNavigate'), true);
+  assert.equal(chat.includes('initialMessageConsumedRef'), true);
+  assert.equal(chat.includes("location.state?.initialMessage"), true);
+  assert.equal(chat.includes("replace: true, state: null"), true);
+});
+
+test('Live Assistant reports actionable errors and preserves the chosen avatar', () => {
+  const live = read('src/pages/LiveAssistant.jsx');
+  assert.equal(live.includes('getAssistantErrorMessage'), true);
+  assert.equal(live.includes("localStorage.getItem('liveAssistantAvatarUrl')"), true);
+  assert.equal(live.includes("localStorage.setItem('liveAssistantAvatarUrl', next)"), true);
+  assert.equal(live.includes("latestUserEmotion === 'neutral' ? 'thinking'"), true);
+  assert.equal(live.includes('Kérlek próbáld újra egy rövidebb üzenettel.'), false);
+});
+
+test('v0.3 upgrade branch is built and updater trust prerequisites are verified', () => {
+  const workflow = read('.github/workflows/build-windows.yml');
+  assert.equal(workflow.includes("- 'upgrade/**'"), true);
+  assert.equal(workflow.includes('Verify Windows update trust chain'), true);
+  assert.equal(workflow.includes("Get-AuthenticodeSignature -LiteralPath $app"), true);
+  assert.equal(workflow.includes("Get-AuthenticodeSignature -LiteralPath $installer.FullName"), true);
+});
+
+test('futuristic visual system is local-first and does not depend on Google Fonts', () => {
+  const css = read('src/index.css');
+  assert.equal(css.includes('fonts.googleapis.com'), false);
+  assert.equal(css.includes('JARVIS v0.3 FUTURISTIC INTERFACE'), true);
+  assert.equal(css.includes('.jarvis-holo-panel'), true);
+  assert.equal(css.includes('.jarvis-command-deck'), true);
+});
+
