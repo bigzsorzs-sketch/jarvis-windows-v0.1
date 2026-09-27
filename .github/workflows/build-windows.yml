@@ -26,19 +26,15 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
 
-      - name: Commit generated dependency lock on v0.2.4 maintenance branch
-        if: github.ref == 'refs/heads/fix/release-v0.2.4'
+      - name: Verify dependency lock is clean
         shell: pwsh
         run: |
-          if (git status --porcelain -- package-lock.json) {
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add package-lock.json
-            git commit -m "Lock v0.2.4 npm dependency graph"
-            git push
+          if (-not (Test-Path package-lock.json)) { throw "package-lock.json is required" }
+          if (git status --porcelain -- package.json package-lock.json) {
+            throw "Dependency manifest or lockfile changed during npm ci"
           }
 
       - name: Verify JavaScript syntax
