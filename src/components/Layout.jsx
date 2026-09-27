@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
 import MobileHeader from './MobileHeader';
 import { recordTabPath, getLastTabPath, resetTabPath } from '@/lib/tabHistory';
+import { APP_VERSION } from '@/lib/appVersion';
 
 const toolPaths = new Set([
   '/contacts','/reminders','/smarthome','/routines','/legal','/retail','/gmail',
@@ -117,7 +118,7 @@ export default function Layout() {
                 <span className="text-lg font-black tracking-[0.22em] text-foreground">JARVIS</span>
                 <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_12px_hsl(var(--primary))]" />
               </div>
-              <p className="mt-0.5 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">DESKTOP INTELLIGENCE</p>
+              <p className="mt-0.5 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">DESKTOP INTELLIGENCE · v{APP_VERSION}</p>
             </div>
           </button>
         </div>
@@ -218,6 +219,9 @@ export default function Layout() {
             <div className="jarvis-status-chip">
               <Cpu size={13} />
               LOCAL CORE
+            </div>
+            <div className="jarvis-status-chip hidden xl:flex">
+              v{APP_VERSION}
             </div>
             <div className="ml-2 font-mono text-sm font-semibold text-foreground/80">{clock}</div>
           </div>
