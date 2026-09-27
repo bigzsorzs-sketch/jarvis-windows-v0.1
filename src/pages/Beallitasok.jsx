@@ -19,8 +19,6 @@ import UpdateCard from '@/components/settings/UpdateCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
 import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
 import { getVoicePreferences, saveVoicePreferences } from '@/lib/speechPresentation';
-import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
-import { getVoicePreferences, saveVoicePreferences } from '@/lib/speechPresentation';
 
 const Toggle = ({ checked, onChange }) => (
   <button
