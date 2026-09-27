@@ -14,6 +14,11 @@ const { PolicyEngine } = require('./security/policy-engine.cjs');
 const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
+const {
+  analyzeUploadedFiles,
+  analyzeProjectDeep,
+  analyzeProjectSpecialists,
+} = require('./analysis/file-analyzer.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -222,6 +227,9 @@ async function invokeJarvisFunction(name, payload={}) {
     }
     case 'generateImage': return openRouterGenerateImage(payload);
     case 'gmailFetch': return { data:{ emails:[], connected:false, configured:false, reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
+    case 'analyzeUploadedFiles': return { data:analyzeUploadedFiles(payload?.files || []) };
+    case 'analyzeProjectDeep': return { data:analyzeProjectDeep(payload?.files || []) };
+    case 'analyzeProjectSpecialists': return { data:analyzeProjectSpecialists(payload?.files || []) };
     case 'sendFeedback': return { data:{ success:true, storedLocally:true } };
     case 'getActivePromptTunings': return { data:{ tunings:[] } };
     case 'deleteAccount': database?.resetAll(); return { data:{ success:true, localOnly:true } };
