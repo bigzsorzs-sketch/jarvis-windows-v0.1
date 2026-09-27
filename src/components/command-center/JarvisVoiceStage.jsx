@@ -1,8 +1,6 @@
 import { motion } from 'framer-motion';
 import { Mic, MicOff, Square } from 'lucide-react';
 
-const BARS = [12,18,9,22,14,30,17,38,24,44,20,34,16,28,12,20,10];
-
 export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", subtitle = 'I can think, plan, create, and take action with you.' }) {
   const phase = voice?.state?.phase || 'idle';
   const active = ['listening','processing','speaking'].includes(phase);
@@ -46,14 +44,11 @@ export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", sub
         >
           {voice?.state?.handsFree ? <Mic size={20} /> : <MicOff size={20} />}
         </button>
-        <div className="jarvis-waveform" aria-hidden="true">
-          {BARS.map((height, index) => (
-            <motion.span
-              key={index}
-              animate={active ? { height: [Math.max(4,height * .25), height, Math.max(5,height * .45)] } : { height: 4 }}
-              transition={{ duration: speaking ? .42 : .7, repeat: active ? Infinity : 0, delay: index * .035, ease: 'easeInOut' }}
-            />
-          ))}
+        <div className={active ? 'jarvis-waveform is-active' : 'jarvis-waveform'} aria-hidden="true">
+          <svg viewBox="0 0 760 52" preserveAspectRatio="none">
+            <path className="voice-wave voice-wave-soft" d="M0 26 C30 25 45 24 65 26 C86 29 99 34 116 26 C132 17 144 7 160 26 C177 46 190 38 205 26 C220 13 232 18 246 26 C260 34 271 43 286 26 C300 9 314 3 330 26 C347 50 359 42 374 26 C389 10 401 14 416 26 C432 39 444 45 459 26 C474 7 489 9 505 26 C521 43 535 37 551 26 C568 15 581 18 598 26 C615 34 631 30 648 26 C670 22 695 26 715 26 C733 26 747 25 760 26" />
+            <path className="voice-wave voice-wave-main" d="M0 26 C35 26 51 23 70 26 C89 30 103 38 120 26 C136 14 147 2 164 26 C181 50 194 41 210 26 C226 10 238 16 253 26 C268 36 279 48 294 26 C309 4 323 0 339 26 C355 52 369 44 384 26 C399 8 412 12 427 26 C443 41 456 48 471 26 C486 4 501 7 517 26 C533 45 548 39 564 26 C581 13 594 16 611 26 C628 36 643 31 660 26 C681 21 703 27 721 26 C738 25 750 26 760 26" />
+          </svg>
         </div>
         <button type="button" className="jarvis-wave-stop" onClick={() => voice?.setHandsFree?.(false)} aria-label="Hangvezérlés leállítása">
           <Square size={15} />
