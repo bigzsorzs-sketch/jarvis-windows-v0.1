@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
+  localDeviceRequest: (request) => ipcRenderer.invoke('jarvis:device:request', request),
   data: {
     filter: (entity, query, sort, limit) => ipcRenderer.invoke('jarvis:data:filter', { entity, query, sort, limit }),
     create: (entity, data) => ipcRenderer.invoke('jarvis:data:create', { entity, data }),
