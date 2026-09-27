@@ -76,12 +76,23 @@ export function createLlmGateway() {
       const safeParams = validateLlmParams(params);
       const queueKey = safeParams.queueKey || 'default';
       delete safeParams.queueKey;
+      const imageGeneration = safeParams.is_image_generation === true;
+      delete safeParams.is_image_generation;
       let lastError;
 
       for (let attempt = 0; attempt < maxRetries; attempt += 1) {
         try {
-          const result = await requestQueue.enqueue(() => jarvis.functions.invoke('llmProxy', safeParams), queueKey);
-          if (!result?.data) throw new Error('Empty response from LLM');
+          const result = await requestQueue.enqueue(
+            () => imageGeneration
+              ? jarvis.integrations.Core.GenerateImage(safeParams)
+              : jarvis.functions.invoke('llmProxy', safeParams),
+            queueKey
+          );
+          if (imageGeneration) {
+            if (!result?.url) throw new Error('Empty image response from generator');
+          } else if (!result?.data) {
+            throw new Error('Empty response from LLM');
+          }
           if (attempt > 0) logger.info(MODULE, 'LLM request recovered after retry', { attempt: attempt + 1 });
           return result;
         } catch (err) {
