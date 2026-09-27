@@ -68,3 +68,9 @@ test('API secrets are never stored with a plaintext/base64 fallback', () => {
   assert.equal(main.includes("entry.type !== 'safeStorage'"), true);
 });
 
+test('Jarvis application does not request permanent administrator privileges', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.equal(pkg.build?.win?.requestedExecutionLevel, 'asInvoker');
+  assert.equal(pkg.build?.nsis?.perMachine, true);
+});
+
