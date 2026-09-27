@@ -58,15 +58,15 @@ function writeJson(file, value) { fs.mkdirSync(path.dirname(file), {recursive:tr
 
 function protectSecret(value) {
   if (!value) return null;
-  if (safeStorage.isEncryptionAvailable()) return { type:'safeStorage', value:safeStorage.encryptString(value).toString('base64') };
-  return { type:'plain-local-fallback', value:Buffer.from(value,'utf8').toString('base64') };
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('WINDOWS_SECURE_STORAGE_UNAVAILABLE');
+  }
+  return { type:'safeStorage', value:safeStorage.encryptString(value).toString('base64') };
 }
 function unprotectSecret(entry) {
-  if (!entry?.value) return '';
+  if (!entry?.value || entry.type !== 'safeStorage' || !safeStorage.isEncryptionAvailable()) return '';
   try {
-    const buf = Buffer.from(entry.value,'base64');
-    if (entry.type === 'safeStorage' && safeStorage.isEncryptionAvailable()) return safeStorage.decryptString(buf);
-    return buf.toString('utf8');
+    return safeStorage.decryptString(Buffer.from(entry.value,'base64'));
   } catch { return ''; }
 }
 
