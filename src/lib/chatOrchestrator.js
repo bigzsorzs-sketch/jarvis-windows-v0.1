@@ -35,6 +35,47 @@ function shouldLockVoiceToHungarian(message, source, fallbackLang) {
   return clean.length < 24 || !/[a-z]{3,}\s+[a-z]{3,}/i.test(clean);
 }
 
+function normalizePrivacyText(text = '') {
+  return String(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+export function requestsPrivateContext(text = '') {
+  const input = normalizePrivacyText(text);
+  return /(emlek|memoria|korabban|elozo|history|remember|gyogyszer|medication|kontakt|contact|telefon|email|penzugy|finance|szamla|invoice|bevetel|kiadas|egyenleg|vercukor|cukor|glucose|egeszseg|health|kaloria|etkezes|meal|feladat|todo|emlekezteto|reminder|uzlet|business|ugyfel|client)/.test(input);
+}
+
+function hasStoredPrivateContext(ctx) {
+  return Boolean(ctx?.memories?.length)
+    || Boolean(ctx?.meds?.length)
+    || Boolean(ctx?.contacts?.length)
+    || Boolean(ctx?.finance?.length)
+    || Boolean(ctx?.bs?.length)
+    || Boolean(ctx?.meals?.length)
+    || Boolean(ctx?.invoices?.length)
+    || Boolean(ctx?.todos?.length)
+    || Boolean(ctx?.reminders?.length)
+    || Boolean(ctx?.actions?.length)
+    || Boolean(ctx?.ecosystem);
+}
+
+function publicOnlyContext(ctx) {
+  return {
+    settings: ctx?.settings || null,
+    promptTunings: ctx?.promptTunings || [],
+    memories: [], todos: [], finance: [], bs: [], meals: [], meds: [], contacts: [], reminders: [], actions: [], invoices: [],
+    ecosystem: null,
+  };
+}
+
+function safeHistoryForCloud(history = [], allowPrivate = false) {
+  const recent = history.slice(allowPrivate ? -12 : -6);
+  if (allowPrivate) return recent;
+  return recent.filter((message) => !requestsPrivateContext(message?.content || ''));
+}
+
 export async function runAssistantTurn({ message, history, ctx, lang, userMood, attachedFiles = [], source = 'chat' }) {
   const fallbackLang = lang || 'hu';
   const detectedRaw = shouldLockVoiceToHungarian(message, source, fallbackLang) ? 'hu' : await detectLanguage(message, fallbackLang);
@@ -48,10 +89,13 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
   const voiceSpeedInstruction = source === 'voice'
     ? '\nVoice mode: answer in Hungarian when input is Hungarian. Use 1 short sentence, maximum 18 words. No English unless the user spoke English.'
     : '\nAnswer concisely by default.';
-  const systemPrompt = `${buildSystemPrompt(ctx, langInstruction, userMood)}${voiceSpeedInstruction}`;
 
-  const compactHistory = history
-    .slice(-12)
+  const privateContextRequested = attachedFiles.length > 0 || requestsPrivateContext(message);
+  const promptContext = privateContextRequested ? ctx : publicOnlyContext(ctx);
+  const systemPrompt = `${buildSystemPrompt(promptContext, langInstruction, userMood)}${voiceSpeedInstruction}`;
+
+  const selectedHistory = safeHistoryForCloud(history, privateContextRequested);
+  const compactHistory = selectedHistory
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${escapePromptValue(m.content, 800)}`)
     .join('\n');
   const safeMessage = escapePromptValue(message, 2000);
@@ -59,13 +103,8 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
   const fileAnalysisContext = await buildFileAnalysisContext(attachedFiles);
 
   const containsSensitiveContext = attachedFiles.length > 0
-    || Boolean(ctx?.memories?.length)
-    || Boolean(ctx?.meds?.length)
-    || Boolean(ctx?.contacts?.length)
-    || Boolean(ctx?.finance?.length)
-    || Boolean(ctx?.bs?.length)
-    || Boolean(ctx?.meals?.length)
-    || Boolean(ctx?.invoices?.length);
+    || requestsPrivateContext(message)
+    || (privateContextRequested && hasStoredPrivateContext(ctx));
 
   const llmParams = {
     prompt: `${systemPrompt}\n\nDetected input language: ${detectedLang}\nSelected output language: ${outputLang}\nCRITICAL LANGUAGE RULE: If selected output language is hu, reply ONLY in Hungarian. English words or English sentences are forbidden.\n\n${fileAnalysisContext}\n\nVOICE MODE LATENCY RULES:\n- Default to 1 short sentence, maximum 18 words.\n- For completed actions, confirm in 3-8 words.\n- Do not explain unless the user asks.\n- Ask at most one short follow-up question if needed.\n\n---\n${compactHistory}\nUser: ${safeMessage}\nAssistant:`,
