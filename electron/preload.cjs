@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   setOwnerPin: (request) => ipcRenderer.invoke('jarvis:policy:pin:set', request),
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
+  setTheme: (theme) => ipcRenderer.invoke('jarvis:theme:set', theme),
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
   testAiConnection: (apiKey = '') => ipcRenderer.invoke('jarvis:ai:test-connection', { apiKey }),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
