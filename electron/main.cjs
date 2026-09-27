@@ -35,6 +35,7 @@ function resourcePath(...parts) {
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
+function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
 async function runDeveloperValidation(workspace) {
   const testDir = path.join(workspace,'src','tests');
   const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
@@ -999,13 +1000,36 @@ app.whenReady().then(() => {
     developerPlans.set(plan.hash,{workspace,plan,approved:false,createdAt:Date.now()});
     return plan;
   });
+  ipcMain.handle('jarvis:developer:sandbox', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
+    const hash=String(request.hash||'');
+    const entry=developerPlans.get(hash);
+    if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
+    if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');
+    const approvedPlan={...entry.plan}; delete approvedPlan.hash;
+    if(developerRepair.proposalHash(approvedPlan)!==hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
+    if(entry.sandbox) { try { developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot()); } catch {} }
+    const sandbox=developerRepair.createSandbox(entry.workspace,entry.plan,developerSandboxRoot());
+    entry.sandbox=sandbox;
+    const validation=await runDeveloperValidation(sandbox);
+    entry.sandboxValidation=validation;
+    entry.sandboxVerified=Boolean(validation.ok);
+    entry.sandboxVerifiedAt=validation.ok?Date.now():null;
+    if(!validation.ok) {
+      developerRepair.destroySandbox(sandbox,developerSandboxRoot());
+      entry.sandbox=null;
+      return {success:false,status:'SANDBOX_FAILED',hash,validation};
+    }
+    return {success:true,status:'SANDBOX_VERIFIED',hash,validation,files:entry.plan.patches.map(p=>p.file)};
+  });
   ipcMain.handle('jarvis:developer:approve', (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
     const entry=developerPlans.get(String(request.hash||''));
     if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
     if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');
+    if(!entry.sandboxVerified || !entry.sandboxValidation?.ok) throw new Error('DEV_REPAIR_SANDBOX_VERIFICATION_REQUIRED');
     entry.approved=true; entry.approvedAt=Date.now();
-    return {success:true,hash:entry.plan.hash};
+    return {success:true,hash:entry.plan.hash,status:'APPROVED_AFTER_SANDBOX'};
   });
   ipcMain.handle('jarvis:developer:apply', (_e, request={}) => guarded(
     {type:'system_repair',target:'developer-workspace'},
@@ -1013,27 +1037,30 @@ app.whenReady().then(() => {
       const hash=String(request.hash||'');
       const entry=developerPlans.get(hash);
       if(!entry || !entry.approved) throw new Error('DEV_REPAIR_APPROVAL_REQUIRED');
-      const approvedPlan = { ...entry.plan };
-      delete approvedPlan.hash;
-      if(developerRepair.proposalHash(approvedPlan) !== hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
+      if(!entry.sandboxVerified || !entry.sandboxValidation?.ok) throw new Error('DEV_REPAIR_SANDBOX_VERIFICATION_REQUIRED');
+      const approvedPlan={...entry.plan}; delete approvedPlan.hash;
+      if(developerRepair.proposalHash(approvedPlan)!==hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
       const backup=developerRepair.snapshot(entry.workspace,entry.plan,developerBackupRoot());
       try {
         developerRepair.apply(entry.workspace,entry.plan);
         const validation=await runDeveloperValidation(entry.workspace);
         if(!validation.ok) {
           developerRepair.rollback(entry.workspace,backup);
+          if(entry.sandbox) developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot());
           developerPlans.delete(hash);
-          return {success:false,status:'ROLLED_BACK',hash,backup,validation};
+          return {success:false,status:'ROLLED_BACK',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
         }
+        if(entry.sandbox) developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot());
         developerPlans.delete(hash);
-        return {success:true,status:'VERIFIED',hash,backup,validation};
+        return {success:true,status:'APPLIED_AND_VERIFIED',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
       } catch(error) {
         developerRepair.rollback(entry.workspace,backup);
+        if(entry.sandbox) { try { developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot()); } catch {} }
         developerPlans.delete(hash);
         throw error;
       }
     },
-    {message:'Jarvis a jóváhagyott fejlesztési tervet alkalmazza egy külön fejlesztői workspace-ben. Sikertelen ellenőrzéskor automatikusan visszaáll.'}
+    {message:'A módosítás a sandboxban már sikeresen lefutott és a tulajdonos jóváhagyta. Jarvis mentést készít, alkalmazza a pontos tervet, majd újra ellenőrzi; hiba esetén automatikusan visszaáll.'}
   ));
   ipcMain.handle('jarvis:repair:apply', (_e, request={}) => guarded(
     { type:'system_repair', target:String(request.repairId || '') },
