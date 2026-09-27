@@ -48,6 +48,9 @@ jobs:
       - name: Typecheck source
         run: npm run typecheck
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis
 
