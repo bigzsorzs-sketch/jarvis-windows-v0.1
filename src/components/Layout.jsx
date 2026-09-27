@@ -132,7 +132,7 @@ export default function Layout() {
           <MobileHeader />
         </div>
 
-        <header className="jarvis-topbar jarvis-reference-topbar hidden h-[42px] shrink-0 items-center justify-between px-5 md:flex">
+        <header className={`jarvis-topbar jarvis-reference-topbar ${location.pathname === '/' ? 'hidden' : 'hidden md:flex'} h-[42px] shrink-0 items-center justify-between px-5`}>
           <div className="min-w-0">
             <div className="mb-1 flex items-center gap-2 text-[10px] font-bold tracking-[0.22em] text-primary/70">
               <span>{pageEyebrow}</span>
