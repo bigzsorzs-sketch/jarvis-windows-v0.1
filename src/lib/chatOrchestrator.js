@@ -43,22 +43,43 @@ function normalizePrivacyText(text = '') {
 }
 
 export function requestsPrivateContext(text = '') {
-  const input = normalizePrivacyText(text);
-  return /(emlek|memoria|korabban|elozo|history|remember|gyogyszer|medication|kontakt|contact|telefon|email|penzugy|finance|szamla|invoice|bevetel|kiadas|egyenleg|vercukor|cukor|glucose|egeszseg|health|kaloria|etkezes|meal|feladat|todo|emlekezteto|reminder|uzlet|business|ugyfel|client)/.test(input);
+  const raw = String(text || '');
+  const input = normalizePrivacyText(raw);
+
+  const semanticSensitive = /(emlek|memoria|korabban|elozo|history|remember|gyogyszer|medication|kontakt|contact|telefon|phone|email|cim|address|lakcim|postcode|iranyitoszam|penzugy|finance|bank|kartya|card|szamla|invoice|bevetel|kiadas|egyenleg|balance|tartoz|debt|vercukor|cukor|glucose|egeszseg|health|kaloria|etkezes|meal|feladat|todo|emlekezteto|reminder|uzlet|business|ugyfel|client|jelszo|password|api key|token|nevem|my name|szulett|date of birth|dob|lakom|i live)/.test(input);
+  const emailLike = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(raw);
+  const ukPostcodeLike = /\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i.test(raw);
+  const phoneLike = /(?:\+?44\s?|0)\d(?:[\s()-]*\d){8,12}/.test(raw);
+  const moneyLike = /(?:£|€|\$)\s?\d[\d,.]*/.test(raw);
+  const healthMetricLike = /\b\d{1,2}(?:\.\d+)?\s*(?:mmol\/?l|mg\/?dl|bpm|mmhg)\b/i.test(raw);
+
+  return semanticSensitive || emailLike || ukPostcodeLike || phoneLike || moneyLike || healthMetricLike;
 }
 
-function hasStoredPrivateContext(ctx) {
-  return Boolean(ctx?.memories?.length)
-    || Boolean(ctx?.meds?.length)
-    || Boolean(ctx?.contacts?.length)
-    || Boolean(ctx?.finance?.length)
-    || Boolean(ctx?.bs?.length)
-    || Boolean(ctx?.meals?.length)
-    || Boolean(ctx?.invoices?.length)
-    || Boolean(ctx?.todos?.length)
-    || Boolean(ctx?.reminders?.length)
-    || Boolean(ctx?.actions?.length)
-    || Boolean(ctx?.ecosystem);
+function selectPrivateContext(ctx, text = '') {
+  const input = normalizePrivacyText(text);
+  const wantsMemory = /(emlek|memoria|korabban|elozo|history|remember)/.test(input);
+  const wantsHealth = /(gyogyszer|medication|vercukor|cukor|glucose|egeszseg|health|kaloria|etkezes|meal|mmol|mg\/dl)/.test(input);
+  const wantsContacts = /(kontakt|contact|telefon|phone|email|cim|address|lakcim|postcode|iranyitoszam)/.test(input);
+  const wantsFinance = /(penzugy|finance|bank|kartya|card|szamla|invoice|bevetel|kiadas|egyenleg|balance|tartoz|debt|£|€|\$)/.test(input);
+  const wantsTasks = /(feladat|todo|emlekezteto|reminder)/.test(input);
+  const wantsBusiness = /(uzlet|business|ugyfel|client|projekt|project|employee|alkalmazott)/.test(input);
+
+  return {
+    settings: ctx?.settings || null,
+    promptTunings: ctx?.promptTunings || [],
+    memories: wantsMemory ? (ctx?.memories || []) : [],
+    meds: wantsHealth ? (ctx?.meds || []) : [],
+    bs: wantsHealth ? (ctx?.bs || []) : [],
+    meals: wantsHealth ? (ctx?.meals || []) : [],
+    contacts: wantsContacts ? (ctx?.contacts || []) : [],
+    finance: wantsFinance ? (ctx?.finance || []) : [],
+    invoices: (wantsFinance || wantsBusiness) ? (ctx?.invoices || []) : [],
+    todos: wantsTasks ? (ctx?.todos || []) : [],
+    reminders: wantsTasks ? (ctx?.reminders || []) : [],
+    actions: [],
+    ecosystem: wantsBusiness ? (ctx?.ecosystem || null) : null,
+  };
 }
 
 function buildPublicSystemPrompt(ctx, langInstruction = '', userMood = 'neutral') {
@@ -102,10 +123,10 @@ RULES:
 TOOL SYNTAX: Use an actions code block containing JSON objects with tool and params fields.`;
 }
 
-function safeHistoryForCloud(history = [], allowPrivate = false) {
-  const recent = history.slice(allowPrivate ? -12 : -6);
-  if (allowPrivate) return recent;
-  return recent.filter((message) => !requestsPrivateContext(message?.content || ''));
+function safeHistoryForCloud(history = []) {
+  return history
+    .slice(-6)
+    .filter((item) => !requestsPrivateContext(item?.content || ''));
 }
 
 export async function runAssistantTurn({ message, history, ctx, lang, userMood, attachedFiles = [], source = 'chat' }) {
@@ -123,11 +144,12 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
     : '\nAnswer concisely by default.';
 
   const privateContextRequested = attachedFiles.length > 0 || requestsPrivateContext(message);
+  const selectedPrivateContext = privateContextRequested ? selectPrivateContext(ctx, message) : null;
   const systemPrompt = `${privateContextRequested
-    ? buildSystemPrompt(ctx, langInstruction, userMood)
+    ? buildSystemPrompt(selectedPrivateContext, langInstruction, userMood)
     : buildPublicSystemPrompt(ctx, langInstruction, userMood)}${voiceSpeedInstruction}`;
 
-  const selectedHistory = safeHistoryForCloud(history, privateContextRequested);
+  const selectedHistory = safeHistoryForCloud(history);
   const compactHistory = selectedHistory
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${escapePromptValue(m.content, 800)}`)
     .join('\n');
@@ -135,9 +157,7 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
 
   const fileAnalysisContext = await buildFileAnalysisContext(attachedFiles);
 
-  const containsSensitiveContext = attachedFiles.length > 0
-    || requestsPrivateContext(message)
-    || (privateContextRequested && hasStoredPrivateContext(ctx));
+  const containsSensitiveContext = attachedFiles.length > 0 || privateContextRequested;
 
   const llmParams = {
     prompt: `${systemPrompt}\n\nDetected input language: ${detectedLang}\nSelected output language: ${outputLang}\nCRITICAL LANGUAGE RULE: If selected output language is hu, reply ONLY in Hungarian. English words or English sentences are forbidden.\n\n${fileAnalysisContext}\n\nVOICE MODE LATENCY RULES:\n- Default to 1 short sentence, maximum 18 words.\n- For completed actions, confirm in 3-8 words.\n- Do not explain unless the user asks.\n- Ask at most one short follow-up question if needed.\n\n---\n${compactHistory}\nUser: ${safeMessage}\nAssistant:`,
