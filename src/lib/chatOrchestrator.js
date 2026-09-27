@@ -22,7 +22,7 @@ async function enforceHungarianReply(reply) {
 
   const translated = await invokeWithRetry({
     prompt: `Fordítsd le természetes, rövid magyar válaszra. Csak a magyar szöveget add vissza, magyarázat nélkül:\n\n${cleanReply}`,
-    model: 'gemini_3_flash',
+    task_type: 'translation',
   }, 1).catch(() => null);
 
   return normalizeAssistantReply(translated) || cleanReply;
@@ -69,7 +69,7 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
 
   const llmParams = {
     prompt: `${systemPrompt}\n\nDetected input language: ${detectedLang}\nSelected output language: ${outputLang}\nCRITICAL LANGUAGE RULE: If selected output language is hu, reply ONLY in Hungarian. English words or English sentences are forbidden.\n\n${fileAnalysisContext}\n\nVOICE MODE LATENCY RULES:\n- Default to 1 short sentence, maximum 18 words.\n- For completed actions, confirm in 3-8 words.\n- Do not explain unless the user asks.\n- Ask at most one short follow-up question if needed.\n\n---\n${compactHistory}\nUser: ${safeMessage}\nAssistant:`,
-    model: 'gemini_3_flash',
+    task_type: 'general',
     queueKey: 'assistant-turn',
     contains_sensitive_context: containsSensitiveContext,
   };
