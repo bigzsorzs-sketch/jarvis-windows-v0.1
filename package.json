@@ -91,7 +91,7 @@
     "zod": "^3.24.2",
     "serialport": "^13.0.0",
     "better-sqlite3": "^13.0.3",
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.1",
     "leaflet": "^1.9.4"
   },
   "devDependencies": {
