@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   getRules: () => ipcRenderer.invoke('jarvis:policy:rules'),
   evaluateAction: (action) => ipcRenderer.invoke('jarvis:policy:evaluate', action),
   ownerOverride: (request) => ipcRenderer.invoke('jarvis:policy:override', request),
+  getOwnerPinStatus: () => ipcRenderer.invoke('jarvis:policy:pin:status'),
+  setOwnerPin: (request) => ipcRenderer.invoke('jarvis:policy:pin:set', request),
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
