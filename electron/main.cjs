@@ -502,6 +502,44 @@ function payloadContainsSensitiveContext(payload={}) {
     || /"vehicle_info"\s*:\s*\{[^}]+\}/i.test(text);
 }
 
+function buildLocalDeviceUrl(baseValue, commandValue='') {
+  const baseText = String(baseValue || '').trim();
+  if (!baseText) throw new Error('LOCAL_DEVICE_URL_REQUIRED');
+  const base = new URL(baseText.includes('://') ? baseText : `http://${baseText}`);
+  if (!['http:', 'https:'].includes(base.protocol)) throw new Error('LOCAL_DEVICE_PROTOCOL_BLOCKED');
+
+  const host = base.hostname.toLowerCase();
+  const privateIpv4 = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
+  const privateIpv6 = host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:');
+  if (!(host === 'localhost' || privateIpv4 || privateIpv6)) {
+    throw new Error('LOCAL_DEVICE_HOST_BLOCKED');
+  }
+
+  const command = String(commandValue || '');
+  return new URL(command || '/', base.toString().endsWith('/') ? base : new URL(base.pathname + '/', base)).toString();
+}
+
+async function requestLocalDevice(request={}) {
+  const targetUrl = buildLocalDeviceUrl(request.base, request.command);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(5000, Math.max(500, Number(request.timeout) || 3000)));
+  try {
+    const response = await fetch(targetUrl, {
+      method:'GET',
+      redirect:'error',
+      signal:controller.signal,
+      headers:{ 'User-Agent':'Jarvis-Local-Device' }
+    });
+    if (!response.ok) throw new Error(`LOCAL_DEVICE_HTTP_${response.status}`);
+    const text = await response.text();
+    let data = text;
+    try { data = JSON.parse(text); } catch {}
+    return { success:true, url:targetUrl, data };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function functionPolicyAction(name, payload={}) {
   const functionName = String(name || 'unknown');
   const externalAiFunctions = ['llmProxy','runAiTask','generateImage','generateOBDDiagnosis'];
@@ -764,6 +802,13 @@ app.whenReady().then(() => {
     () => oneClickUpdate(),
     { message:'Jarvis új telepítőt fog letölteni, ellenőrizni és rendszerszinten futtatni.' }
   ));
+  ipcMain.handle('jarvis:device:request', (_e, request={}) => {
+    const target = buildLocalDeviceUrl(request.base, request.command);
+    return guarded(
+      { type:request.readOnly === true ? 'device_status' : 'device_control', target },
+      () => requestLocalDevice(request)
+    );
+  });
   ipcMain.handle('jarvis:obd:list-ports', () => guarded(
     { type:'obd_list', target:'local-device' },
     () => obdBridge.listSerialPorts()
