@@ -196,7 +196,10 @@ export const jarvis = {
         });
         return { file_url:data, name:file.name, size:file.size, type:file.type };
       },
-      async GenerateImage(params = {}) { return invoke('generateImage', params); },
+      async GenerateImage(params = {}) {
+        const response = await invoke('generateImage', params);
+        return response?.data || response;
+      },
       async InvokeLLM(params = {}) {
         const result = await invoke('llmProxy', params);
         return result?.data?.result;

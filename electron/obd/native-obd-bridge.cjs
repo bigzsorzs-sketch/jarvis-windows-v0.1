@@ -34,6 +34,31 @@ function parseHostPort(value) {
   return { host, port };
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function meaningfulResponse(command, raw) {
+  const commandText = String(command || '').toUpperCase().replace(/\s+/g, '');
+  return String(raw || '')
+    .replace(/>/g, '\n')
+    .split(/[\r\n]+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.toUpperCase().replace(/\s+/g, '') !== commandText)
+    .join(' ')
+    .trim();
+}
+
+function assertAdapterResponse(command, raw) {
+  const text = meaningfulResponse(command, raw);
+  if (!text) throw new Error('OBD_ADAPTER_NO_RESPONSE:' + String(command));
+  if (/\b(ERROR|BUS ERROR|CAN ERROR|UNABLE TO CONNECT|STOPPED)\b/i.test(text)) {
+    throw new Error('OBD_ADAPTER_ERROR:' + text.slice(0, 160));
+  }
+  return text;
+}
+
 class NativeObdBridge {
   constructor() {
     this.active = null;
@@ -93,7 +118,21 @@ class NativeObdBridge {
       baudRate: Number(baudRate) || 38400,
     };
 
-    return { success: true, type: 'serial', device: String(portPath), baudRate: this.active.baudRate };
+    try {
+      const readiness = await this.initializeAdapter();
+      return {
+        success: true,
+        adapterReady: true,
+        ecuConnected: readiness.ecuConnected,
+        type: 'serial',
+        device: String(portPath),
+        baudRate: this.active.baudRate,
+        probe: readiness.probe
+      };
+    } catch (error) {
+      await this.disconnect();
+      throw error;
+    }
   }
 
   async connectWifi(address) {
@@ -123,7 +162,20 @@ class NativeObdBridge {
     });
 
     this.active = { type: 'wifi', resource: socket, label: host + ':' + port, host, port };
-    return { success: true, type: 'wifi', device: host + ':' + port };
+    try {
+      const readiness = await this.initializeAdapter();
+      return {
+        success: true,
+        adapterReady: true,
+        ecuConnected: readiness.ecuConnected,
+        type: 'wifi',
+        device: host + ':' + port,
+        probe: readiness.probe
+      };
+    } catch (error) {
+      await this.disconnect();
+      throw error;
+    }
   }
 
   handleData(chunk) {
@@ -170,6 +222,26 @@ class NativeObdBridge {
     throw new Error('OBD_NOT_CONNECTED');
   }
 
+  async initializeAdapter() {
+    const reset = await this.sendCommand('ATZ', 3500);
+    assertAdapterResponse('ATZ', reset);
+    await delay(250);
+
+    for (const command of ['ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATSP0']) {
+      const response = await this.sendCommand(command, 2200);
+      assertAdapterResponse(command, response);
+    }
+
+    const probeRaw = await this.sendCommand('0100', 2800);
+    const probe = assertAdapterResponse('0100', probeRaw);
+    const compact = probe.toUpperCase().replace(/[^0-9A-F]/g, '');
+    return {
+      adapterReady: true,
+      ecuConnected: compact.includes('4100'),
+      probe: probe.slice(0, 200)
+    };
+  }
+
   async sendCommand(command, timeout = 1800) {
     const task = this.queue.then(
       () => this.sendCommandNow(command, timeout),
@@ -192,7 +264,12 @@ class NativeObdBridge {
         reject,
         timer: setTimeout(() => {
           if (this.pending === pending) this.pending = null;
-          resolve(this.responseBuffer);
+          const buffered = this.responseBuffer;
+          if (!String(buffered || '').replace(/>/g, '').trim()) {
+            reject(new Error('OBD_COMMAND_TIMEOUT:' + clean));
+            return;
+          }
+          resolve(buffered);
         }, Math.max(250, Number(timeout) || 1800)),
       };
       this.pending = pending;

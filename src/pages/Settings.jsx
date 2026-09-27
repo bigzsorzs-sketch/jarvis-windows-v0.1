@@ -99,7 +99,7 @@ export default function Settings() {
         {/* Toggles */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card className="bg-card border-border px-5 py-2 divide-y divide-border">
-            <SettingsToggle label="Önjavítás" checked={settings.self_correction} onChange={(v) => updateField('self_correction', v)} />
+            <SettingsToggle label="Automatikus helyreállítás" checked={settings.self_correction} onChange={(v) => updateField('self_correction', v)} />
             <SettingsToggle label="Tanuló memória" checked={settings.learning_memory} onChange={(v) => updateField('learning_memory', v)} />
             <SettingsToggle label="Felügyelt frissítések" checked={settings.supervised_updates} onChange={(v) => updateField('supervised_updates', v)} />
             <SettingsToggle label="Webes keresés" checked={settings.web_search} onChange={(v) => updateField('web_search', v)} />
@@ -115,7 +115,7 @@ export default function Settings() {
               <Lock className="w-4 h-4 text-muted-foreground" />
               <h2 className="text-base font-semibold text-foreground">Biztonság</h2>
             </div>
-            <p className="text-xs text-muted-foreground">Adataid biztonságosan tárolódnak a felhőben.</p>
+            <p className="text-xs text-muted-foreground">Adataid alapértelmezetten helyben, a Jarvis helyi adattárában tárolódnak.</p>
           </Card>
         </motion.div>
 

@@ -3,7 +3,9 @@ name: Build Jarvis Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'fix/**'
     tags:
       - 'v*'
 
@@ -23,6 +25,19 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Verify JavaScript syntax
+        run: |
+          node --check electron/main.cjs
+          node --check electron/preload.cjs
+          node --check electron/security/policy-engine.cjs
+          node --check electron/data/local-database.cjs
+          node --check electron/data/backup-manager.cjs
+          node --check electron/obd/native-obd-bridge.cjs
+          node --check electron/analysis/file-analyzer.cjs
+
+      - name: Run source tests
+        run: node --test src/tests/*.test.js
+
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis
 
@@ -31,6 +46,32 @@ jobs:
 
       - name: Build Windows installer
         run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Smoke test packaged Windows startup
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD "release\win-unpacked\Jarvis.exe"
+          if (-not (Test-Path -LiteralPath $exe)) {
+            throw "Packaged Jarvis.exe not found: $exe"
+          }
+          $logFile = Join-Path $env:RUNNER_TEMP "jarvis-electron-smoke.log"
+          $env:ELECTRON_ENABLE_LOGGING = "1"
+          $arguments = @(
+            "--disable-gpu",
+            "--disable-gpu-sandbox",
+            "--enable-logging=file",
+            "--log-file=$logFile"
+          )
+          $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
+          Start-Sleep -Seconds 12
+          if ($process.HasExited) {
+            if (Test-Path -LiteralPath $logFile) {
+              Write-Host "---- Electron smoke log ----"
+              Get-Content -LiteralPath $logFile -Tail 200
+            }
+            throw "Packaged Jarvis exited during startup smoke test with code $($process.ExitCode)"
+          }
+          Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
       - name: Create SHA-256 checksum
         shell: pwsh

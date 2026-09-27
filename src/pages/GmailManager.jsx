@@ -25,8 +25,14 @@ export default function GmailManager() {
     setErrorMessage('');
     try {
       const res = await jarvis.functions.invoke('gmailFetch', {});
-      setEmails(res.data?.emails || []);
-      setConnected(true);
+      const data = res?.data || {};
+      setEmails(data.emails || []);
+      setConnected(data.connected === true);
+      if (data.configured === false) {
+        setErrorMessage(lang === 'hu'
+          ? 'A Gmail nincs konfigurálva ebben a helyi Jarvis buildben. Google OAuth kapcsolat szükséges.'
+          : 'Gmail is not configured in this local Jarvis build. A Google OAuth connection is required.');
+      }
     } catch {
       setConnected(false);
       setErrorMessage(t('gmail_load_error'));
@@ -48,14 +54,23 @@ export default function GmailManager() {
   }, []);
 
   const handleConnect = async () => {
-    const url = await jarvis.connectors.connectAppUser(CONNECTOR_ID);
-    const popup = window.open(url, '_blank');
-    const timer = setInterval(() => {
-      if (!popup || popup.closed) {
-        clearInterval(timer);
-        fetchEmails();
-      }
-    }, 500);
+    setErrorMessage('');
+    try {
+      const url = await jarvis.connectors.connectAppUser(CONNECTOR_ID);
+      if (!url) throw new Error('GMAIL_OAUTH_NOT_CONFIGURED');
+      const popup = window.open(url, '_blank');
+      const timer = setInterval(() => {
+        if (!popup || popup.closed) {
+          clearInterval(timer);
+          fetchEmails();
+        }
+      }, 500);
+    } catch {
+      setConnected(false);
+      setErrorMessage(lang === 'hu'
+        ? 'A Gmail csatlakoztatásához előbb Google OAuth kliens-konfiguráció szükséges. Jarvis ezt most már nem jelzi tévesen működő funkciónak.'
+        : 'Google OAuth client configuration is required before Gmail can be connected.');
+    }
   };
 
   const analyzeWithAI = async () => {
@@ -85,7 +100,8 @@ Adj vissza JSON-t:
         }
       },
     });
-    const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+    const resultPayload = result?.data?.result ?? result?.data ?? result;
+    const parsed = typeof resultPayload === 'string' ? JSON.parse(resultPayload) : resultPayload;
     setAnalysis(parsed);
     setAnalyzing(false);
   };

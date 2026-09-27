@@ -223,12 +223,51 @@ class LocalDatabase {
 
   importSnapshot(snapshot = {}) {
     this.ensureOpen();
-    const clear = this.db.transaction(() => {
+    if (!snapshot || typeof snapshot !== 'object' || !snapshot.entities || typeof snapshot.entities !== 'object') {
+      throw new Error('BACKUP_SNAPSHOT_INVALID');
+    }
+
+    const insert = this.db.prepare([
+      'INSERT INTO entities(entity,id,created_date,updated_date,created_by,json)',
+      'VALUES(@entity,@id,@created_date,@updated_date,@created_by,@json)'
+    ].join(' '));
+    let imported = 0;
+
+    const restore = this.db.transaction(() => {
       this.db.prepare('DELETE FROM entities').run();
       this.db.prepare('DELETE FROM meta WHERE key = ?').run('local_user');
+
+      for (const [entity, rows] of Object.entries(snapshot.entities)) {
+        if (!Array.isArray(rows)) throw new Error('BACKUP_ENTITY_ROWS_INVALID:' + String(entity));
+        for (const source of rows) {
+          if (!source || typeof source !== 'object' || Array.isArray(source)) {
+            throw new Error('BACKUP_ENTITY_ROW_INVALID:' + String(entity));
+          }
+          const row = { ...clone(source) };
+          if (!row.id) throw new Error('BACKUP_ENTITY_ID_MISSING:' + String(entity));
+          if (!row.created_date) row.created_date = now();
+          if (!row.updated_date) row.updated_date = row.created_date;
+          const result = insert.run({
+            entity: String(entity),
+            id: String(row.id),
+            created_date: row.created_date || null,
+            updated_date: row.updated_date || null,
+            created_by: row.created_by || null,
+            json: JSON.stringify(row)
+          });
+          imported += result.changes;
+        }
+      }
+
+      if (snapshot.user) this.setMeta('local_user', snapshot.user);
+      this.setMeta('last_backup_restore_at', now());
+
+      const integrity = this.db.pragma('quick_check', { simple: true });
+      if (integrity !== 'ok') throw new Error('SQLITE_RESTORE_INTEGRITY_FAILED:' + String(integrity));
     });
-    clear();
-    return this.importLegacy(snapshot);
+
+    restore();
+    return { success: true, imported };
   }
 
   healthCheck() {
