@@ -82,12 +82,11 @@ test('legacy insecure API key fallback is purged during startup', () => {
   assert.equal(main.includes('hasSecureOpenRouterKey'), true);
 });
 
-test('sensitive text context is policy-confirmed before external AI transmission', () => {
+test('normal AI chat and user-selected AI attachments do not trigger repeated confirmation', () => {
   const main = read('electron/main.cjs');
-  const chat = read('src/lib/chatOrchestrator.js');
-  assert.equal(main.includes('function payloadContainsSensitiveContext'), true);
-  assert.equal(main.includes('transmitsSensitiveData:hasExternalImages || sendsSensitiveText'), true);
-  assert.equal(chat.includes('contains_sensitive_context: containsSensitiveContext'), true);
+  assert.equal(main.includes('function functionPolicyAction'), true);
+  assert.equal(main.includes('transmitsSensitiveData:false'), true);
+  assert.equal(main.includes("type: functionName === 'deleteAccount' ? 'account_delete'"), true);
 });
 
 test('account deletion erases local stores instead of only clearing SQLite rows', () => {

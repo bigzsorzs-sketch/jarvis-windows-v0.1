@@ -83,7 +83,7 @@ ${String(message || '').slice(0, 12000)}`;
 
   const response = await invokeWithRetry({
     prompt,
-    model: 'gemini_3_flash',
+    task_type: 'coding',
     file_urls: fileUrls.length ? fileUrls : undefined,
     queueKey: 'code-assistant',
     contains_sensitive_context: attachedFiles.length > 0,

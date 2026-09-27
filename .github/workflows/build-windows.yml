@@ -40,6 +40,7 @@ jobs:
       - name: Verify JavaScript syntax
         run: |
           node --check electron/main.cjs
+          node --check electron/developer-repair.cjs
           node --check electron/preload.cjs
           node --check electron/security/policy-engine.cjs
           node --check electron/data/local-database.cjs

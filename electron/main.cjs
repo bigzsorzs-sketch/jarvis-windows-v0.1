@@ -14,6 +14,7 @@ const { PolicyEngine } = require('./security/policy-engine.cjs');
 const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
+const developerRepair = require('./developer-repair.cjs');
 const {
   analyzeUploadedFiles,
   analyzeProjectDeep,
@@ -26,12 +27,37 @@ let policy;
 let obdBridge;
 let database;
 let backupManager;
+const developerPlans = new Map();
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
+function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
+async function runDeveloperValidation(workspace) {
+  const testDir = path.join(workspace,'src','tests');
+  const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
+  const commands = [
+    ['node',['--check','electron/main.cjs']],
+    ['node',['--test',...testFiles]],
+    ['npm',['run','lint']],
+    ['npm',['run','typecheck']],
+    ['npm',['run','verify:jarvis']],
+    ['npm',['run','build']],
+  ];
+  const results=[];
+  for (const [cmd,args] of commands) {
+    try {
+      const { stdout, stderr } = await execFileAsync(cmd,args,{cwd:workspace,windowsHide:true,timeout:180000,shell:false});
+      results.push({cmd:[cmd,...args].join(' '),ok:true,output:(stdout||stderr||'').slice(-4000)});
+    } catch (error) {
+      results.push({cmd:[cmd,...args].join(' '),ok:false,output:String(error?.stdout||error?.stderr||error?.message||error).slice(-4000)});
+      return {ok:false,results};
+    }
+  }
+  return {ok:true,results};
+}
 function localOwnerAuthorised() {
   try {
     const user = database?.getUser?.();
@@ -98,6 +124,8 @@ function getSettingsInternal() {
     language: raw.language || 'hu',
     aiProvider: raw.aiProvider || 'openrouter',
     aiModel: raw.aiModel || 'openrouter/auto',
+    aiRoutingMode: raw.aiRoutingMode || 'smart',
+    aiCostTier: raw.aiCostTier || 'low',
     hasOpenRouterKey: hasSecureOpenRouterKey,
   };
 }
@@ -107,6 +135,8 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.language === 'string') raw.language = patch.language;
   if (typeof patch.aiProvider === 'string') raw.aiProvider = patch.aiProvider;
   if (typeof patch.aiModel === 'string') raw.aiModel = patch.aiModel;
+  if (['smart','manual'].includes(patch.aiRoutingMode)) raw.aiRoutingMode = patch.aiRoutingMode;
+  if (['low','medium','high','xhigh','max'].includes(patch.aiCostTier)) raw.aiCostTier = patch.aiCostTier;
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
@@ -146,8 +176,16 @@ async function openRouterRequest(payload={}) {
   const raw = readJson(settingsPath(), {});
   const apiKey = unprotectSecret(raw.openRouterKey);
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
-  const requestedModel = String(payload.model || '');
-  const model = requestedModel.includes('/') ? requestedModel : (raw.aiModel || 'openrouter/auto');
+  const requestedModel = String(payload.model || '').trim();
+  const routingMode = String(raw.aiRoutingMode || 'smart');
+  const taskType = String(payload.task_type || payload.taskType || 'general').toLowerCase();
+  const taskTier = ['code','coding','repair','development','reasoning','analysis'].includes(taskType) ? 'medium' : 'low';
+  const requestedTier = String(payload.cost_tier || raw.aiCostTier || taskTier);
+  const allowedTiers = new Set(['low','medium','high','xhigh','max']);
+  const costTier = allowedTiers.has(requestedTier) ? requestedTier : taskTier;
+  const model = requestedModel.includes('/')
+    ? requestedModel
+    : (routingMode === 'manual' ? (raw.aiModel || 'openrouter/auto') : 'openrouter/auto');
 
   let messages = Array.isArray(payload.messages) && payload.messages.length
     ? payload.messages.map((message) => ({ ...message }))
@@ -178,7 +216,8 @@ async function openRouterRequest(payload={}) {
     }
   }
 
-  const body = { model, messages };
+  const body = { model, messages, usage:{ include:true } };
+  if (model === 'openrouter/auto') body.cost_tier = costTier;
   if (payload.response_json_schema) body.response_format = { type:'json_object' };
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method:'POST',
@@ -197,7 +236,28 @@ async function openRouterRequest(payload={}) {
   if (payload.response_json_schema) {
     try { result = JSON.parse(content); } catch {}
   }
-  return { success:true, data:{ result, model:json.model || model, usage:json.usage || null } };
+  return { success:true, data:{
+    result,
+    model:json.model || model,
+    requestedModel:model,
+    routingMode,
+    costTier,
+    usage:json.usage || null,
+    cost:Number(json?.usage?.cost ?? 0) || 0
+  } };
+}
+
+async function testOpenRouterConnection(candidateApiKey = '') {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = String(candidateApiKey || '').trim() || unprotectSecret(raw.openRouterKey);
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
+  const response = await fetch('https://openrouter.ai/api/v1/models?sort=most-popular', {
+    headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
+  });
+  if (!response.ok) throw new Error(`OPENROUTER_CONNECTION_${response.status}`);
+  const json = await response.json();
+  const models = Array.isArray(json?.data) ? json.data : [];
+  return { success:true, modelCount:models.length, routingMode:raw.aiRoutingMode || 'smart', costTier:raw.aiCostTier || 'low' };
 }
 
 async function listOpenRouterImageModels(apiKey) {
@@ -565,19 +625,13 @@ async function requestLocalDevice(request={}) {
 
 function functionPolicyAction(name, payload={}) {
   const functionName = String(name || 'unknown');
-  const externalAiFunctions = ['llmProxy','runAiTask','generateImage','generateOBDDiagnosis'];
-  const hasExternalImages = externalAiFunctions.includes(functionName)
-    && (
-      (Array.isArray(payload?.file_urls) && payload.file_urls.length > 0)
-      || (Array.isArray(payload?.image_urls) && payload.image_urls.length > 0)
-      || (Array.isArray(payload?.existing_image_urls) && payload.existing_image_urls.length > 0)
-    );
-  const sendsSensitiveText = externalAiFunctions.includes(functionName) && payloadContainsSensitiveContext(payload);
+  // Normal AI chat and user-selected AI attachments do not interrupt every request
+  // with a policy dialog. Destructive/system operations keep their own policy gates.
   return {
     type: functionName === 'deleteAccount' ? 'account_delete' : `function:${functionName}`,
     target:functionName,
     authorised:localOwnerAuthorised(),
-    transmitsSensitiveData:hasExternalImages || sendsSensitiveText
+    transmitsSensitiveData:false
   };
 }
 
@@ -672,7 +726,13 @@ async function runSystemCheck() {
 
   try {
     const raw = readJson(settingsPath(), {});
-    add('ai', 'AI konfiguráció', Boolean(raw.openRouterKey), raw.openRouterKey ? 'OpenRouter kulcs beállítva' : 'Nincs OpenRouter kulcs', raw.openRouterKey ? 'normal' : 'warning');
+    const decryptedKey = unprotectSecret(raw.openRouterKey);
+    if (!decryptedKey) {
+      add('ai', 'AI / OpenRouter', false, 'Nincs használható OpenRouter API-kulcs', 'warning');
+    } else {
+      const aiStatus = await testOpenRouterConnection();
+      add('ai', 'AI / OpenRouter', aiStatus.success === true, aiStatus.success ? `Kapcsolat rendben · ${aiStatus.modelCount} modell` : 'OpenRouter kapcsolat sikertelen', aiStatus.success ? 'normal' : 'warning');
+    }
   } catch (error) {
     add('ai', 'AI konfiguráció', false, error?.message || error, 'warning');
   }
@@ -718,6 +778,8 @@ function buildRepairPlan(report) {
     if (check.id === 'backup') repairs.push({ id:'repair-backup-directory', checkId:check.id, title:'Backup mappa helyreállítása', description:'Újralétrehozza a Jarvis Backups mappát és ellenőrzi az írhatóságát.', risk:'low', automatic:true });
     else if (check.id === 'network') repairs.push({ id:'repair-network-cache', checkId:check.id, title:'Hálózati gyorsítótár frissítése', description:'Törli az Electron hálózati gyorsítótárát, majd újraellenőrzi a GitHub frissítési csatornát.', risk:'low', automatic:true });
     else if (check.id === 'obd') repairs.push({ id:'repair-obd-reset', checkId:check.id, title:'OBD kapcsolat újraindítása', description:'Biztonságosan bontja az aktuális OBD kapcsolatot, hogy tiszta állapotból lehessen újracsatlakozni.', risk:'low', automatic:true });
+    else if (check.id === 'ai' && /kapcsolat/i.test(String(check.detail || ''))) repairs.push({ id:'repair-ai-session', checkId:check.id, title:'AI kapcsolat helyreállítása', description:'Törli a hálózati gyorsítótárat és újraellenőrzi az OpenRouter kapcsolatot. Az API-kulcsot nem módosítja.', risk:'low', automatic:true });
+    else if (check.id === 'ai') repairs.push({ id:'manual-ai-key', checkId:check.id, title:'OpenRouter API-kulcs beállítása szükséges', description:check.detail, risk:'low', automatic:false });
     else repairs.push({ id:'manual-' + check.id, checkId:check.id, title:check.label + ' – kézi beavatkozás szükséges', description:check.detail, risk:check.severity === 'critical' ? 'high' : 'medium', automatic:false });
   }
   return { generatedAt:new Date().toISOString(), repairs };
@@ -737,6 +799,10 @@ async function runApprovedRepair(repairId) {
       break;
     case 'repair-obd-reset':
       await obdBridge.disconnect().catch(() => {});
+      break;
+    case 'repair-ai-session':
+      await session.defaultSession.clearCache();
+      await testOpenRouterConnection();
       break;
     default:
       throw new Error('JARVIS_REPAIR_NOT_ALLOWLISTED');
@@ -845,6 +911,15 @@ app.whenReady().then(() => {
       overrideToken:payload?.__ownerOverrideToken || null
     }
   ));
+  ipcMain.handle('jarvis:ai:test-connection', (_event, payload={}) => guarded(
+    { type:'openrouter_connection_test', target:'openrouter.ai' },
+    async () => {
+      const candidateApiKey = String(payload?.apiKey || '').trim();
+      const result = await testOpenRouterConnection(candidateApiKey);
+      if (candidateApiKey) await saveSettingsInternal({ openRouterApiKey:candidateApiKey });
+      return result;
+    }
+  ));
   ipcMain.handle('jarvis:ai:list-models', async () => {
     const raw=readJson(settingsPath(),{}); const key=unprotectSecret(raw.openRouterKey);
     if (!key) return [];
@@ -917,6 +992,49 @@ app.whenReady().then(() => {
   ));
   ipcMain.handle('jarvis:system:check', () => runSystemCheck());
   ipcMain.handle('jarvis:repair:plan', (_e, report={}) => buildRepairPlan(report));
+  ipcMain.handle('jarvis:developer:plan', (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
+    const workspace = developerRepair.validateWorkspace(String(request.workspace || ''));
+    const plan = developerRepair.validatePlan(workspace, request.plan || {});
+    developerPlans.set(plan.hash,{workspace,plan,approved:false,createdAt:Date.now()});
+    return plan;
+  });
+  ipcMain.handle('jarvis:developer:approve', (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
+    const entry=developerPlans.get(String(request.hash||''));
+    if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
+    if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');
+    entry.approved=true; entry.approvedAt=Date.now();
+    return {success:true,hash:entry.plan.hash};
+  });
+  ipcMain.handle('jarvis:developer:apply', (_e, request={}) => guarded(
+    {type:'system_repair',target:'developer-workspace'},
+    async () => {
+      const hash=String(request.hash||'');
+      const entry=developerPlans.get(hash);
+      if(!entry || !entry.approved) throw new Error('DEV_REPAIR_APPROVAL_REQUIRED');
+      const approvedPlan = { ...entry.plan };
+      delete approvedPlan.hash;
+      if(developerRepair.proposalHash(approvedPlan) !== hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
+      const backup=developerRepair.snapshot(entry.workspace,entry.plan,developerBackupRoot());
+      try {
+        developerRepair.apply(entry.workspace,entry.plan);
+        const validation=await runDeveloperValidation(entry.workspace);
+        if(!validation.ok) {
+          developerRepair.rollback(entry.workspace,backup);
+          developerPlans.delete(hash);
+          return {success:false,status:'ROLLED_BACK',hash,backup,validation};
+        }
+        developerPlans.delete(hash);
+        return {success:true,status:'VERIFIED',hash,backup,validation};
+      } catch(error) {
+        developerRepair.rollback(entry.workspace,backup);
+        developerPlans.delete(hash);
+        throw error;
+      }
+    },
+    {message:'Jarvis a jóváhagyott fejlesztési tervet alkalmazza egy külön fejlesztői workspace-ben. Sikertelen ellenőrzéskor automatikusan visszaáll.'}
+  ));
   ipcMain.handle('jarvis:repair:apply', (_e, request={}) => guarded(
     { type:'system_repair', target:String(request.repairId || '') },
     () => runApprovedRepair(request.repairId),

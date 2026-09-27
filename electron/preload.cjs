@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
+  testAiConnection: (apiKey = '') => ipcRenderer.invoke('jarvis:ai:test-connection', { apiKey }),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
   localDeviceRequest: (request) => ipcRenderer.invoke('jarvis:device:request', request),
@@ -35,6 +36,11 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   repair: {
     plan: (report) => ipcRenderer.invoke('jarvis:repair:plan', report),
     apply: (repairId) => ipcRenderer.invoke('jarvis:repair:apply', { repairId }),
+  },
+  developerRepair: {
+    plan: (workspace, plan) => ipcRenderer.invoke('jarvis:developer:plan', { workspace, plan }),
+    approve: (hash) => ipcRenderer.invoke('jarvis:developer:approve', { hash }),
+    apply: (hash) => ipcRenderer.invoke('jarvis:developer:apply', { hash }),
   },
   obd: {
     listPorts: () => ipcRenderer.invoke('jarvis:obd:list-ports'),
