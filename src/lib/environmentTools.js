@@ -7,23 +7,17 @@ async function getCurrentUserOwnerFilter() {
 }
 
 // ─── DEVICE CONTROL ──────────────────────────────────────────────────────────
-// Supports local HTTP API (e.g. Shelly, Tasmota, Home Assistant REST API)
-// Falls back to status-only if no IP/API configured
-
-// NOTE: Direct device API calls only work when:
-// 1. App is served locally (same network as device)
-// 2. Device has CORS enabled (Tasmota/Shelly do NOT by default)
-// 3. Device IP is reachable from the browser
-// In production (cloud-hosted), these calls will always fail silently.
-// Status is tracked in DB only — real device state cannot be guaranteed.
-async function callDeviceAPI(device, command) {
+// Physical local-network actions are executed only by Electron's main process.
+// The renderer never sends direct device HTTP requests, so the Policy Engine
+// remains the mandatory gate for Jarvis-initiated physical device actions.
+async function callDeviceAPI(device, command, { readOnly = false } = {}) {
   if (!device.api_url && !device.ip_address) return null;
+  const bridge = window.jarvisDesktop?.localDeviceRequest;
+  if (!bridge) return null;
   const base = device.api_url || `http://${device.ip_address}`;
-  if (!/^https?:\/\/(localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i.test(base)) return null;
   try {
-    const url = `${base}${command}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    return await res.json();
+    const result = await bridge({ base, command, timeout:3000, readOnly });
+    return result?.success ? result.data : null;
   } catch {
     return null;
   }
@@ -70,7 +64,7 @@ export const ENV_TOOLS = {
     }
     const device = devices.find(d => d.name.toLowerCase().includes(device_name.toLowerCase()));
     if (!device) return { success: false, message: `❌ Nem találom: "${device_name}"` };
-    const live = await callDeviceAPI(device, '/cm?cmnd=Power');
+    const live = await callDeviceAPI(device, '/cm?cmnd=Power', { readOnly:true });
     if (!live) {
       return {
         success: true,
