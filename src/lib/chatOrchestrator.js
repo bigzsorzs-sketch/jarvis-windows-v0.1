@@ -46,7 +46,7 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
     ? 'The user spoke Hungarian. You MUST answer only in Hungarian. Do not answer in English.'
     : getLanguageInstruction(outputLang, ctx?.settings?.secondary_languages || [], ctx?.settings?.formal_tone || false);
   const voiceSpeedInstruction = source === 'voice'
-    ? '\nVoice mode: answer in Hungarian when input is Hungarian. Use 1 short sentence, maximum 18 words. No English unless the user spoke English.'
+    ? '\nVoice mode is ACTIVE in Jarvis. You can hear the user through speech recognition and Jarvis can speak your reply aloud. Never claim that voice conversation is unavailable or text-only. Answer in Hungarian when input is Hungarian. Use 1 short sentence, maximum 18 words. Emojis may appear visually, but never describe or read emoji names aloud. No English unless the user spoke English.'
     : '\nAnswer concisely by default.';
   const systemPrompt = `${buildSystemPrompt(ctx, langInstruction, userMood)}${voiceSpeedInstruction}`;
 
