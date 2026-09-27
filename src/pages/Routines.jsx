@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { jarvis } from '@/api/jarvisClient';
-import { RefreshCw, Plus, X, Play, Trash2, Clock, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
+import { RefreshCw, Plus, X, Play, Trash2, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
 import MobileSelect from '@/components/common/MobileSelect';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
