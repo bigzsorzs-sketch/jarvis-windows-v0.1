@@ -54,9 +54,21 @@ jobs:
           if (-not (Test-Path -LiteralPath $exe)) {
             throw "Packaged Jarvis.exe not found: $exe"
           }
-          $process = Start-Process -FilePath $exe -PassThru
+          $logFile = Join-Path $env:RUNNER_TEMP "jarvis-electron-smoke.log"
+          $env:ELECTRON_ENABLE_LOGGING = "1"
+          $arguments = @(
+            "--disable-gpu",
+            "--disable-gpu-sandbox",
+            "--enable-logging=file",
+            "--log-file=$logFile"
+          )
+          $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
           Start-Sleep -Seconds 12
           if ($process.HasExited) {
+            if (Test-Path -LiteralPath $logFile) {
+              Write-Host "---- Electron smoke log ----"
+              Get-Content -LiteralPath $logFile -Tail 200
+            }
             throw "Packaged Jarvis exited during startup smoke test with code $($process.ExitCode)"
           }
           Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
