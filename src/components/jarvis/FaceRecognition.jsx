@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { jarvis } from '@/api/jarvisClient'; // for ActionLog only
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, CameraOff, User, Scan, Check, X, Loader2 } from 'lucide-react';
+import { Camera, CameraOff, Scan, Check, X, Loader2 } from 'lucide-react';
 
 export default function FaceRecognition({ onRecognized }) {
   const videoRef = useRef(null);
