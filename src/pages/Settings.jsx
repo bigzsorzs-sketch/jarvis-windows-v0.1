@@ -52,11 +52,13 @@ export default function Settings() {
   const testAiConnection = async () => {
     setTestingAi(true); setAiStatus('OpenRouter kapcsolat ellenőrzése...');
     try {
-      if (apiKey.trim()) {
-        const next = await window.jarvisDesktop.saveSettings({ openRouterApiKey:apiKey.trim() });
-        setAiConfig((current) => ({ ...current, ...next })); setApiKey('');
+      const candidateKey = apiKey.trim();
+      const result = await window.jarvisDesktop.testAiConnection(candidateKey);
+      if (candidateKey) {
+        const next = await window.jarvisDesktop.getSettings();
+        setAiConfig((current) => ({ ...current, ...next }));
+        setApiKey('');
       }
-      const result = await window.jarvisDesktop.testAiConnection();
       setAiStatus(`Kapcsolat rendben · ${result.modelCount} modell elérhető.`);
     } catch (error) { setAiStatus('Kapcsolati hiba: ' + (error?.message || error)); }
     finally { setTestingAi(false); }
