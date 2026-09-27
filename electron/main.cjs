@@ -801,7 +801,10 @@ app.whenReady().then(() => {
   ));
   ipcMain.handle('jarvis:data:stats', () => database.stats());
   ipcMain.handle('jarvis:data:user:get', () => database.getUser());
-  ipcMain.handle('jarvis:data:user:update', (_e, patch={}) => database.updateUser(patch));
+  ipcMain.handle('jarvis:data:user:update', (_e, patch={}) => guarded(
+    { type:'local_data_write', target:'local-owner-profile' },
+    () => database.updateUser(patch)
+  ));
   ipcMain.handle('jarvis:backup:create', (_e, req={}) => guarded(
     { type:'backup_create', target:'Jarvis Backups' },
     () => backupManager.create(req.passphrase)
