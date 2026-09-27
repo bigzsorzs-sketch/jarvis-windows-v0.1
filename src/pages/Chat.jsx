@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { jarvis } from '@/api/jarvisClient';
 import { loadFullContext, TOOLS, executeActions } from '@/lib/assistantTools';
 import { getGreeting } from '@/components/chat/chatGreeting';
@@ -44,6 +44,8 @@ import ActiveRouteCard from '@/components/chat/ActiveRouteCard';
 export default function Chat() {
   const { lang, t } = useLang();
   const navigate = useNavigate();
+  const location = useLocation();
+  const commandCenterHome = location.pathname === '/';
   const voice = useVoiceRuntime();
   const setSystemState = useSystemStore((state) => state.setSystemState);
 
@@ -549,12 +551,14 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
       <ActiveRouteCard activeRoute={activeRoute} onFinishTrip={handleFinishTrip} />
 
-      <div className="jarvis-command-center-hero">
-        <JarvisVoiceStage voice={voice} />
-        <CommandCenterActions onNavigate={navigate} />
-      </div>
+      {commandCenterHome && (
+        <div className="jarvis-command-center-hero">
+          <JarvisVoiceStage voice={voice} />
+          <CommandCenterActions onNavigate={navigate} />
+        </div>
+      )}
 
-      <ChatHeader
+      {!commandCenterHome && <ChatHeader
         aiName={ctx?.settings?.ai_name}
         onNewChat={() => {
           setDetectedLang(lang || 'hu');
@@ -570,9 +574,9 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         isOnline={isOnline}
         degradedMode={degradedMode}
         t={t}
-      />
+      />}
 
-      <PullToRefresh onRefresh={async () => {
+      {!commandCenterHome && <PullToRefresh onRefresh={async () => {
         const c = await loadFullContext(true);
         setCtx(c);
       }}>
@@ -584,16 +588,16 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
           onRateMessage={rateAssistantMessage}
         />
         <div ref={bottomRef} />
-      </PullToRefresh>
+      </PullToRefresh>}
 
-      <ChatConfirmBar
+      {!commandCenterHome && <ChatConfirmBar
         pendingConfirm={pendingConfirm}
         onConfirm={confirmAndExecute}
         onCancel={() => setPendingConfirm(null)}
         t={t}
-      />
+      />}
 
-      <ChatInputBar
+      {!commandCenterHome && <ChatInputBar
         input={input}
         setInput={setInput}
         onSend={sendMessage}
@@ -608,7 +612,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         inputRef={inputRef}
         handsFree={handsFree}
         t={t}
-      />
+      />}
 
       <ChatNavModal
         show={showNavModal}
