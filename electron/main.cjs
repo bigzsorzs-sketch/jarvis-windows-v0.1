@@ -23,7 +23,7 @@ let database;
 let backupManager;
 
 function resourcePath(...parts) {
-  return app.isPackaged ? path.join(process.resourcesPath, ...parts) : path.join(__dirname, '..', ...parts);
+  return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -92,7 +92,36 @@ async function openRouterRequest(payload={}) {
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
   const requestedModel = String(payload.model || '');
   const model = requestedModel.includes('/') ? requestedModel : (raw.aiModel || 'openrouter/auto');
-  const messages = payload.messages || [{ role:'user', content:String(payload.prompt || '') }];
+
+  let messages = Array.isArray(payload.messages) && payload.messages.length
+    ? payload.messages.map((message) => ({ ...message }))
+    : [{ role:'user', content:String(payload.prompt || '') }];
+
+  const imageUrls = [
+    ...(Array.isArray(payload.file_urls) ? payload.file_urls : []),
+    ...(Array.isArray(payload.image_urls) ? payload.image_urls : []),
+  ].filter((url) => typeof url === 'string' && url.trim());
+
+  if (imageUrls.length > 0) {
+    const imageParts = imageUrls.slice(0, 20).map((url) => ({
+      type:'image_url',
+      image_url:{ url }
+    }));
+    let userIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === 'user') { userIndex = i; break; }
+    }
+    if (userIndex < 0) {
+      messages.push({ role:'user', content:[{ type:'text', text:String(payload.prompt || '') }, ...imageParts] });
+    } else {
+      const current = messages[userIndex].content;
+      const textParts = Array.isArray(current)
+        ? current
+        : [{ type:'text', text:String(current ?? payload.prompt ?? '') }];
+      messages[userIndex] = { ...messages[userIndex], content:[...textParts, ...imageParts] };
+    }
+  }
+
   const body = { model, messages };
   if (payload.response_json_schema) body.response_format = { type:'json_object' };
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -115,6 +144,71 @@ async function openRouterRequest(payload={}) {
   return { success:true, data:{ result, model:json.model || model, usage:json.usage || null } };
 }
 
+async function listOpenRouterImageModels(apiKey) {
+  const response = await fetch('https://openrouter.ai/api/v1/images/models', {
+    headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
+  });
+  if (!response.ok) throw new Error(`OPENROUTER_IMAGE_MODELS_${response.status}`);
+  const json = await response.json();
+  return Array.isArray(json?.data) ? json.data : [];
+}
+
+async function openRouterGenerateImage(payload={}) {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = unprotectSecret(raw.openRouterKey);
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
+  const prompt = String(payload.prompt || '').trim();
+  if (!prompt) throw new Error('IMAGE_PROMPT_REQUIRED');
+
+  const models = await listOpenRouterImageModels(apiKey);
+  const ids = new Set(models.map((item) => item?.id).filter(Boolean));
+  const requested = String(payload.model || raw.imageModel || '').trim();
+  const candidates = [
+    requested,
+    'openai/gpt-5-image-mini',
+    'bytedance-seed/seedream-4.5',
+    ...models.map((item) => item?.id),
+  ].filter(Boolean);
+  const model = candidates.find((id) => ids.has(id));
+  if (!model) throw new Error('OPENROUTER_IMAGE_MODEL_NOT_AVAILABLE');
+
+  const body = { model, prompt, n:1 };
+  const references = Array.isArray(payload.existing_image_urls)
+    ? payload.existing_image_urls.filter((url) => typeof url === 'string' && url.trim()).slice(0, 5)
+    : [];
+  if (references.length) {
+    body.input_references = references.map((url) => ({
+      type:'image_url',
+      image_url:{ url }
+    }));
+  }
+
+  const response = await fetch('https://openrouter.ai/api/v1/images', {
+    method:'POST',
+    headers:{
+      'Authorization':`Bearer ${apiKey}`,
+      'Content-Type':'application/json',
+      'HTTP-Referer':'https://jarvis.local',
+      'X-Title':'Jarvis Desktop'
+    },
+    body:JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(`OPENROUTER_IMAGE_${response.status}:${(await response.text()).slice(0,500)}`);
+  const json = await response.json();
+  const image = json?.data?.[0];
+  if (!image?.b64_json) throw new Error('OPENROUTER_IMAGE_DATA_MISSING');
+  const mediaType = image.media_type || 'image/png';
+  return {
+    success:true,
+    data:{
+      url:`data:${mediaType};base64,${image.b64_json}`,
+      model,
+      mediaType,
+      usage:json.usage || null
+    }
+  };
+}
+
 async function invokeJarvisFunction(name, payload={}) {
   switch (name) {
     case 'llmProxy': return openRouterRequest(payload);
@@ -122,7 +216,12 @@ async function invokeJarvisFunction(name, payload={}) {
       const r = await openRouterRequest(payload);
       return { data:{ result:r.data.result, model:r.data.model, usage:r.data.usage } };
     }
-    case 'validateFileUpload': return { data:{ valid:true, allowed:true } };
+    case 'validateFileUpload': {
+      const fileUrl = payload?.file_url || payload?.url || null;
+      return { data:{ valid:Boolean(fileUrl), allowed:Boolean(fileUrl), file_url:fileUrl } };
+    }
+    case 'generateImage': return openRouterGenerateImage(payload);
+    case 'gmailFetch': return { data:{ emails:[], connected:false, configured:false, reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
     case 'sendFeedback': return { data:{ success:true, storedLocally:true } };
     case 'getActivePromptTunings': return { data:{ tunings:[] } };
     case 'deleteAccount': database?.resetAll(); return { data:{ success:true, localOnly:true } };
@@ -167,7 +266,7 @@ async function getSystemContext() {
 
 
 const UPDATE_REPO = 'bigzsorzs-sketch/jarvis-windows-v0.1';
-const UPDATE_API = \`https://api.github.com/repos/\${UPDATE_REPO}/releases/latest\`;
+const UPDATE_API = `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
 
 function normalizeVersion(value='0.0.0') {
   return String(value).replace(/^v/i,'').split('-')[0].split('.').map(x => Number.parseInt(x,10) || 0);
@@ -180,18 +279,18 @@ function compareVersions(a,b) {
 }
 async function fetchLatestRelease() {
   const res=await fetch(UPDATE_API,{headers:{'Accept':'application/vnd.github+json','User-Agent':'Jarvis-Desktop-Updater'}});
-  if(!res.ok) throw new Error(\`UPDATE_CHECK_\${res.status}\`);
+  if(!res.ok) throw new Error(`UPDATE_CHECK_${res.status}`);
   const release=await res.json();
   const latestVersion=String(release.tag_name||'').replace(/^v/i,'');
   const exe=(release.assets||[]).find(a => /^Jarvis-Setup-\d+\.\d+\.\d+-x64\.exe$/i.test(a.name||''));
   if(!exe) throw new Error('UPDATE_INSTALLER_NOT_FOUND');
-  const checksum=(release.assets||[]).find(a => a.name === \`\${exe.name}.sha256\`);
+  const checksum=(release.assets||[]).find(a => a.name === `${exe.name}.sha256`);
   if(!checksum) throw new Error('UPDATE_CHECKSUM_NOT_FOUND');
   return {latestVersion, releaseName:release.name||release.tag_name, publishedAt:release.published_at, exe, checksum};
 }
 async function downloadFile(url,destination) {
   const res=await fetch(url,{redirect:'follow',headers:{'User-Agent':'Jarvis-Desktop-Updater'}});
-  if(!res.ok || !res.body) throw new Error(\`UPDATE_DOWNLOAD_\${res.status}\`);
+  if(!res.ok || !res.body) throw new Error(`UPDATE_DOWNLOAD_${res.status}`);
   await pipeline(Readable.fromWeb(res.body),fs.createWriteStream(destination));
 }
 async function sha256File(file) {
@@ -209,10 +308,10 @@ async function oneClickUpdate() {
     return {status:'up-to-date',currentVersion,latestVersion:release.latestVersion};
   }
 
-  const tempDir=path.join(app.getPath('temp'),\`Jarvis-Upgrade-\${release.latestVersion}\`);
+  const tempDir=path.join(app.getPath('temp'),`Jarvis-Upgrade-${release.latestVersion}`);
   fs.mkdirSync(tempDir,{recursive:true});
   const installerPath=path.join(tempDir,release.exe.name);
-  const checksumPath=\`\${installerPath}.sha256\`;
+  const checksumPath=`${installerPath}.sha256`;
 
   await downloadFile(release.exe.browser_download_url,installerPath);
   await downloadFile(release.checksum.browser_download_url,checksumPath);
@@ -231,13 +330,13 @@ async function oneClickUpdate() {
   const helperPath=path.join(tempDir,'install-update.ps1');
   const appExe=process.execPath;
   const userData=app.getPath('userData');
-  const helper=\`
+  const helper=`
 $ErrorActionPreference = 'Stop'
-$pidToWait = \${process.pid}
-$installer = '\${psQuote(installerPath)}'
-$userData = '\${psQuote(userData)}'
-$backup = '\${psQuote(backupRoot)}'
-$appExe = '\${psQuote(appExe)}'
+$pidToWait = ${process.pid}
+$installer = '${psQuote(installerPath)}'
+$userData = '${psQuote(userData)}'
+$backup = '${psQuote(backupRoot)}'
+$appExe = '${psQuote(appExe)}'
 Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $backup | Out-Null
 if (Test-Path -LiteralPath $userData) {
@@ -246,7 +345,7 @@ if (Test-Path -LiteralPath $userData) {
 $p = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
 if ($p.ExitCode -ne 0) { exit $p.ExitCode }
 Start-Process -FilePath $appExe
-\`;
+`;
   fs.writeFileSync(helperPath,helper,'utf8');
 
   const child=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',helperPath],{
@@ -255,6 +354,75 @@ Start-Process -FilePath $appExe
   child.unref();
   setTimeout(()=>app.quit(),700);
   return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot};
+}
+
+function functionPolicyAction(name, payload={}) {
+  const hasExternalImages = ['llmProxy','runAiTask','generateImage'].includes(String(name))
+    && (
+      (Array.isArray(payload?.file_urls) && payload.file_urls.length > 0)
+      || (Array.isArray(payload?.image_urls) && payload.image_urls.length > 0)
+      || (Array.isArray(payload?.existing_image_urls) && payload.existing_image_urls.length > 0)
+    );
+  return {
+    type: name === 'deleteAccount' ? 'account_delete' : `function:${String(name || 'unknown')}`,
+    target:String(name || 'unknown'),
+    authorised:true,
+    transmitsSensitiveData:hasExternalImages
+  };
+}
+
+function isPotentiallyMutatingObdCommand(command='') {
+  const clean = String(command).toUpperCase().replace(/[^0-9A-F]/g, '');
+  return clean === '04'
+    || clean.startsWith('11')
+    || clean.startsWith('14')
+    || clean.startsWith('2E')
+    || clean.startsWith('2F')
+    || clean.startsWith('31')
+    || clean.startsWith('34')
+    || clean.startsWith('36')
+    || clean.startsWith('37');
+}
+
+async function enforcePolicy(action={}, options={}) {
+  if (!policy) throw new Error('JARVIS_POLICY_NOT_READY');
+  const decision = policy.evaluate({ authorised:true, ...action });
+  if (decision.status === 'block') {
+    const error = new Error(`JARVIS_POLICY_BLOCKED:${decision.reason}`);
+    error.code = 'JARVIS_POLICY_BLOCKED';
+    error.policyDecision = decision;
+    throw error;
+  }
+  if (decision.status === 'confirm') {
+    if (options.interactive === false) {
+      const error = new Error('JARVIS_POLICY_CONFIRMATION_REQUIRED');
+      error.code = 'JARVIS_POLICY_CONFIRMATION_REQUIRED';
+      throw error;
+    }
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type:'warning',
+      buttons:['Mégse','Engedélyezem'],
+      defaultId:0,
+      cancelId:0,
+      noLink:true,
+      title:'Jarvis biztonsági megerősítés',
+      message:options.message || 'Ez a művelet kiemelt jogosultságot vagy érzékeny adatkezelést igényel.',
+      detail:`${decision.reason}\n\nMűvelet: ${action.type || 'unknown'}\nCél: ${action.target || '-'}`
+    });
+    if (confirmation.response !== 1) {
+      policy.audit('policy_confirmation_denied', { action, decision });
+      const error = new Error('JARVIS_POLICY_USER_DENIED');
+      error.code = 'JARVIS_POLICY_USER_DENIED';
+      throw error;
+    }
+    policy.audit('policy_confirmation_allowed', { action, decision });
+  }
+  return decision;
+}
+
+async function guarded(action, operation, options={}) {
+  await enforcePolicy(action, options);
+  return operation();
 }
 
 async function runSystemCheck() {
@@ -401,8 +569,15 @@ app.whenReady().then(() => {
   ipcMain.handle('jarvis:policy:override', (_e, req) => policy.requestOverride(req || {}));
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
   ipcMain.handle('jarvis:settings:get', () => getSettingsInternal());
-  ipcMain.handle('jarvis:settings:save', (_e, patch) => saveSettingsInternal(patch));
-  ipcMain.handle('jarvis:function:invoke', (_e, name, payload) => invokeJarvisFunction(name, payload));
+  ipcMain.handle('jarvis:settings:save', (_e, patch) => guarded(
+    { type:'local_settings_write', target:settingsPath() },
+    () => saveSettingsInternal(patch)
+  ));
+  ipcMain.handle('jarvis:function:invoke', (_e, name, payload) => guarded(
+    functionPolicyAction(name, payload || {}),
+    () => invokeJarvisFunction(name, payload || {}),
+    { message:'Jarvis egy külső AI-szolgáltatásnak képet vagy más érzékeny adatot küldene.' }
+  ));
   ipcMain.handle('jarvis:ai:list-models', async () => {
     const raw=readJson(settingsPath(),{}); const key=unprotectSecret(raw.openRouterKey);
     if (!key) return [];
@@ -412,22 +587,57 @@ app.whenReady().then(() => {
     return (json.data||[]).map(m=>({id:m.id,name:m.name||m.id,context_length:m.context_length||null,pricing:m.pricing||null}));
   });
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
-  ipcMain.handle('jarvis:update:one-click', () => oneClickUpdate());
-  ipcMain.handle('jarvis:obd:list-ports', () => obdBridge.listSerialPorts());
-  ipcMain.handle('jarvis:obd:connect', (_e, options) => obdBridge.connect(options || {}));
-  ipcMain.handle('jarvis:obd:send', (_e, request) => obdBridge.sendCommand(request?.command, request?.timeout));
+  ipcMain.handle('jarvis:update:one-click', () => guarded(
+    { type:'system_file_write', target:process.execPath },
+    () => oneClickUpdate(),
+    { message:'Jarvis új telepítőt fog letölteni, ellenőrizni és rendszerszinten futtatni.' }
+  ));
+  ipcMain.handle('jarvis:obd:list-ports', () => guarded(
+    { type:'obd_list', target:'local-device' },
+    () => obdBridge.listSerialPorts()
+  ));
+  ipcMain.handle('jarvis:obd:connect', (_e, options) => guarded(
+    { type:'obd_connect', target:String(options?.path || options?.address || 'local-device') },
+    () => obdBridge.connect(options || {})
+  ));
+  ipcMain.handle('jarvis:obd:send', (_e, request={}) => guarded(
+    {
+      type:isPotentiallyMutatingObdCommand(request.command) ? 'obd_write' : 'obd_read',
+      target:String(request.command || '')
+    },
+    () => obdBridge.sendCommand(request?.command, request?.timeout),
+    { message:'Ez az OBD parancs módosíthatja a jármű vezérlőegységének állapotát.' }
+  ));
   ipcMain.handle('jarvis:obd:status', () => obdBridge.status());
   ipcMain.handle('jarvis:obd:disconnect', () => obdBridge.disconnect());
   ipcMain.handle('jarvis:data:filter', (_e, req={}) => database.filter(req.entity, req.query, req.sort, req.limit));
-  ipcMain.handle('jarvis:data:create', (_e, req={}) => database.create(req.entity, req.data));
-  ipcMain.handle('jarvis:data:update', (_e, req={}) => database.update(req.entity, req.id, req.patch));
-  ipcMain.handle('jarvis:data:delete', (_e, req={}) => database.delete(req.entity, req.id));
-  ipcMain.handle('jarvis:data:import-legacy', (_e, snapshot={}) => database.importLegacy(snapshot));
+  ipcMain.handle('jarvis:data:create', (_e, req={}) => guarded(
+    { type:'local_data_write', target:String(req.entity || '') },
+    () => database.create(req.entity, req.data)
+  ));
+  ipcMain.handle('jarvis:data:update', (_e, req={}) => guarded(
+    { type:'local_data_write', target:`${String(req.entity || '')}/${String(req.id || '')}` },
+    () => database.update(req.entity, req.id, req.patch)
+  ));
+  ipcMain.handle('jarvis:data:delete', (_e, req={}) => guarded(
+    { type:'local_data_delete', target:`${String(req.entity || '')}/${String(req.id || '')}` },
+    () => database.delete(req.entity, req.id)
+  ));
+  ipcMain.handle('jarvis:data:import-legacy', (_e, snapshot={}) => guarded(
+    { type:'local_data_import', target:'legacy-local-storage' },
+    () => database.importLegacy(snapshot)
+  ));
   ipcMain.handle('jarvis:data:stats', () => database.stats());
   ipcMain.handle('jarvis:data:user:get', () => database.getUser());
   ipcMain.handle('jarvis:data:user:update', (_e, patch={}) => database.updateUser(patch));
-  ipcMain.handle('jarvis:backup:create', (_e, req={}) => backupManager.create(req.passphrase));
-  ipcMain.handle('jarvis:backup:restore', (_e, req={}) => backupManager.restore(req.passphrase));
+  ipcMain.handle('jarvis:backup:create', (_e, req={}) => guarded(
+    { type:'backup_create', target:'Jarvis Backups' },
+    () => backupManager.create(req.passphrase)
+  ));
+  ipcMain.handle('jarvis:backup:restore', (_e, req={}) => guarded(
+    { type:'backup_restore', target:'local-database' },
+    () => backupManager.restore(req.passphrase)
+  ));
   ipcMain.handle('jarvis:system:check', () => runSystemCheck());
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
