@@ -31,3 +31,26 @@
   .jarvis-wave-console{width:92%;max-width:900px;min-height:66px;margin:0 auto 2px;border-radius:14px}
   .jarvis-waveform{height:39px;padding:0 22px}
 }
+
+
+/* 9404.jpg precision pass — v0.3.1 */
+.jarvis-waveform svg{width:100%;height:100%;overflow:visible}
+.voice-wave{fill:none;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
+.voice-wave-main{stroke:#28baff;stroke-width:1.55;opacity:.86;filter:drop-shadow(0 0 5px rgba(32,174,255,.92))}
+.voice-wave-soft{stroke:#0a6fff;stroke-width:1;opacity:.34;filter:drop-shadow(0 0 7px rgba(0,104,255,.65))}
+.jarvis-waveform.is-active .voice-wave-main{animation:jarvis-voice-wave 1.15s ease-in-out infinite;transform-origin:center}
+.jarvis-waveform.is-active .voice-wave-soft{animation:jarvis-voice-wave 1.7s ease-in-out infinite reverse;transform-origin:center}
+@keyframes jarvis-voice-wave{0%,100%{transform:scaleY(.72);opacity:.5}50%{transform:scaleY(1.12);opacity:1}}
+@media(min-width:901px){
+ .jarvis-hero-orb{width:136px;height:136px;background:radial-gradient(circle at 38% 30%,#b5f5ff 0%,#43d4ff 7%,#078dff 22%,#0755d4 43%,#052a7a 61%,#02091c 79%);border:1px solid rgba(123,229,255,.95);box-shadow:0 0 8px #7eeaff,0 0 24px rgba(28,183,255,.95),0 0 72px rgba(0,102,255,.78),0 0 128px rgba(0,73,210,.34),inset -20px -24px 38px rgba(0,0,35,.82)}
+ .jarvis-orb-core{width:66%;height:66%;background:radial-gradient(circle at 39% 35%,rgba(210,251,255,.94),rgba(54,188,255,.52) 17%,rgba(0,86,224,.16) 48%,rgba(0,0,0,.24) 72%)}
+ .jarvis-energy-field{width:121%;height:205px;top:42%}
+ .energy-wave{stroke-width:1.15;opacity:.36}.wave-two{opacity:.28}.wave-three{opacity:.2}
+ .jarvis-wave-console{background:linear-gradient(180deg,rgba(4,20,48,.78),rgba(2,12,30,.92));border-color:rgba(39,119,226,.22);box-shadow:inset 0 0 32px rgba(0,91,255,.05),0 10px 34px rgba(0,0,0,.18)}
+}
+
+.reference-home-hidden{display:none!important}
+.wave-four{opacity:.23;stroke:#159cff}.wave-five{opacity:.18;stroke:#2cc7ff}.wave-six{opacity:.15;stroke:#0c75ff}
+.jarvis-energy-field.is-active .wave-four{animation:wave-pulse 2.35s ease-in-out infinite reverse}
+.jarvis-energy-field.is-active .wave-five{animation:wave-pulse 2.8s ease-in-out infinite}
+.jarvis-energy-field.is-active .wave-six{animation:wave-pulse 3.15s ease-in-out infinite reverse}

@@ -2,7 +2,7 @@ import { MessageCircle, BarChart3, Sparkles, MapPin, HeartPulse } from 'lucide-r
 
 const ACTIONS = [
   { icon: MessageCircle, label: 'Chat', hint: 'Get answers', path: '/chat' },
-  { icon: BarChart3, label: 'Analyze', hint: 'Find insights', path: '/muszerfal' },
+  { icon: BarChart3, label: 'Analyse', hint: 'Find insights', path: '/muszerfal' },
   { icon: Sparkles, label: 'Create', hint: 'Generate anything', path: '/eszkozok' },
   { icon: Sparkles, label: 'Plan', hint: 'Turn ideas into action', path: '/reminders' },
   { icon: MapPin, label: 'Navigate', hint: 'Get you there', path: '/locations' },
