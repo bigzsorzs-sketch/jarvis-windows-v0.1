@@ -5,7 +5,12 @@ import { Download, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from 'l
 function messageFor(result) {
   if (!result) return '';
   if (result.status === 'up-to-date') return `A Jarvis naprakész (v${result.currentVersion}).`;
-  if (result.status === 'installing') return `Jarvis v${result.latestVersion} letöltve és ellenőrizve. A telepítés indul…`;
+  if (result.status === 'installing') {
+    const verification = result.verification === 'authenticode' || result.verification === 'sha256+authenticode'
+      ? 'SHA-256 + digitális aláírás'
+      : 'SHA-256';
+    return `Jarvis v${result.latestVersion} letöltve és ellenőrizve (${verification}). A telepítés indul…`;
+  }
   return result.message || '';
 }
 
@@ -43,7 +48,7 @@ export default function UpdateCard() {
           </p>
           <div className="flex items-center gap-1.5 mt-2 text-[11px] text-muted-foreground">
             <ShieldCheck size={12} className="text-primary" />
-            A helyi beállításokról telepítés előtt biztonsági mentés készül.
+            A helyi adatokról telepítés előtt biztonsági mentés készül, és csak ellenőrzött stabil GitHub Release telepíthető.
           </div>
         </div>
       </div>
