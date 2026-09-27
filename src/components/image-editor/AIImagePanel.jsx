@@ -76,10 +76,8 @@ export default function AIImagePanel({ onImageReady, onPromptUsed }) {
             return { ...img, uploaded_url: cached };
           }
           
-          const uploadForm = new FormData();
-          uploadForm.append('file', img.file);
-          const uploadRes = await jarvis.functions.invoke('validateFileUpload', uploadForm);
-          const file_url = uploadRes?.data?.file_url;
+          const uploadRes = await jarvis.integrations.Core.UploadFile({ file: img.file });
+          const file_url = uploadRes?.file_url;
           if (!file_url) throw new Error('Upload failed');
           if (img.hash) setCachedFileUrl(img.hash, file_url);
           setStep(`Képek feltöltése (${i + 1}/${images.length})...`);
