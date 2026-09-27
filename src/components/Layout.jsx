@@ -109,7 +109,7 @@ export default function Layout() {
             <span className="jarvis-reference-logo-orb" />
             {!sidebarCollapsed && <strong>Jarvis</strong>}
           </button>
-          <button className="jarvis-sidebar-collapse" onClick={() => setSidebarCollapsed(v => !v)} aria-label="Oldalsáv összecsukása">
+          <button className={location.pathname === '/' ? 'jarvis-sidebar-collapse reference-home-hidden' : 'jarvis-sidebar-collapse'} onClick={() => setSidebarCollapsed(v => !v)} aria-label="Oldalsáv összecsukása">
             {sidebarCollapsed ? <PanelLeftOpen size={15}/> : <PanelLeftClose size={15}/>}
           </button>
         </div>
