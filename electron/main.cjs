@@ -516,7 +516,10 @@ function buildLocalDeviceUrl(baseValue, commandValue='') {
   }
 
   const command = String(commandValue || '');
-  return new URL(command || '/', base.toString().endsWith('/') ? base : new URL(base.pathname + '/', base)).toString();
+  const combined = command
+    ? base.toString().replace(/\/$/, '') + (command.startsWith('/') ? command : '/' + command)
+    : base.toString();
+  return new URL(combined).toString();
 }
 
 async function requestLocalDevice(request={}) {
