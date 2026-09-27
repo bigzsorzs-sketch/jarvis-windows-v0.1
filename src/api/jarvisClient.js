@@ -168,7 +168,10 @@ export const jarvis = {
       await ensureDesktopMigration();
       return api.getUser();
     },
-    async isAuthenticated() { return true; },
+    async isAuthenticated() {
+      const current = await this.me().catch(() => null);
+      return Boolean(current?.id);
+    },
     async updateMe(patch = {}) {
       const api = nativeData();
       if (!api?.updateUser) {
@@ -179,7 +182,9 @@ export const jarvis = {
       await ensureDesktopMigration();
       return api.updateUser(patch);
     },
-    async logout() { return { success:true, localOnly:true }; },
+    async logout() {
+      return { success:true, localOnly:true, reason:'LOCAL_SINGLE_OWNER_MODE' };
+    },
     redirectToLogin() { return null; }
   },
   entities,
@@ -207,8 +212,8 @@ export const jarvis = {
     }
   },
   users: {
-    async inviteUser(email, role = 'user') {
-      return { success:true, email, role, localOnly:true };
+    async inviteUser() {
+      throw new Error('LOCAL_SINGLE_OWNER_MODE');
     }
   },
   connectors: {
