@@ -10,6 +10,7 @@ const main = fs.readFileSync('electron/main.cjs','utf8');
 const preload = fs.readFileSync('electron/preload.cjs','utf8');
 const repair = fs.readFileSync('electron/developer-repair.cjs','utf8');
 const system = fs.readFileSync('src/pages/SystemCenter.jsx','utf8');
+const app = fs.readFileSync('src/App.jsx','utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
 
 test('selected OpenRouter model is actually used instead of being forced back to auto', () => {
@@ -32,6 +33,8 @@ test('light theme has a real independent palette and synchronizes native title b
   assert.match(theme,/window\.jarvisDesktop\?\.setTheme/);
   assert.match(preload,/setTheme:/);
   assert.match(main,/jarvis:theme:set/);
+  assert.match(app,/subscribeTheme/);
+  assert.match(app,/ThemeRuntime/);
 });
 
 test('desktop navigation uses app language instead of hard-coded English labels', () => {
