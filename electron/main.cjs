@@ -14,6 +14,7 @@ const { PolicyEngine } = require('./security/policy-engine.cjs');
 const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
+const developerRepair = require('./developer-repair.cjs');
 const {
   analyzeUploadedFiles,
   analyzeProjectDeep,
@@ -26,12 +27,35 @@ let policy;
 let obdBridge;
 let database;
 let backupManager;
+const developerPlans = new Map();
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
+function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
+async function runDeveloperValidation(workspace) {
+  const commands = [
+    ['node',['--check','electron/main.cjs']],
+    ['node',['--test','src/tests/*.test.js']],
+    ['npm',['run','lint']],
+    ['npm',['run','typecheck']],
+    ['npm',['run','verify:jarvis']],
+    ['npm',['run','build']],
+  ];
+  const results=[];
+  for (const [cmd,args] of commands) {
+    try {
+      const { stdout, stderr } = await execFileAsync(cmd,args,{cwd:workspace,windowsHide:true,timeout:180000,shell:false});
+      results.push({cmd:[cmd,...args].join(' '),ok:true,output:(stdout||stderr||'').slice(-4000)});
+    } catch (error) {
+      results.push({cmd:[cmd,...args].join(' '),ok:false,output:String(error?.stdout||error?.stderr||error?.message||error).slice(-4000)});
+      return {ok:false,results};
+    }
+  }
+  return {ok:true,results};
+}
 function localOwnerAuthorised() {
   try {
     const user = database?.getUser?.();
@@ -973,6 +997,47 @@ app.whenReady().then(() => {
   ));
   ipcMain.handle('jarvis:system:check', () => runSystemCheck());
   ipcMain.handle('jarvis:repair:plan', (_e, report={}) => buildRepairPlan(report));
+  ipcMain.handle('jarvis:developer:plan', (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
+    const workspace = developerRepair.validateWorkspace(String(request.workspace || ''));
+    const plan = developerRepair.validatePlan(workspace, request.plan || {});
+    developerPlans.set(plan.hash,{workspace,plan,approved:false,createdAt:Date.now()});
+    return plan;
+  });
+  ipcMain.handle('jarvis:developer:approve', (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
+    const entry=developerPlans.get(String(request.hash||''));
+    if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
+    if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');
+    entry.approved=true; entry.approvedAt=Date.now();
+    return {success:true,hash:entry.plan.hash};
+  });
+  ipcMain.handle('jarvis:developer:apply', (_e, request={}) => guarded(
+    {type:'system_repair',target:'developer-workspace'},
+    async () => {
+      const hash=String(request.hash||'');
+      const entry=developerPlans.get(hash);
+      if(!entry || !entry.approved) throw new Error('DEV_REPAIR_APPROVAL_REQUIRED');
+      if(developerRepair.proposalHash({...entry.plan,hash:undefined}) !== hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
+      const backup=developerRepair.snapshot(entry.workspace,entry.plan,developerBackupRoot());
+      try {
+        developerRepair.apply(entry.workspace,entry.plan);
+        const validation=await runDeveloperValidation(entry.workspace);
+        if(!validation.ok) {
+          developerRepair.rollback(entry.workspace,backup);
+          developerPlans.delete(hash);
+          return {success:false,status:'ROLLED_BACK',hash,backup,validation};
+        }
+        developerPlans.delete(hash);
+        return {success:true,status:'VERIFIED',hash,backup,validation};
+      } catch(error) {
+        developerRepair.rollback(entry.workspace,backup);
+        developerPlans.delete(hash);
+        throw error;
+      }
+    },
+    {message:'Jarvis a jóváhagyott fejlesztési tervet alkalmazza egy külön fejlesztői workspace-ben. Sikertelen ellenőrzéskor automatikusan visszaáll.'}
+  ));
   ipcMain.handle('jarvis:repair:apply', (_e, request={}) => guarded(
     { type:'system_repair', target:String(request.repairId || '') },
     () => runApprovedRepair(request.repairId),
