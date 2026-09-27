@@ -17,6 +17,7 @@ export default function OBD2Scanner() {
   const [vinInput, setVinInput] = useState('');
   const [decodedVIN, setDecodedVIN] = useState(null);
   const [activeScan, setActiveScan] = useState(null);
+  const [scanProgress, setScanProgress] = useState(0);
   const [scanHistory, setScanHistory] = useState([]);
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
@@ -35,6 +36,7 @@ export default function OBD2Scanner() {
 
     const sessionId = `scan_${Date.now()}`;
     setActiveScan(sessionId);
+    setScanProgress(0);
 
     try {
       const session = await jarvis.entities.OBDSession.create({
@@ -62,8 +64,12 @@ export default function OBD2Scanner() {
           if (rpmReading) rpmReadings.push(Number(rpmReading.value) || 0);
           if (tempReading) tempReadings.push(Number(tempReading.value) || 0);
 
-          if (Date.now() - startTime > 30000) {
+          const elapsedMs = Date.now() - startTime;
+          setScanProgress(Math.min(99, Math.round((elapsedMs / 30000) * 100)));
+
+          if (elapsedMs > 30000) {
             clearInterval(collectInterval);
+            setScanProgress(100);
             
             // DTC kódok
             dtcCodes = await manager.readDTCs();
@@ -96,6 +102,7 @@ export default function OBD2Scanner() {
 
             setScanHistory((prev) => [{ ...session, ...completedSession }, ...prev.filter((item) => item.id !== session.id)]);
             setActiveScan(null);
+            setTimeout(() => setScanProgress(0), 500);
           }
         } catch (err) {
           console.error('Scan hiba:', err);
@@ -103,6 +110,7 @@ export default function OBD2Scanner() {
       }, 2000);
     } catch (err) {
       setActiveScan(null);
+      setScanProgress(0);
       console.error('Session létrehozási hiba:', err);
     }
   };
@@ -225,7 +233,7 @@ export default function OBD2Scanner() {
               {activeScan ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Scan folyamatban ({Math.random().toString().slice(-2)}%)...
+                  Scan folyamatban ({scanProgress}%)...
                 </>
               ) : (
                 <>🔍 Diagnosztikai Scan Indítása</>
