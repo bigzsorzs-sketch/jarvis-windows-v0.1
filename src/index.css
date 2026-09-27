@@ -1,30 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --font-inter: 'Open Sans', sans-serif;
-    --background: 220 20% 10%;
+    --font-inter: Inter, 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --background: 222 42% 6%;
     --foreground: 0 0% 95%;
-    --card: 220 18% 13%;
+    --card: 220 34% 10%;
     --card-foreground: 0 0% 95%;
-    --popover: 220 18% 13%;
+    --popover: 220 34% 10%;
     --popover-foreground: 0 0% 95%;
     --primary: 187 92% 52%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 15% 18%;
+    --secondary: 218 28% 14%;
     --secondary-foreground: 0 0% 90%;
-    --muted: 220 15% 18%;
+    --muted: 218 28% 14%;
     --muted-foreground: 0 0% 55%;
     --accent: 180 70% 50%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 15% 20%;
-    --input: 220 15% 20%;
+    --border: 194 38% 18%;
+    --input: 194 38% 18%;
     --ring: 187 92% 52%;
     --chart-1: 187 92% 52%;
     --chart-2: 180 70% 50%;
@@ -32,13 +30,13 @@
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
     --radius: 0.75rem;
-    --sidebar-background: 220 20% 10%;
+    --sidebar-background: 222 42% 6%;
     --sidebar-foreground: 0 0% 95%;
     --sidebar-primary: 187 92% 52%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 15% 18%;
+    --sidebar-accent: 218 28% 14%;
     --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 220 15% 20%;
+    --sidebar-border: 194 38% 18%;
     --sidebar-ring: 160 60% 45%;
   }
 
@@ -360,5 +358,213 @@
   .settings-desktop-grid > :nth-child(14),
   .settings-desktop-grid > :nth-child(15) {
     grid-column: 1 / -1;
+  }
+}
+
+
+/* ─── JARVIS v0.3 FUTURISTIC INTERFACE ───────────────────────────────────── */
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(circle at 50% -20%, hsl(var(--primary) / 0.12), transparent 32rem),
+    hsl(var(--background));
+}
+
+.jarvis-shell {
+  background:
+    radial-gradient(circle at 8% 8%, hsl(186 100% 54% / 0.11), transparent 26rem),
+    radial-gradient(circle at 82% 4%, hsl(258 96% 66% / 0.08), transparent 30rem),
+    linear-gradient(145deg, hsl(224 48% 5%), hsl(218 44% 7%) 58%, hsl(222 48% 5%));
+}
+
+.jarvis-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent 49.8%, hsl(var(--primary) / 0.018) 50%, transparent 50.2%),
+    linear-gradient(0deg, transparent 49.8%, hsl(var(--primary) / 0.018) 50%, transparent 50.2%);
+  background-size: 96px 96px;
+  mask-image: radial-gradient(circle at 55% 35%, #000 5%, transparent 72%);
+}
+
+.jarvis-sidebar {
+  background:
+    linear-gradient(180deg, hsl(220 38% 9% / 0.96), hsl(224 46% 5% / 0.98));
+  border-right-color: hsl(var(--primary) / 0.16);
+  box-shadow:
+    inset -1px 0 0 hsl(var(--primary) / 0.045),
+    18px 0 70px rgba(0, 0, 0, 0.28);
+}
+
+.jarvis-nav-item-active {
+  border-color: hsl(var(--primary) / 0.34);
+  background:
+    linear-gradient(90deg, hsl(var(--primary) / 0.17), hsl(var(--primary) / 0.03));
+  box-shadow:
+    inset 3px 0 0 hsl(var(--primary)),
+    0 0 34px hsl(var(--primary) / 0.08);
+}
+
+.jarvis-topbar {
+  background:
+    linear-gradient(90deg, hsl(222 42% 6% / 0.91), hsl(220 36% 9% / 0.82));
+  border-bottom-color: hsl(var(--primary) / 0.14);
+}
+
+.jarvis-status-chip {
+  border-color: hsl(var(--primary) / 0.22);
+  background:
+    linear-gradient(180deg, hsl(var(--primary) / 0.075), hsl(var(--primary) / 0.025));
+  color: hsl(190 34% 72%);
+  box-shadow: inset 0 0 16px hsl(var(--primary) / 0.025);
+}
+
+.app-surface,
+.jarvis-holo-panel {
+  position: relative;
+  border: 1px solid hsl(var(--primary) / 0.17);
+  background:
+    linear-gradient(145deg, hsl(220 34% 11% / 0.92), hsl(222 34% 8% / 0.82));
+  box-shadow:
+    inset 0 1px 0 hsl(190 90% 90% / 0.035),
+    inset 0 0 55px hsl(var(--primary) / 0.02),
+    0 22px 70px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(20px);
+}
+
+.jarvis-holo-panel::before,
+.jarvis-command-deck::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background:
+    linear-gradient(90deg, hsl(var(--primary) / 0.55), transparent 7%) top left / 74px 1px no-repeat,
+    linear-gradient(180deg, hsl(var(--primary) / 0.55), transparent 7%) top left / 1px 74px no-repeat,
+    linear-gradient(270deg, hsl(var(--primary) / 0.34), transparent 7%) bottom right / 74px 1px no-repeat,
+    linear-gradient(0deg, hsl(var(--primary) / 0.34), transparent 7%) bottom right / 1px 74px no-repeat;
+}
+
+.jarvis-command-deck {
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.jarvis-command-deck::after {
+  content: "";
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  right: -110px;
+  top: -130px;
+  z-index: -1;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--primary) / 0.14);
+  box-shadow:
+    0 0 0 38px hsl(var(--primary) / 0.018),
+    0 0 0 76px hsl(var(--primary) / 0.012),
+    0 0 70px hsl(var(--primary) / 0.07);
+}
+
+.jarvis-command-input {
+  border: 1px solid hsl(var(--primary) / 0.20);
+  background: hsl(221 36% 7% / 0.88);
+  box-shadow:
+    inset 0 0 22px hsl(var(--primary) / 0.025),
+    0 0 0 1px hsl(var(--primary) / 0.015);
+}
+
+.jarvis-command-input:focus-within {
+  border-color: hsl(var(--primary) / 0.58);
+  box-shadow:
+    inset 0 0 24px hsl(var(--primary) / 0.035),
+    0 0 22px hsl(var(--primary) / 0.08);
+}
+
+.jarvis-primary-button {
+  color: hsl(var(--primary-foreground));
+  border: 1px solid hsl(190 100% 72% / 0.28);
+  background:
+    linear-gradient(135deg, hsl(187 92% 48%), hsl(194 98% 42%));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.18),
+    0 0 28px hsl(var(--primary) / 0.18);
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.jarvis-primary-button:hover {
+  filter: brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    0 0 36px hsl(var(--primary) / 0.28);
+}
+
+.jarvis-primary-button:active {
+  transform: translateY(1px) scale(.995);
+}
+
+.jarvis-home-stage,
+.jarvis-chat-stage,
+.jarvis-live-stage {
+  background:
+    radial-gradient(circle at 75% 0%, hsl(var(--primary) / 0.055), transparent 28rem),
+    linear-gradient(180deg, hsl(222 42% 6% / 0.68), hsl(222 42% 5% / 0.94));
+}
+
+.jarvis-chat-stage {
+  position: relative;
+}
+
+.jarvis-chat-stage::before,
+.jarvis-live-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.12;
+  background-image:
+    linear-gradient(hsl(var(--primary) / 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--primary) / 0.09) 1px, transparent 1px);
+  background-size: 54px 54px;
+  mask-image: linear-gradient(to bottom, #000, transparent 72%);
+}
+
+.jarvis-chat-stage > *,
+.jarvis-live-stage > * {
+  position: relative;
+  z-index: 1;
+}
+
+.jarvis-live-header,
+.jarvis-live-footer {
+  background: hsl(222 42% 6% / 0.84);
+  border-color: hsl(var(--primary) / 0.14);
+  backdrop-filter: blur(18px);
+}
+
+.jarvis-live-header {
+  border-bottom: 1px solid hsl(var(--primary) / 0.12);
+}
+
+.jarvis-live-footer {
+  border-top: 1px solid hsl(var(--primary) / 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-shell::before,
+  .jarvis-shell::after,
+  .jarvis-command-deck::after {
+    animation: none !important;
+  }
+
+  * {
+    scroll-behavior: auto !important;
   }
 }
