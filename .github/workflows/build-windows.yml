@@ -29,6 +29,18 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Commit generated dependency lock on v0.2.4 maintenance branch
+        if: github.ref == 'refs/heads/fix/release-v0.2.4'
+        shell: pwsh
+        run: |
+          if (git status --porcelain -- package-lock.json) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "Lock v0.2.4 npm dependency graph"
+            git push
+          }
+
       - name: Verify JavaScript syntax
         run: |
           node --check electron/main.cjs
@@ -45,12 +57,11 @@ jobs:
       - name: Lint source
         run: npm run lint
 
-      - name: Typecheck legacy JS (diagnostic)
-        continue-on-error: true
+      - name: Typecheck TypeScript source
         run: npm run typecheck
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=moderate
 
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis
