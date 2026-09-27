@@ -114,12 +114,16 @@ test('previously missing desktop functions no longer fall into NOT_IMPLEMENTED',
   }
 });
 
-test('fake multi-user, cloud and unconfigured recorded voice paths are disabled', () => {
+test('fake multi-user and cloud paths remain disabled while recorded voice is explicitly enabled', () => {
   const client = read('src/api/jarvisClient.js');
   const preload = read('electron/preload.cjs');
+  const main = read('electron/main.cjs');
   const cloud = read('src/components/settings/SecurityCloudCards.jsx');
   assert.equal(client.includes("throw new Error('LOCAL_SINGLE_OWNER_MODE')"), true);
-  assert.equal(preload.includes('recordedStt:false'), true);
+  assert.equal(preload.includes('recordedStt:true'), true);
+  assert.equal(preload.includes('remoteTts:true'), true);
+  assert.equal(main.includes('openrouter.ai/api/v1/audio/transcriptions'), true);
+  assert.equal(main.includes('openrouter.ai/api/v1/audio/speech'), true);
   assert.equal(preload.includes('gmailOAuth:false'), true);
   assert.equal(cloud.includes('felhőszinkron nincs engedélyezve'), true);
 });
