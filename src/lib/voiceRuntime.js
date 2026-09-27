@@ -72,8 +72,10 @@ function canUseBrowserSpeechRuntime() {
 }
 
 function getVoiceInputMode() {
-  if (canUseBrowserSpeechRuntime()) return 'browser';
+  // Desktop uses the model-backed recorder first. Browser SpeechRecognition is
+  // retained only as a fallback for environments without the native bridge.
   if (canUseRecordedVoiceIO()) return 'recorded';
+  if (canUseBrowserSpeechRuntime()) return 'browser';
   return 'unsupported';
 }
 
@@ -656,7 +658,7 @@ class VoiceRuntime {
         this._emit('error', { type: 'voice_timeout', message: 'A hangfeldolgozás túl sokáig tartott, újraindítottam.' });
         this.completeVoiceCycle(8000, 'timeout_reset');
       }
-    }, 8000);
+    }, 30000);
 
     const started = this._safeStartRecognition(true);
     if (!started) this.completeVoiceCycle(0, 'start_failed');
@@ -807,7 +809,7 @@ class VoiceRuntime {
     if (this.state.voiceInputMode === 'recorded') {
       this.ttsInFlightRef = true;
       this.restartAllowedRef = false;
-      this.recordedVoiceRef?.stopContinuous?.();
+      this.recordedVoiceRef?.pauseCapture?.();
       this._updateState({ machineState: VOICE_PHASE.SPEAKING, isSpeaking: true, isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
       devVoiceLog('TTS_START', { mode: 'recorded' });
       const ttsStarted = performance.now();

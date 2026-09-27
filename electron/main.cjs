@@ -29,6 +29,11 @@ let database;
 let backupManager;
 const developerPlans = new Map();
 
+const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
+const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
+const FALLBACK_TTS_MODEL = 'google/gemini-3.8-flash-lite-tts';
+const DEFAULT_TTS_VOICE = 'Charon';
+
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
 }
@@ -127,6 +132,9 @@ function getSettingsInternal() {
     aiModel: raw.aiModel || 'openrouter/auto',
     aiRoutingMode: raw.aiRoutingMode || 'smart',
     aiCostTier: raw.aiCostTier || 'low',
+    sttModel: raw.sttModel || DEFAULT_STT_MODEL,
+    ttsModel: raw.ttsModel || DEFAULT_TTS_MODEL,
+    ttsVoice: raw.ttsVoice || DEFAULT_TTS_VOICE,
     hasOpenRouterKey: hasSecureOpenRouterKey,
   };
 }
@@ -138,6 +146,9 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.aiModel === 'string') raw.aiModel = patch.aiModel;
   if (['smart','manual'].includes(patch.aiRoutingMode)) raw.aiRoutingMode = patch.aiRoutingMode;
   if (['low','medium','high','xhigh','max'].includes(patch.aiCostTier)) raw.aiCostTier = patch.aiCostTier;
+  if (typeof patch.sttModel === 'string' && patch.sttModel.trim()) raw.sttModel = patch.sttModel.trim();
+  if (typeof patch.ttsModel === 'string' && patch.ttsModel.trim()) raw.ttsModel = patch.ttsModel.trim();
+  if (typeof patch.ttsVoice === 'string' && patch.ttsVoice.trim()) raw.ttsVoice = patch.ttsVoice.trim();
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
@@ -326,6 +337,188 @@ async function openRouterGenerateImage(payload={}) {
   };
 }
 
+function getOpenRouterAudioCredentials() {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = unprotectSecret(raw.openRouterKey);
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
+  return { raw, apiKey };
+}
+
+function audioFormatFromMimeType(mimeType='') {
+  const value = String(mimeType || '').toLowerCase();
+  if (value.includes('webm')) return 'webm';
+  if (value.includes('wav')) return 'wav';
+  if (value.includes('mpeg') || value.includes('mp3')) return 'mp3';
+  if (value.includes('flac')) return 'flac';
+  if (value.includes('ogg')) return 'ogg';
+  if (value.includes('m4a') || value.includes('mp4')) return 'm4a';
+  if (value.includes('aac')) return 'aac';
+  return 'webm';
+}
+
+function parsePcmContentType(contentType='') {
+  const rateMatch = String(contentType).match(/rate=(\d+)/i);
+  const channelMatch = String(contentType).match(/channels=(\d+)/i);
+  return {
+    sampleRate:Number(rateMatch?.[1] || 24000),
+    channels:Number(channelMatch?.[1] || 1),
+  };
+}
+
+function pcm16ToWav(pcmBuffer, sampleRate=24000, channels=1) {
+  const bitsPerSample = 16;
+  const header = Buffer.alloc(44);
+  const dataLength = pcmBuffer.length;
+  const byteRate = sampleRate * channels * (bitsPerSample / 8);
+  const blockAlign = channels * (bitsPerSample / 8);
+
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataLength, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataLength, 40);
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+function openRouterAudioHeaders(apiKey) {
+  return {
+    'Authorization':`Bearer ${apiKey}`,
+    'Content-Type':'application/json',
+    'HTTP-Referer':'https://jarvis.local',
+    'X-Title':'Jarvis Desktop'
+  };
+}
+
+async function openRouterTranscribeVoice(payload={}) {
+  const { raw, apiKey } = getOpenRouterAudioCredentials();
+  const model = String(raw.sttModel || DEFAULT_STT_MODEL);
+
+  if (payload.warmup === true) {
+    return { data:{ supported:true, model, text:'' } };
+  }
+
+  const audioBase64 = String(payload.audioBase64 || '').trim();
+  if (!audioBase64) throw new Error('VOICE_AUDIO_REQUIRED');
+  if (audioBase64.length > 24 * 1024 * 1024) throw new Error('VOICE_AUDIO_TOO_LARGE');
+
+  const format = audioFormatFromMimeType(payload.mimeType);
+  const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
+    method:'POST',
+    headers:openRouterAudioHeaders(apiKey),
+    body:JSON.stringify({
+      model,
+      input_audio:{ data:audioBase64, format }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OPENROUTER_STT_${response.status}:${(await response.text()).slice(0,500)}`);
+  }
+
+  const json = await response.json();
+  return {
+    data:{
+      supported:true,
+      text:String(json?.text || '').trim(),
+      model,
+      usage:json?.usage || null,
+      generationId:response.headers.get('x-generation-id') || null
+    }
+  };
+}
+
+async function requestOpenRouterSpeech({ apiKey, model, voice, input, responseFormat }) {
+  const retryable = new Set([429, 502, 503, 524, 529]);
+  let last = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+      method:'POST',
+      headers:openRouterAudioHeaders(apiKey),
+      body:JSON.stringify({
+        model,
+        input,
+        voice,
+        response_format:responseFormat
+      })
+    });
+
+    if (response.ok) return { response, errorBody:'' };
+
+    const errorBody = (await response.text()).slice(0,700);
+    last = { status:response.status, errorBody };
+    if (!retryable.has(response.status) || attempt > 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 450 * (attempt + 1)));
+  }
+
+  return { response:null, ...(last || { status:500, errorBody:'UNKNOWN_TTS_ERROR' }) };
+}
+
+async function openRouterSynthesizeVoice(payload={}) {
+  const { raw, apiKey } = getOpenRouterAudioCredentials();
+  const requestedModel = String(raw.ttsModel || DEFAULT_TTS_MODEL);
+  const voice = String(raw.ttsVoice || DEFAULT_TTS_VOICE);
+  const input = String(payload.text || '').trim();
+
+  if (payload.warmup === true) {
+    return { data:{ supported:true, model:requestedModel, voice, audioBase64:null } };
+  }
+  if (!input) throw new Error('VOICE_TEXT_REQUIRED');
+
+  const models = [...new Set([requestedModel, DEFAULT_TTS_MODEL, FALLBACK_TTS_MODEL])];
+  let lastError = 'MODEL_TTS_UNAVAILABLE';
+
+  for (const model of models) {
+    for (const responseFormat of ['mp3', 'pcm']) {
+      const attempt = await requestOpenRouterSpeech({ apiKey, model, voice, input, responseFormat });
+      if (!attempt.response) {
+        lastError = `OPENROUTER_TTS_${attempt.status}:${attempt.errorBody}`;
+        continue;
+      }
+
+      const contentType = String(attempt.response.headers.get('content-type') || '').toLowerCase();
+      let audioBuffer = Buffer.from(await attempt.response.arrayBuffer());
+      if (!audioBuffer.length) {
+        lastError = 'OPENROUTER_TTS_EMPTY_AUDIO';
+        continue;
+      }
+
+      let mimeType = contentType.split(';')[0] || (responseFormat === 'mp3' ? 'audio/mpeg' : 'audio/pcm');
+      if (mimeType.includes('application/json')) {
+        lastError = 'OPENROUTER_TTS_JSON_INSTEAD_OF_AUDIO';
+        continue;
+      }
+
+      if (mimeType === 'audio/pcm' || responseFormat === 'pcm') {
+        const { sampleRate, channels } = parsePcmContentType(contentType);
+        audioBuffer = pcm16ToWav(audioBuffer, sampleRate, channels);
+        mimeType = 'audio/wav';
+      }
+
+      return {
+        data:{
+          supported:true,
+          audioBase64:audioBuffer.toString('base64'),
+          mimeType,
+          model,
+          voice,
+          generationId:attempt.response.headers.get('x-generation-id') || null
+        }
+      };
+    }
+  }
+
+  throw new Error(lastError);
+}
+
 async function openRouterObdDiagnosis(payload={}) {
   const prompt = [
     'You are a cautious automotive diagnostic assistant.',
@@ -359,9 +552,9 @@ async function invokeJarvisFunction(name, payload={}) {
     case 'gmailSend':
       return { data:{ success:false, configured:false, reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
     case 'transcribeVoice':
-      return { data:{ supported:false, reason:'RECORDED_STT_BACKEND_NOT_CONFIGURED', text:'' } };
+      return openRouterTranscribeVoice(payload);
     case 'synthesizeVoice':
-      return { data:{ supported:false, reason:'REMOTE_TTS_BACKEND_NOT_CONFIGURED', audioBase64:null } };
+      return openRouterSynthesizeVoice(payload);
     case 'generateOBDDiagnosis':
       return openRouterObdDiagnosis(payload);
     case 'analyzeUploadedFiles': return { data:analyzeUploadedFiles(payload?.files || []) };
@@ -854,6 +1047,10 @@ function createWindow() {
     minHeight:700,
     icon:resourcePath('build','icon.ico'),
     title:'Jarvis',
+    ...(process.platform === 'win32' ? {
+      titleBarStyle:'hidden',
+      titleBarOverlay:{ color:'#020b18', symbolColor:'#c7e9ff', height:30 }
+    } : {}),
     webPreferences:{
       preload:path.join(__dirname,'preload.cjs'),
       contextIsolation:true,

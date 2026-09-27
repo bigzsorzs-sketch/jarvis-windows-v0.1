@@ -26,6 +26,7 @@ import { startOfflineAutoSync, syncOfflineData } from '@/lib/offlineSyncManager'
 import { selfHealingMonitor } from '@/lib/selfHealingMonitor';
 import { handleSelfAuditCommand } from '@/lib/selfAuditCommand';
 import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
+import { requestMicrophonePermission } from '@/lib/microphonePermission';
 import { useSystemStore } from '@/lib/appStore';
 import JarvisVoiceStage from '@/components/command-center/JarvisVoiceStage';
 import CommandCenterActions from '@/components/command-center/CommandCenterActions';
@@ -79,15 +80,27 @@ export default function Chat() {
   const handsFree = voice.state.handsFree;
   const isListening = voice.state.isListening;
 
-  const toggleHandsFree = useCallback(() => {
+  const toggleHandsFree = useCallback(async () => {
     const next = !voice.state.handsFree;
+    if (next) {
+      const permission = await requestMicrophonePermission();
+      if (!permission.ok) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: `🎙️ ${permission.message}` }]);
+        return;
+      }
+    }
     voice.setHandsFree(next);
     sessionPersistence.save({ handsFree: next });
-  }, [navigate, voice]);
+  }, [voice]);
 
-  const toggleVoice = useCallback(() => {
+  const toggleVoice = useCallback(async () => {
     if (voice.state.handsFree) {
       voice.setHandsFree(false);
+      return;
+    }
+    const permission = await requestMicrophonePermission();
+    if (!permission.ok) {
+      setMessages((prev) => [...prev, { role: 'assistant', content: `🎙️ ${permission.message}` }]);
       return;
     }
     voice.startSingleCycle?.();
@@ -402,7 +415,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
       setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: reply, actionResults }]));
 
-      const cleanReply = normalizeAssistantReply(reply).replace(/\[ACTION:[^\]]+\]/g, '').replace(/[*_#`]/g, '').trim().substring(0, 420);
+      const cleanReply = normalizeAssistantReply(reply).replace(/\[ACTION:[^\]]+\]/g, '').replace(/[*_#`]/g, '').trim();
       if (voice.state.autoSpeakReplies || handsFree || ctx?.settings?.tts_enabled) {
         await speakReply(cleanReply, turn.detectedLang);
       }
@@ -553,8 +566,12 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
       {commandCenterHome && (
         <div className="jarvis-command-center-hero">
-          <JarvisVoiceStage voice={voice} />
-          <CommandCenterActions onNavigate={navigate} />
+          <JarvisVoiceStage
+            voice={voice}
+            busy={loading}
+            busyLabel={loadingStep}
+            actions={<CommandCenterActions onNavigate={navigate} />}
+          />
         </div>
       )}
 

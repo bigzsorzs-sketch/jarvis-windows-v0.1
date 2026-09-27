@@ -227,7 +227,7 @@ export default function Layout() {
       </section>
 
       <LocationSensor />
-      <GlobalVoiceControl />
+      {location.pathname !== '/' && <GlobalVoiceControl />}
     </div>
   );
 }
