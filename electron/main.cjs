@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -134,6 +134,7 @@ function getSettingsInternal() {
     aiCostTier: raw.aiCostTier || 'low',
     sttModel: raw.sttModel || DEFAULT_STT_MODEL,
     ttsModel: raw.ttsModel || DEFAULT_TTS_MODEL,
+    ttsGender: raw.ttsGender || ((raw.ttsVoice || DEFAULT_TTS_VOICE) === 'Kore' ? 'female' : 'male'),
     ttsVoice: raw.ttsVoice || DEFAULT_TTS_VOICE,
     hasOpenRouterKey: hasSecureOpenRouterKey,
   };
@@ -148,6 +149,10 @@ async function saveSettingsInternal(patch={}) {
   if (['low','medium','high','xhigh','max'].includes(patch.aiCostTier)) raw.aiCostTier = patch.aiCostTier;
   if (typeof patch.sttModel === 'string' && patch.sttModel.trim()) raw.sttModel = patch.sttModel.trim();
   if (typeof patch.ttsModel === 'string' && patch.ttsModel.trim()) raw.ttsModel = patch.ttsModel.trim();
+  if (['male','female'].includes(patch.ttsGender)) {
+    raw.ttsGender = patch.ttsGender;
+    if (!patch.ttsVoice) raw.ttsVoice = patch.ttsGender === 'female' ? 'Kore' : 'Charon';
+  }
   if (typeof patch.ttsVoice === 'string' && patch.ttsVoice.trim()) raw.ttsVoice = patch.ttsVoice.trim();
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
@@ -195,9 +200,11 @@ async function openRouterRequest(payload={}) {
   const requestedTier = String(payload.cost_tier || raw.aiCostTier || taskTier);
   const allowedTiers = new Set(['low','medium','high','xhigh','max']);
   const costTier = allowedTiers.has(requestedTier) ? requestedTier : taskTier;
+  const configuredModel = String(raw.aiModel || 'openrouter/auto').trim() || 'openrouter/auto';
   const model = requestedModel.includes('/')
     ? requestedModel
-    : (routingMode === 'manual' ? (raw.aiModel || 'openrouter/auto') : 'openrouter/auto');
+    : configuredModel;
+  const effectiveRoutingMode = model === 'openrouter/auto' ? 'smart' : 'manual';
 
   let messages = Array.isArray(payload.messages) && payload.messages.length
     ? payload.messages.map((message) => ({ ...message }))
@@ -252,7 +259,7 @@ async function openRouterRequest(payload={}) {
     result,
     model:json.model || model,
     requestedModel:model,
-    routingMode,
+    routingMode:effectiveRoutingMode,
     costTier,
     usage:json.usage || null,
     cost:Number(json?.usage?.cost ?? 0) || 0
@@ -519,6 +526,73 @@ async function openRouterSynthesizeVoice(payload={}) {
   throw new Error(lastError);
 }
 
+function getSelfRepairRoot() {
+  return resourcePath();
+}
+
+async function selfRepairMap(payload={}) {
+  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), String(payload?.query || ''), { maxFiles:8, maxChars:18000 });
+  return { data:{ map:context.map, scannedAt:new Date().toISOString() } };
+}
+
+async function selfRepairChat(payload={}) {
+  const message = String(payload?.message || '').trim();
+  if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
+  const language = String(payload?.language || 'hu').toLowerCase();
+  const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
+  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), message, { maxFiles:12, maxChars:42000 });
+  const mapSummary = JSON.stringify(context.map, null, 2);
+  const excerpts = context.excerpts.map((item) =>
+    `--- ${item.path} (score=${item.score}, lines=${item.lines}) ---\n${item.excerpt}`
+  ).join('\n\n');
+  const historyText = history.map(item => `${item.role === 'assistant' ? 'Jarvis Self-Repair' : 'Owner'}: ${String(item.content || '').slice(0,1800)}`).join('\n');
+  const langRule = language === 'hu'
+    ? 'Válaszolj kizárólag magyarul.'
+    : 'Reply in the selected application language when possible.';
+
+  const prompt = `You are Jarvis Self-Repair, a source-aware software diagnostic engineer embedded in the Jarvis Windows app.
+You are NOT limited to reading filenames: reason about architecture, imports, state flow, IPC boundaries, UI behavior, tests and likely failure modes.
+Use only evidence from the project map and source excerpts below. Clearly separate confirmed code facts from hypotheses.
+You may propose concrete file-level repairs and validation steps, but never claim a patch was applied unless the owner separately approves a sandbox repair.
+When asked to find bugs, inspect interactions across files, not just isolated syntax.
+${langRule}
+
+PROJECT MAP:
+${mapSummary}
+
+RELEVANT SOURCE:
+${excerpts}
+
+CONVERSATION:
+${historyText}
+
+OWNER:
+${message}
+
+Return a practical answer with:
+- diagnosis / interpretation,
+- concrete evidence (file names),
+- likely cause(s),
+- repair proposal,
+- how to validate.
+Keep it concise unless the owner asks for deep detail.`;
+
+  const response = await openRouterRequest({
+    prompt,
+    task_type:'repair',
+    contains_sensitive_context:false
+  });
+  return {
+    data:{
+      reply:String(response?.data?.result || '').trim(),
+      model:response?.data?.model || null,
+      requestedModel:response?.data?.requestedModel || null,
+      map:context.map,
+      files:context.excerpts.map(item=>item.path)
+    }
+  };
+}
+
 async function openRouterObdDiagnosis(payload={}) {
   const prompt = [
     'You are a cautious automotive diagnostic assistant.',
@@ -531,7 +605,7 @@ async function openRouterObdDiagnosis(payload={}) {
     'Temperature data: ' + JSON.stringify(payload.temperature_data || []),
     'Vehicle: ' + JSON.stringify(payload.vehicle_info || {}),
   ].join('\n');
-  const response = await openRouterRequest({ prompt, model:payload.model || 'openrouter/auto' });
+  const response = await openRouterRequest({ prompt, ...(payload.model ? { model:payload.model } : {}) });
   return { data:{ diagnosis:String(response?.data?.result || ''), model:response?.data?.model || null } };
 }
 
@@ -555,6 +629,10 @@ async function invokeJarvisFunction(name, payload={}) {
       return openRouterTranscribeVoice(payload);
     case 'synthesizeVoice':
       return openRouterSynthesizeVoice(payload);
+    case 'selfRepairMap':
+      return selfRepairMap(payload);
+    case 'selfRepairChat':
+      return selfRepairChat(payload);
     case 'generateOBDDiagnosis':
       return openRouterObdDiagnosis(payload);
     case 'analyzeUploadedFiles': return { data:analyzeUploadedFiles(payload?.files || []) };
@@ -1097,6 +1175,20 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
   ipcMain.handle('jarvis:settings:get', () => getSettingsInternal());
+  ipcMain.handle('jarvis:theme:set', (_e, theme) => {
+    const resolved = theme === 'light' ? 'light' : 'dark';
+    nativeTheme.themeSource = resolved;
+    if (mainWindow && process.platform === 'win32') {
+      try {
+        mainWindow.setTitleBarOverlay({
+          color: resolved === 'light' ? '#f8fcff' : '#020b18',
+          symbolColor: resolved === 'light' ? '#12314d' : '#c7e9ff',
+          height:30
+        });
+      } catch {}
+    }
+    return { success:true, theme:resolved };
+  });
   ipcMain.handle('jarvis:settings:save', (_e, patch) => guarded(
     { type:'local_settings_write', target:settingsPath() },
     () => saveSettingsInternal(patch)

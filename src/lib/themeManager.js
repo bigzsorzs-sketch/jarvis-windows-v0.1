@@ -20,7 +20,8 @@ export function applyThemeMode(mode = getThemeMode()) {
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.themeMode = normalized;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', resolved === 'dark' ? '#1a2030' : '#ffffff');
+  if (meta) meta.setAttribute('content', resolved === 'dark' ? '#1a2030' : '#f8fcff');
+  window.jarvisDesktop?.setTheme?.(resolved)?.catch?.(() => {});
   storageSet(KEY, normalized);
   storageSet('theme', normalized);
   window.dispatchEvent(new CustomEvent('jarvis:theme-change', { detail:{ mode:normalized, resolved } }));

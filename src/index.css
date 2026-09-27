@@ -8,39 +8,39 @@
 @layer base {
   :root {
     --font-inter: 'Open Sans', sans-serif;
-    --background: 220 20% 10%;
-    --foreground: 0 0% 95%;
-    --card: 220 18% 13%;
-    --card-foreground: 0 0% 95%;
-    --popover: 220 18% 13%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 187 92% 52%;
+    --background: 210 40% 98%;
+    --foreground: 220 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 30% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 30% 12%;
+    --primary: 187 92% 42%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 15% 18%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 220 15% 18%;
-    --muted-foreground: 0 0% 55%;
-    --accent: 180 70% 50%;
+    --secondary: 210 30% 94%;
+    --secondary-foreground: 220 24% 18%;
+    --muted: 210 24% 94%;
+    --muted-foreground: 218 13% 43%;
+    --accent: 187 78% 42%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 15% 20%;
-    --input: 220 15% 20%;
-    --ring: 187 92% 52%;
-    --chart-1: 187 92% 52%;
-    --chart-2: 180 70% 50%;
-    --chart-3: 40 80% 60%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --border: 214 25% 84%;
+    --input: 214 25% 84%;
+    --ring: 187 92% 42%;
+    --chart-1: 187 92% 42%;
+    --chart-2: 180 70% 42%;
+    --chart-3: 40 80% 50%;
+    --chart-4: 280 65% 55%;
+    --chart-5: 340 75% 50%;
     --radius: 0.75rem;
-    --sidebar-background: 220 20% 10%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 187 92% 52%;
+    --sidebar-background: 210 45% 97%;
+    --sidebar-foreground: 220 30% 18%;
+    --sidebar-primary: 187 92% 42%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 15% 18%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 220 15% 20%;
-    --sidebar-ring: 160 60% 45%;
+    --sidebar-accent: 210 35% 91%;
+    --sidebar-accent-foreground: 220 30% 18%;
+    --sidebar-border: 214 25% 84%;
+    --sidebar-ring: 187 92% 42%;
   }
 
   .dark {
@@ -147,7 +147,7 @@
   background:
     radial-gradient(circle at 12% 10%, hsl(var(--primary) / 0.10), transparent 28rem),
     radial-gradient(circle at 88% 18%, hsl(258 90% 66% / 0.08), transparent 32rem),
-    linear-gradient(135deg, hsl(var(--background)), hsl(220 34% 7%));
+    linear-gradient(135deg, hsl(var(--background)), hsl(var(--card)));
 }
 
 .jarvis-shell::before {
@@ -369,7 +369,7 @@
 .jarvis-command-panel {
   background:
     radial-gradient(circle at 82% 18%, hsl(var(--primary) / 0.16), transparent 22rem),
-    linear-gradient(135deg, hsl(var(--card) / 0.96), hsl(222 34% 8% / 0.96));
+    linear-gradient(135deg, hsl(var(--card) / 0.96), hsl(var(--secondary) / 0.82));
   box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.04), 0 24px 80px rgba(0,0,0,.24), 0 0 42px hsl(var(--primary) / .05);
 }
 .jarvis-metric {
@@ -383,3 +383,45 @@
 }
 .jarvis-metric span { color:hsl(var(--muted-foreground)); font-size:.62rem; letter-spacing:.12em; text-transform:uppercase; }
 .jarvis-metric strong { color:hsl(var(--foreground)); font-size:.85rem; letter-spacing:.05em; }
+
+
+/* v0.3.3: real light/system theme coverage for the reference desktop shell */
+html[data-theme="light"] .jarvis-reference-sidebar{
+  background:linear-gradient(180deg,#f8fcff 0%,#f1f7fc 62%,#eaf3fa 100%);
+  border-right-color:rgba(25,117,180,.18);
+  box-shadow:inset -18px 0 35px rgba(80,150,200,.05);
+}
+html[data-theme="light"] .jarvis-reference-logo{color:#0b2540}
+html[data-theme="light"] .jarvis-reference-nav button,
+html[data-theme="light"] .jarvis-reference-settings{color:#52708d}
+html[data-theme="light"] .jarvis-reference-nav button:hover,
+html[data-theme="light"] .jarvis-reference-settings:hover{color:#12314d;background:rgba(17,117,190,.08)}
+html[data-theme="light"] .jarvis-reference-nav button.active{
+  color:#07395e;
+  background:linear-gradient(90deg,rgba(0,157,217,.15),rgba(0,119,190,.07));
+  border-color:rgba(0,145,205,.24);
+}
+html[data-theme="light"] .jarvis-reference-topbar{
+  background:rgba(247,252,255,.94);
+  border-bottom-color:rgba(19,109,173,.14);
+}
+html[data-theme="light"] .jarvis-command-center-hero{
+  background:
+    radial-gradient(ellipse at 52% 42%,rgba(0,151,220,.13) 0%,rgba(0,109,180,.04) 35%,transparent 62%),
+    linear-gradient(180deg,#f7fcff 0%,#edf7fc 100%);
+}
+html[data-theme="light"] .jarvis-command-copy h2{color:#0b2035}
+html[data-theme="light"] .jarvis-command-copy p{color:#54708b}
+html[data-theme="light"] .jarvis-command-action{
+  background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(236,247,253,.96));
+  border-color:rgba(14,126,198,.18);
+}
+html[data-theme="light"] .jarvis-command-action strong{color:#12314d}
+html[data-theme="light"] .jarvis-command-action small{color:#67839a}
+html[data-theme="light"] .jarvis-wave-console{
+  background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(238,248,253,.97));
+  border-color:rgba(20,128,199,.2);
+  box-shadow:inset 0 0 26px rgba(0,126,210,.035),0 10px 30px rgba(50,100,130,.09);
+}
+html[data-theme="light"] .jarvis-wave-mic,
+html[data-theme="light"] .jarvis-wave-stop{background:#eef8fd;color:#36779f}

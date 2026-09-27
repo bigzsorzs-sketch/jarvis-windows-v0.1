@@ -15,9 +15,9 @@ test('approved 9404 home keeps continuous reference waveform', () => {
 
 test('approved 9404 home hides secondary system navigation without deleting it', () => {
   assert.match(layout, /location\.pathname !== '\/'/);
-  assert.match(layout, /Automotive/);
-  assert.match(layout, /System Center/);
-  assert.match(layout, /Settings/);
+  assert.match(layout, /page_automotive/);
+  assert.match(layout, /System Center|Rendszerközpont/);
+  assert.match(layout, /t\('settings'\)/);
 });
 
 test('approved 9404 precision orb styling remains present', () => {

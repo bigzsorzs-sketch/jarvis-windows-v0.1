@@ -71,8 +71,9 @@ test('voice prompt knows voice conversation is active', () => {
   assert.match(chat,/Never claim that voice conversation is unavailable or text-only/);
 });
 
-test('System Center accepts natural-language repair checks without bypassing sandbox', () => {
-  assert.match(system,/Mit ellenőrizzek vagy javítsak\?/);
-  assert.match(system,/Vizsgálat indítása/);
-  assert.match(system,/nem írja át közvetlenül a Jarvist/);
+test('System Center provides source-aware conversation without bypassing sandbox', () => {
+  assert.match(system,/Self-Repair párbeszéd/);
+  assert.match(system,/Program feltérképezése/);
+  assert.match(system,/Hibák keresése/);
+  assert.match(system,/nem írja át magát automatikusan/);
 });

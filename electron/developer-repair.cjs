@@ -126,4 +126,157 @@ function rollback(root,dir){
     else if(fs.existsSync(target)) fs.rmSync(target,{force:true});
   }
 }
-module.exports={validateWorkspace,validatePlan,proposalHash,snapshot,apply,createSandbox,destroySandbox,rollback,PROTECTED};
+
+const INSPECT_IGNORED = new Set(['.git','node_modules','release','dist','coverage','.jarvis-sandbox']);
+const INSPECT_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
+
+function inspectRoot(root) {
+  const base = fs.realpathSync(root);
+  const pkgPath = path.join(base,'package.json');
+  if (!fs.existsSync(pkgPath)) throw new Error('SELF_REPAIR_PACKAGE_NOT_FOUND');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath,'utf8'));
+  if (pkg?.name !== 'jarvis-desktop') throw new Error('SELF_REPAIR_NOT_JARVIS');
+  return { base, pkg };
+}
+
+function listProjectFiles(root) {
+  const { base } = inspectRoot(root);
+  const files = [];
+  const visit = (dir) => {
+    for (const entry of fs.readdirSync(dir,{withFileTypes:true})) {
+      if (INSPECT_IGNORED.has(entry.name)) continue;
+      const full = path.join(dir,entry.name);
+      const rel = path.relative(base,full).replace(/\\/g,'/');
+      if (entry.isDirectory()) {
+        visit(full);
+        continue;
+      }
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!INSPECT_EXT.has(ext)) continue;
+      let stat;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.size > 800000) continue;
+      files.push({ path:rel, full, ext, size:stat.size });
+      if (files.length >= 1800) return;
+    }
+  };
+  visit(base);
+  return files;
+}
+
+function sourceMeta(file) {
+  let content = '';
+  try { content = fs.readFileSync(file.full,'utf8'); } catch {}
+  const imports = [];
+  const importRx = /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"]([^'"]+)['"]/g;
+  let match;
+  while ((match = importRx.exec(content)) && imports.length < 40) imports.push(match[1]);
+  const lines = content ? content.split(/\r?\n/).length : 0;
+  const todoCount = (content.match(/\b(?:TODO|FIXME|HACK)\b/g)||[]).length;
+  const hardcodedUi = (content.match(/>\s*[A-ZÁÉÍÓÖŐÚÜŰ][^<{]{4,80}</g)||[]).length;
+  return { ...file, lines, imports:[...new Set(imports)], todoCount, hardcodedUi, content };
+}
+
+function inspectWorkspace(root) {
+  const { base, pkg } = inspectRoot(root);
+  const metas = listProjectFiles(base).map(sourceMeta);
+  const source = metas.filter(f => /\.(?:js|jsx|cjs|mjs|ts|tsx)$/.test(f.ext));
+  const tests = metas.filter(f => /(^|\/)(?:test|tests|__tests__)(\/|$)|\.(?:test|spec)\./i.test(f.path));
+  const directories = {};
+  for (const file of metas) {
+    const top = file.path.split('/')[0] || '.';
+    directories[top] = (directories[top] || 0) + 1;
+  }
+  const findings = [];
+  const huge = source.filter(f => f.lines > 1200).sort((a,b)=>b.lines-a.lines).slice(0,12);
+  if (huge.length) findings.push({
+    severity:'medium',
+    type:'maintainability',
+    title:'Nagy forrásfájlok',
+    detail:huge.map(f=>`${f.path} (${f.lines} sor)`).join(', ')
+  });
+  const todoFiles = source.filter(f => f.todoCount > 0).sort((a,b)=>b.todoCount-a.todoCount).slice(0,12);
+  if (todoFiles.length) findings.push({
+    severity:'info',
+    type:'maintenance',
+    title:'Karbantartási jelölések',
+    detail:todoFiles.map(f=>`${f.path}: ${f.todoCount}`).join(', ')
+  });
+  const uiHardcoded = source.filter(f => f.hardcodedUi > 6).sort((a,b)=>b.hardcodedUi-a.hardcodedUi).slice(0,10);
+  if (uiHardcoded.length) findings.push({
+    severity:'medium',
+    type:'localization',
+    title:'Valószínű hard-coded UI szövegek',
+    detail:uiHardcoded.map(f=>`${f.path}: ${f.hardcodedUi}`).join(', ')
+  });
+  if (!tests.length) findings.push({ severity:'high', type:'reliability', title:'Nincsenek tesztek', detail:'A projektben nem található automatikus teszt.' });
+
+  const imports = source.reduce((sum,f)=>sum+f.imports.length,0);
+  return {
+    root:base,
+    package:{ name:pkg.name, version:pkg.version, main:pkg.main || null },
+    summary:{
+      files:metas.length,
+      sourceFiles:source.length,
+      tests:tests.length,
+      imports,
+      directories
+    },
+    findings,
+    files:metas.map(({content,full,...file})=>file)
+  };
+}
+
+function queryTokens(query='') {
+  return [...new Set(String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9_/-]+/).filter(t=>t.length>=3))].slice(0,24);
+}
+
+function buildDiagnosticContext(root, query='', options={}) {
+  const inspection = inspectWorkspace(root);
+  const tokens = queryTokens(query);
+  const maxFiles = Math.max(3,Math.min(14,Number(options.maxFiles)||10));
+  const candidates = listProjectFiles(root).map(sourceMeta).filter(f => f.content);
+  const scored = candidates.map(file => {
+    const hay = (file.path+'\n'+file.content.slice(0,100000)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    let score = /src\/pages|src\/components|src\/lib|electron\//.test(file.path) ? 2 : 0;
+    for (const token of tokens) {
+      if (file.path.toLowerCase().includes(token)) score += 10;
+      const occurrences = hay.split(token).length - 1;
+      score += Math.min(occurrences,8);
+    }
+    if (/package\.json$|src\/App\.jsx$|src\/components\/Layout\.jsx$|electron\/main\.cjs$/.test(file.path)) score += 3;
+    return { file, score };
+  }).sort((a,b)=>b.score-a.score);
+
+  const selected = scored.filter(item=>item.score>0).slice(0,maxFiles);
+  if (!selected.length) selected.push(...scored.slice(0,Math.min(6,maxFiles)));
+
+  let budget = Number(options.maxChars)||36000;
+  const excerpts=[];
+  for (const {file,score} of selected) {
+    if (budget <= 0) break;
+    const excerpt = file.content.slice(0,Math.min(9000,budget));
+    budget -= excerpt.length;
+    excerpts.push({
+      path:file.path,
+      score,
+      lines:file.lines,
+      imports:file.imports.slice(0,20),
+      excerpt
+    });
+  }
+  return {
+    map:{
+      package:inspection.package,
+      summary:inspection.summary,
+      findings:inspection.findings,
+      topFiles:inspection.files.sort((a,b)=>b.lines-a.lines).slice(0,20)
+    },
+    excerpts
+  };
+}
+
+module.exports={
+  validateWorkspace,validatePlan,proposalHash,snapshot,apply,createSandbox,destroySandbox,rollback,
+  inspectWorkspace,buildDiagnosticContext,PROTECTED
+};

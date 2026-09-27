@@ -2,9 +2,9 @@ import { Sun, Moon, Monitor } from 'lucide-react';
 
 export default function ThemeToggleCard({ themeMode, onChange, t }) {
   const options = [
-    { key:'light', label:'Világos', Icon:Sun },
-    { key:'dark', label:'Sötét', Icon:Moon },
-    { key:'system', label:'Rendszer', Icon:Monitor },
+    { key:'light', label:t?.('light_mode') || 'Light', Icon:Sun },
+    { key:'dark', label:t?.('dark_mode') || 'Dark', Icon:Moon },
+    { key:'system', label:t?.('system_mode') || 'System', Icon:Monitor },
   ];
   return (
     <div className="bg-card border border-border rounded-2xl p-4 mb-4">
