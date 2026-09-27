@@ -10,6 +10,7 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ErrorBoundary from './components/ErrorBoundary';
 import { LangProvider } from '@/lib/i18n';
 import { AnimatePresence, motion } from 'framer-motion';
+import { applyThemeMode, getThemeMode } from '@/lib/themeManager';
 import PushNotificationManager from './components/jarvis/PushNotificationManager';
 import NativeDialogBridge from './components/common/NativeDialogBridge';
 import Layout from './components/Layout';
@@ -126,38 +127,8 @@ const AuthenticatedApp = () => {
   );
 };
 
-// Apply dark class based on localStorage or system preference
-function applyDarkMode(dark) {
-  if (dark) {
-    document.documentElement.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-  }
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#1a2030' : '#ffffff');
-}
-
-const safeStorage = {
-  getItem(key) {
-    try { return window.localStorage.getItem(key); } catch { return null; }
-  },
-  setItem(key, value) {
-    try { window.localStorage.setItem(key, value); } catch {}
-  },
-};
-
-const prefersDarkQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
-const savedTheme = safeStorage.getItem('theme');
-const initialDark = savedTheme !== null
-  ? savedTheme === 'dark'
-  : Boolean(prefersDarkQuery?.matches);
-
-if (savedTheme === null) safeStorage.setItem('theme', initialDark ? 'dark' : 'light');
-applyDarkMode(initialDark);
-
-prefersDarkQuery?.addEventListener?.('change', e => {
-  if (safeStorage.getItem('theme') === null) applyDarkMode(e.matches);
-});
+// Apply persisted light/dark/system theme before rendering.
+applyThemeMode(getThemeMode());
 
 function App() {
   return (
