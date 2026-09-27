@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar } from 'recharts';
-import { Gauge, Thermometer, Wind, AlertTriangle, Trash2, X, Settings } from 'lucide-react';
+import { Gauge, Thermometer, Wind, AlertTriangle, Trash2, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { parseOBD2Response, handleOBD2Error, OBD2_ERROR_MESSAGES } from '@/lib/obd2ErrorHandler';
+import { parseOBD2Response, handleOBD2Error } from '@/lib/obd2ErrorHandler';
 import OBD2WidgetDashboard from './OBD2WidgetDashboard';
 
 export default function OBD2Dashboard({ obd2Manager, isConnected }) {
