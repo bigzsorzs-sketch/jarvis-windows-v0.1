@@ -70,8 +70,8 @@ Generálj 3 konkrét, értékes upgrade javaslatot JSON tömbként:
 Csak a JSON tömböt add vissza, semmi más.`,
     });
     try {
-      // invokeWithRetry returns result directly (string or object)
-      const jsonStr = typeof result === 'string' ? result : JSON.stringify(result);
+      const rawResult = result?.data?.result ?? result?.data ?? result;
+      const jsonStr = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
       const parsed = JSON.parse(jsonStr.replace(/```json|```/g, '').trim());
       for (const proposal of parsed) {
         const currentUser = await jarvis.auth.me().catch(() => null);
