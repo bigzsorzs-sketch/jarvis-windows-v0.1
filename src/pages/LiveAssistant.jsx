@@ -11,6 +11,7 @@ import { loadFullContext } from '@/lib/assistantTools';
 import { routeUserCommand } from '@/lib/CommandRouter';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
+import { getAssistantErrorMessage } from '@/lib/assistantErrorMessage';
 import { jarvis } from '@/api/jarvisClient';
 
 const LIVE_ASSISTANT_CONVERSATION_TITLE = 'Live Assistant';
@@ -58,7 +59,7 @@ export default function LiveAssistant() {
     { role: 'assistant', content: 'Szia, itt vagyok. Miben segíthetek ma neked?' }
   ]);
   const [textInput, setTextInput] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState(DEFAULT_LIVE_ASSISTANT_AVATAR_URL);
+  const [avatarUrl, setAvatarUrl] = useState(() => localStorage.getItem('liveAssistantAvatarUrl') || DEFAULT_LIVE_ASSISTANT_AVATAR_URL);
   const [busy, setBusy] = useState(false);
   const [permissionError, setPermissionError] = useState('');
   const conversationIdRef = useRef(null);
@@ -72,7 +73,7 @@ export default function LiveAssistant() {
 
   const expression = useMemo(() => {
     if (voice.lastError || permissionError) return 'error';
-    if (busy) return latestUserEmotion === 'neutral' ? 'speaking' : latestUserEmotion;
+    if (busy) return latestUserEmotion === 'neutral' ? 'thinking' : latestUserEmotion;
     const runtimeExpression = getAvatarExpression(voice.state, null);
     return runtimeExpression === 'neutral' ? latestUserEmotion : runtimeExpression;
   }, [busy, latestUserEmotion, voice.state, voice.lastError, permissionError]);
@@ -80,26 +81,36 @@ export default function LiveAssistant() {
 
   const persistMessages = async (nextMessages) => {
     if (!historyReadyRef.current) return;
-    const savedMessages = nextMessages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      timestamp: message.timestamp || new Date().toISOString(),
-    }));
+    try {
+      const savedMessages = nextMessages.map((message) => ({
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp || new Date().toISOString(),
+      }));
 
-    if (conversationIdRef.current) {
-      await jarvis.entities.Conversation.update(conversationIdRef.current, { messages: savedMessages });
-      return;
+      if (conversationIdRef.current) {
+        await jarvis.entities.Conversation.update(conversationIdRef.current, { messages: savedMessages });
+        return;
+      }
+
+      const created = await jarvis.entities.Conversation.create({
+        title: LIVE_ASSISTANT_CONVERSATION_TITLE,
+        messages: savedMessages,
+      });
+      conversationIdRef.current = created.id;
+    } catch (error) {
+      console.warn('Live Assistant conversation persistence failed:', error?.message || error);
     }
+  };
 
-    const created = await jarvis.entities.Conversation.create({
-      title: LIVE_ASSISTANT_CONVERSATION_TITLE,
-      messages: savedMessages,
-    });
-    conversationIdRef.current = created.id;
+  const handleAvatarReady = (url) => {
+    const next = String(url || '').trim();
+    if (!next) return;
+    setAvatarUrl(next);
+    try { localStorage.setItem('liveAssistantAvatarUrl', next); } catch {}
   };
 
   useEffect(() => {
-    localStorage.setItem('liveAssistantAvatarUrl', DEFAULT_LIVE_ASSISTANT_AVATAR_URL);
     loadFullContext().then(setCtx).catch(() => {});
 
     jarvis.entities.Conversation
@@ -181,8 +192,11 @@ export default function LiveAssistant() {
       void persistMessages(assistantMessages);
       setBusy(false);
       void voice.speakText(reply, 'hu');
-    } catch {
-      const fallback = 'Most nem sikerült válaszolnom. Kérlek próbáld újra egy rövidebb üzenettel.';
+    } catch (error) {
+      const fallback = getAssistantErrorMessage(
+        error,
+        'Most nem sikerült válaszolnom. A hiba nem az üzenet hosszából adódik; próbáld meg újra.'
+      );
       const fallbackMessages = [
         ...userMessages,
         { role: 'assistant', content: fallback, timestamp: new Date().toISOString() },
@@ -215,8 +229,8 @@ export default function LiveAssistant() {
   };
 
   return (
-    <div className="h-full bg-gradient-to-b from-background via-background to-secondary/30 text-foreground flex flex-col overflow-hidden">
-      <header className="flex items-center justify-between px-4 py-3 shrink-0">
+    <div className="jarvis-live-stage h-full text-foreground flex flex-col overflow-hidden">
+      <header className="jarvis-live-header flex items-center justify-between px-4 md:px-6 py-3 shrink-0">
         <button onClick={() => stopAndBack('/chat')} className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
           <ArrowLeft size={18} />
         </button>
@@ -230,11 +244,11 @@ export default function LiveAssistant() {
       </header>
 
       <main className="flex-1 min-h-0 overflow-hidden flex flex-col px-4 py-3">
-        <div className="relative flex-1 min-h-0 flex flex-col rounded-[2rem] border border-border bg-card/70 shadow-2xl shadow-black/20 overflow-hidden">
+        <div className="jarvis-holo-panel relative flex-1 min-h-0 flex flex-col rounded-[2rem] overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.18),transparent_45%)]" />
           <div className="relative pt-6 space-y-3 px-4">
             <AssistantAvatar3D expression={expression} avatarUrl={avatarUrl} />
-            <AvatarModelUploader onModelReady={setAvatarUrl} />
+            <AvatarModelUploader onModelReady={handleAvatarReady} />
           </div>
           <div className="relative px-5 pb-5 space-y-3 flex-1 min-h-0 flex flex-col">
             <div className="mx-auto w-fit inline-flex items-center gap-2 rounded-full bg-secondary border border-border px-3 py-1.5 text-xs text-muted-foreground">
@@ -258,7 +272,7 @@ export default function LiveAssistant() {
         </div>
       </main>
 
-      <footer className="px-4 pb-3 shrink-0 space-y-2 bg-background/95 backdrop-blur border-t border-border z-20">
+      <footer className="jarvis-live-footer px-4 md:px-6 pb-3 shrink-0 space-y-2 z-20">
         <LiveAssistantInput value={textInput} onChange={setTextInput} onSubmit={handleTextSend} busy={busy} />
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => stopAndBack('/chat')} className="rounded-2xl bg-secondary border border-border py-3 text-sm font-semibold">
