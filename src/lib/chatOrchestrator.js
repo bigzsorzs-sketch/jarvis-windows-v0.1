@@ -58,10 +58,20 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
 
   const fileAnalysisContext = await buildFileAnalysisContext(attachedFiles);
 
+  const containsSensitiveContext = attachedFiles.length > 0
+    || Boolean(ctx?.memories?.length)
+    || Boolean(ctx?.meds?.length)
+    || Boolean(ctx?.contacts?.length)
+    || Boolean(ctx?.finance?.length)
+    || Boolean(ctx?.bs?.length)
+    || Boolean(ctx?.meals?.length)
+    || Boolean(ctx?.invoices?.length);
+
   const llmParams = {
     prompt: `${systemPrompt}\n\nDetected input language: ${detectedLang}\nSelected output language: ${outputLang}\nCRITICAL LANGUAGE RULE: If selected output language is hu, reply ONLY in Hungarian. English words or English sentences are forbidden.\n\n${fileAnalysisContext}\n\nVOICE MODE LATENCY RULES:\n- Default to 1 short sentence, maximum 18 words.\n- For completed actions, confirm in 3-8 words.\n- Do not explain unless the user asks.\n- Ask at most one short follow-up question if needed.\n\n---\n${compactHistory}\nUser: ${safeMessage}\nAssistant:`,
     model: 'gemini_3_flash',
     queueKey: 'assistant-turn',
+    contains_sensitive_context: containsSensitiveContext,
   };
 
   const mediaUrls = attachedFiles.filter(f => f.kind === 'image' || f.kind === 'video').map(f => f.url);
