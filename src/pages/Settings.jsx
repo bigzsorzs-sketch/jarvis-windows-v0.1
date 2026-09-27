@@ -30,6 +30,37 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const [settings, setSettings] = useState(defaultSettings);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [aiConfig, setAiConfig] = useState(null);
+  const [aiStatus, setAiStatus] = useState('');
+  const [testingAi, setTestingAi] = useState(false);
+
+  useEffect(() => {
+    window.jarvisDesktop?.getSettings?.().then(setAiConfig).catch(() => {});
+  }, []);
+
+  const saveAiSettings = async () => {
+    setAiStatus('Mentés...');
+    try {
+      const patch = { aiRoutingMode:aiConfig?.aiRoutingMode || 'smart', aiCostTier:aiConfig?.aiCostTier || 'low', aiModel:aiConfig?.aiModel || 'openrouter/auto' };
+      if (apiKey.trim()) patch.openRouterApiKey = apiKey.trim();
+      const next = await window.jarvisDesktop.saveSettings(patch);
+      setAiConfig(next); setApiKey(''); setAiStatus('AI beállítások biztonságosan elmentve.');
+    } catch (error) { setAiStatus('Mentési hiba: ' + (error?.message || error)); }
+  };
+
+  const testAiConnection = async () => {
+    setTestingAi(true); setAiStatus('OpenRouter kapcsolat ellenőrzése...');
+    try {
+      if (apiKey.trim()) {
+        const next = await window.jarvisDesktop.saveSettings({ openRouterApiKey:apiKey.trim() });
+        setAiConfig((current) => ({ ...current, ...next })); setApiKey('');
+      }
+      const result = await window.jarvisDesktop.testAiConnection();
+      setAiStatus(`Kapcsolat rendben · ${result.modelCount} modell elérhető.`);
+    } catch (error) { setAiStatus('Kapcsolati hiba: ' + (error?.message || error)); }
+    finally { setTestingAi(false); }
+  };
 
   const { data: settingsList } = useQuery({
     queryKey: ['user-settings'],
@@ -105,6 +136,20 @@ export default function Settings() {
             <SettingsToggle label="Webes keresés" checked={settings.web_search} onChange={(v) => updateField('web_search', v)} />
             <SettingsToggle label="Tőzsdei elemzés" checked={settings.stock_analysis} onChange={(v) => updateField('stock_analysis', v)} />
             <SettingsToggle label="Autópiac" checked={settings.auto_market} onChange={(v) => updateField('auto_market', v)} />
+          </Card>
+        </motion.div>
+
+        {/* AI / OpenRouter */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+          <Card className="bg-card border-border p-5 space-y-4">
+            <div><h2 className="text-base font-semibold text-foreground">Jarvis AI · OpenRouter</h2><p className="text-xs text-muted-foreground mt-1">A kulcs Windows safeStorage titkosítással kerül mentésre. Smart módban Jarvis feladattípus alapján választ modellt.</p></div>
+            <div><Label className="text-xs text-muted-foreground">OpenRouter API kulcs</Label><Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={aiConfig?.hasOpenRouterKey ? 'Kulcs beállítva · új kulccsal cserélhető' : 'API kulcs megadása'} autoComplete="off" className="bg-secondary border-border rounded-xl text-sm mt-1" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs text-muted-foreground">Modellválasztás</Label><select value={aiConfig?.aiRoutingMode || 'smart'} onChange={(e) => setAiConfig((v) => ({ ...(v || {}), aiRoutingMode:e.target.value }))} className="w-full mt-1 rounded-xl bg-secondary border border-border px-3 py-2 text-sm text-foreground"><option value="smart">Smart · automatikus</option><option value="manual">Kézi modell</option></select></div>
+              <div><Label className="text-xs text-muted-foreground">Költségszint</Label><select value={aiConfig?.aiCostTier || 'low'} onChange={(e) => setAiConfig((v) => ({ ...(v || {}), aiCostTier:e.target.value }))} className="w-full mt-1 rounded-xl bg-secondary border border-border px-3 py-2 text-sm text-foreground"><option value="low">Low · takarékos</option><option value="medium">Medium · erősebb</option><option value="high">High · nehéz feladatok</option></select></div>
+            </div>
+            <div className="flex gap-2"><button onClick={saveAiSettings} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium">Mentés</button><button onClick={testAiConnection} disabled={testingAi} className="px-4 py-2 rounded-xl bg-secondary text-foreground text-sm font-medium disabled:opacity-50">{testingAi ? 'Tesztelés...' : 'Kapcsolat tesztelése'}</button></div>
+            {aiStatus && <p className="text-xs text-muted-foreground">{aiStatus}</p>}
           </Card>
         </motion.div>
 
