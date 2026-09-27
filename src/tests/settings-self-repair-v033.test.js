@@ -10,6 +10,7 @@ const main = fs.readFileSync('electron/main.cjs','utf8');
 const preload = fs.readFileSync('electron/preload.cjs','utf8');
 const repair = fs.readFileSync('electron/developer-repair.cjs','utf8');
 const system = fs.readFileSync('src/pages/SystemCenter.jsx','utf8');
+const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
 
 test('selected OpenRouter model is actually used instead of being forced back to auto', () => {
   assert.match(settings,/aiRoutingMode: selectedModel === 'openrouter\/auto' \? 'smart' : 'manual'/);
@@ -50,4 +51,10 @@ test('self repair maps architecture, retrieves relevant source and supports conv
   assert.match(system,/Program feltérképezése/);
   assert.match(system,/Hibák keresése/);
   assert.match(system,/sendSelfRepairMessage/);
+});
+
+
+test('installed builds include readable source for whole-program Self-Repair mapping', () => {
+  assert.equal(pkg.build.files.includes('src/**/*'), true);
+  assert.equal(pkg.build.files.includes('electron/**/*'), true);
 });
