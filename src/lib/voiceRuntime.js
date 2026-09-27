@@ -24,6 +24,7 @@ import { createTranscriptQueue } from '@/lib/transcriptQueue';
 import { useVoiceStore } from '@/lib/appStore';
 import { createRecordedVoiceIO, canUseRecordedVoiceIO, playLocalAckTone } from '@/lib/mobileVoiceIO';
 import { safeStorage } from '@/lib/safeStorage';
+import { sanitizeForSpeech, getVoicePreferences, chooseVoice } from '@/lib/speechPresentation';
 
 const MIN_RESTART_DELAY_MS = 750;
 const HANDS_FREE_RESTART_DELAY_MS = 180;
@@ -821,7 +822,7 @@ class VoiceRuntime {
       });
     }
     if (!canUseBrowserTTS() || text == null) return Promise.resolve(false);
-    const safeText = typeof text === 'string' ? text.trim() : '';
+    const safeText = sanitizeForSpeech(typeof text === 'string' ? text : '');
     if (!safeText) return Promise.resolve(false);
 
     this.ttsInFlightRef = true;
@@ -863,10 +864,11 @@ class VoiceRuntime {
         const utterance = new SpeechSynthesisUtterance(chunk);
         utterance.lang = langMap[selectedLang] || this.languageLockRef || this.state.recognitionLang || 'hu-HU';
         const voices = window.speechSynthesis.getVoices?.() || [];
-        const huVoice = voices.find(v => /^hu[-_]/i.test(v.lang || ''));
-        if (selectedLang === 'hu' && huVoice) utterance.voice = huVoice;
-        utterance.rate = 1.03;
-        utterance.pitch = 1;
+        const prefs = getVoicePreferences();
+        const selectedVoice = chooseVoice(voices, utterance.lang, prefs.name);
+        if (selectedVoice) utterance.voice = selectedVoice;
+        utterance.rate = Number.isFinite(prefs.rate) ? Math.min(1.3, Math.max(0.75, prefs.rate)) : 0.96;
+        utterance.pitch = Number.isFinite(prefs.pitch) ? Math.min(1.25, Math.max(0.8, prefs.pitch)) : 1.04;
         utterance.volume = 1;
         utterance.onstart = () => {
           logger.debug(MODULE, 'TTS_START', { chunk: index + 1, total: chunks.length });

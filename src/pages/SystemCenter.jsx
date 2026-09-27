@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Activity, CheckCircle2, XCircle, AlertTriangle, Database, ShieldCheck, Save, Upload, RefreshCw, Wrench, Sparkles, LockKeyhole } from 'lucide-react';
+import { Activity, CheckCircle2, XCircle, AlertTriangle, Database, ShieldCheck, Save, Upload, RefreshCw, Wrench, Sparkles, LockKeyhole, Search } from 'lucide-react';
+import { invokeWithRetry } from '@/lib/llmGateway';
 
 function statusClasses(check) {
   if (check.ok) return 'border-green-500/30 bg-green-500/10 text-green-400';
@@ -21,6 +22,9 @@ export default function SystemCenter() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [passphrase, setPassphrase] = useState('');
   const [message, setMessage] = useState('');
+  const [repairRequest, setRepairRequest] = useState('');
+  const [repairAnalysis, setRepairAnalysis] = useState('');
+  const [requestBusy, setRequestBusy] = useState(false);
 
   const runCheck = async () => {
     if (!window.jarvisDesktop?.runSystemCheck) return;
@@ -77,6 +81,29 @@ export default function SystemCenter() {
     } finally { setBackupBusy(false); }
   };
 
+  const analyzeRepairRequest = async () => {
+    const request = repairRequest.trim();
+    if (!request) return;
+    setRequestBusy(true); setRepairAnalysis('');
+    try {
+      const result = await invokeWithRetry({
+        prompt: `Te a Jarvis Windows alkalmazás diagnosztikai asszisztense vagy. A tulajdonos ezt kéri: "${request}".
+Készíts rövid magyar diagnosztikai tervet. Pontosan írd le:
+1. mit kell ellenőrizni,
+2. melyik Jarvis alrendszer érintett,
+3. milyen teszttel igazolható a javítás,
+4. van-e kockázat.
+Ne állítsd, hogy kódot módosítottál. A tényleges forrásmódosítás csak izolált sandboxban és tulajdonosi jóváhagyással történhet.`,
+        task_type:'repair',
+        queueKey:'system-repair-request'
+      }, 1);
+      const text = result?.data?.result ?? result?.data ?? result;
+      setRepairAnalysis(typeof text === 'string' ? text : JSON.stringify(text, null, 2));
+    } catch (error) {
+      setRepairAnalysis('Elemzési hiba: ' + (error?.message || error));
+    } finally { setRequestBusy(false); }
+  };
+
   const failedCount = report?.checks?.filter((check) => !check.ok).length || 0;
   const automaticRepairs = repairPlan?.repairs?.filter((repair) => repair.automatic) || [];
 
@@ -114,6 +141,22 @@ export default function SystemCenter() {
             </div>;
           })}
         </section>}
+
+        <section className="app-surface rounded-3xl p-5 md:p-6">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center"><Wrench size={19} className="text-primary" /></div>
+            <div><h2 className="font-semibold">Mit ellenőrizzek vagy javítsak?</h2><p className="text-xs text-muted-foreground">Írd le saját szavaiddal a hibát vagy az ellenőrizendő működést.</p></div>
+          </div>
+          <textarea value={repairRequest} onChange={e=>setRepairRequest(e.target.value)} rows={4}
+            placeholder="Példa: A világos mód kapcsoló nem működik. Keresd meg az okát és készíts javítási tervet."
+            className="w-full rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none resize-y" />
+          <button onClick={analyzeRepairRequest} disabled={requestBusy || !repairRequest.trim()}
+            className="mt-3 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold flex items-center gap-2 disabled:opacity-50">
+            <Search size={15}/>{requestBusy?'Elemzés...':'Vizsgálat indítása'}
+          </button>
+          {repairAnalysis && <div className="mt-3 rounded-xl bg-background/60 border border-border p-3 text-sm whitespace-pre-wrap">{repairAnalysis}</div>}
+          <p className="text-[11px] text-muted-foreground mt-3">A diagnózis nem írja át közvetlenül a Jarvist. Forrásmódosítás csak sandbox-ellenőrzés és külön tulajdonosi jóváhagyás után engedélyezhető.</p>
+        </section>
 
         {repairPlan?.repairs?.length > 0 && (
           <section className="app-surface rounded-3xl p-5 md:p-6">
