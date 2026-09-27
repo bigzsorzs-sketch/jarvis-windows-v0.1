@@ -12,6 +12,7 @@ export default function GmailManager() {
   const { t, lang } = useLang();
   const [user, setUser] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [configured, setConfigured] = useState(null);
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
@@ -28,6 +29,7 @@ export default function GmailManager() {
       const data = res?.data || {};
       setEmails(data.emails || []);
       setConnected(data.connected === true);
+      setConfigured(data.configured !== false);
       if (data.configured === false) {
         setErrorMessage(lang === 'hu'
           ? 'A Gmail nincs konfigurálva ebben a helyi Jarvis buildben. Google OAuth kapcsolat szükséges.'
@@ -35,6 +37,7 @@ export default function GmailManager() {
       }
     } catch {
       setConnected(false);
+      setConfigured(false);
       setErrorMessage(t('gmail_load_error'));
     } finally {
       setLoading(false);
@@ -55,6 +58,12 @@ export default function GmailManager() {
 
   const handleConnect = async () => {
     setErrorMessage('');
+    if (configured === false || window.jarvisDesktop?.capabilities?.gmailOAuth === false) {
+      setErrorMessage(lang === 'hu'
+        ? 'A Gmail OAuth backend nincs konfigurálva ebben a Windows buildben, ezért a csatlakoztatás nincs aktív funkcióként feltüntetve.'
+        : 'Gmail OAuth is not configured in this Windows build.');
+      return;
+    }
     try {
       const url = await jarvis.connectors.connectAppUser(CONNECTOR_ID);
       if (!url) throw new Error('GMAIL_OAUTH_NOT_CONFIGURED');
@@ -145,8 +154,12 @@ Adj vissza JSON-t:
             <Mail size={40} className="mx-auto text-red-400/50 mb-4" />
             <h2 className="text-base font-semibold text-foreground mb-2">{t('gmail_connect_title')}</h2>
             <p className="text-xs text-muted-foreground mb-5">{t('gmail_connect_desc')}</p>
-            <button onClick={handleConnect} className="w-full py-3 rounded-2xl bg-red-500 text-white font-semibold text-sm">
-              📧 {t('gmail_connect_button')}
+            <button
+              onClick={handleConnect}
+              disabled={configured === false || window.jarvisDesktop?.capabilities?.gmailOAuth === false}
+              className="w-full py-3 rounded-2xl bg-red-500 text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              📧 {configured === false ? (lang === 'hu' ? 'Gmail OAuth nincs konfigurálva' : 'Gmail OAuth not configured') : t('gmail_connect_button')}
             </button>
           </div>
         ) : (
