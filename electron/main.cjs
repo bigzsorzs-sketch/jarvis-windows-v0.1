@@ -711,6 +711,40 @@ async function runSystemCheck() {
   };
 }
 
+function buildRepairPlan(report) {
+  const failed = Array.isArray(report?.checks) ? report.checks.filter((check) => !check.ok) : [];
+  const repairs = [];
+  for (const check of failed) {
+    if (check.id === 'backup') repairs.push({ id:'repair-backup-directory', checkId:check.id, title:'Backup mappa helyreállítása', description:'Újralétrehozza a Jarvis Backups mappát és ellenőrzi az írhatóságát.', risk:'low', automatic:true });
+    else if (check.id === 'network') repairs.push({ id:'repair-network-cache', checkId:check.id, title:'Hálózati gyorsítótár frissítése', description:'Törli az Electron hálózati gyorsítótárát, majd újraellenőrzi a GitHub frissítési csatornát.', risk:'low', automatic:true });
+    else if (check.id === 'obd') repairs.push({ id:'repair-obd-reset', checkId:check.id, title:'OBD kapcsolat újraindítása', description:'Biztonságosan bontja az aktuális OBD kapcsolatot, hogy tiszta állapotból lehessen újracsatlakozni.', risk:'low', automatic:true });
+    else repairs.push({ id:'manual-' + check.id, checkId:check.id, title:check.label + ' – kézi beavatkozás szükséges', description:check.detail, risk:check.severity === 'critical' ? 'high' : 'medium', automatic:false });
+  }
+  return { generatedAt:new Date().toISOString(), repairs };
+}
+
+async function runApprovedRepair(repairId) {
+  if (!localOwnerAuthorised()) throw new Error('JARVIS_REPAIR_UNAUTHORISED');
+  switch (repairId) {
+    case 'repair-backup-directory': {
+      const dir = path.join(app.getPath('documents'), 'Jarvis Backups');
+      fs.mkdirSync(dir, { recursive:true });
+      fs.accessSync(dir, fs.constants.W_OK);
+      break;
+    }
+    case 'repair-network-cache':
+      await session.defaultSession.clearCache();
+      break;
+    case 'repair-obd-reset':
+      await obdBridge.disconnect().catch(() => {});
+      break;
+    default:
+      throw new Error('JARVIS_REPAIR_NOT_ALLOWLISTED');
+  }
+  const report = await runSystemCheck();
+  return { success:true, repairId, report, plan:buildRepairPlan(report) };
+}
+
 function configureObdBluetoothChooser(win) {
   let pendingCallback = null;
   let cancelTimer = null;
@@ -882,6 +916,12 @@ app.whenReady().then(() => {
     () => backupManager.restore(req.passphrase)
   ));
   ipcMain.handle('jarvis:system:check', () => runSystemCheck());
+  ipcMain.handle('jarvis:repair:plan', (_e, report={}) => buildRepairPlan(report));
+  ipcMain.handle('jarvis:repair:apply', (_e, request={}) => guarded(
+    { type:'system_repair', target:String(request.repairId || '') },
+    () => runApprovedRepair(request.repairId),
+    { message:'Jarvis egy helyi javítást készül végrehajtani. A művelet csak a jóváhagyott, beépített javítási listából futhat.' }
+  ));
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
