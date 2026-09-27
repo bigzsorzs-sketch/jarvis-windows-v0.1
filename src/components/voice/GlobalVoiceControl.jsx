@@ -15,7 +15,7 @@ export default function GlobalVoiceControl() {
   const handledTranscriptRef = useRef('');
 
   const micEnabled = voice.state.handsFree;
-  const micLive = voice.state.handsFree;
+  const micLive = voice.state.handsFree && (voice.state.isListening || voice.state.isRecognitionActive || voice.state.isRecognitionStarting);
 
   useEffect(() => {
     const currentTranscript = voice.lastTranscript?.trim();
@@ -93,10 +93,12 @@ export default function GlobalVoiceControl() {
       >
         {isProcessing ? (
           <Loader2 size={22} className="text-white animate-spin" />
-        ) : micEnabled ? (
-          <MicOff size={22} className="text-white" />
-        ) : (
+        ) : micLive ? (
           <Mic size={22} className="text-white" />
+        ) : micEnabled ? (
+          <Loader2 size={22} className="text-white animate-spin" />
+        ) : (
+          <MicOff size={22} className="text-white" />
         )}
       </motion.button>
     </>
