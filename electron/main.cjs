@@ -36,9 +36,11 @@ function resourcePath(...parts) {
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
 async function runDeveloperValidation(workspace) {
+  const testDir = path.join(workspace,'src','tests');
+  const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
   const commands = [
     ['node',['--check','electron/main.cjs']],
-    ['node',['--test','src/tests/*.test.js']],
+    ['node',['--test',...testFiles]],
     ['npm',['run','lint']],
     ['npm',['run','typecheck']],
     ['npm',['run','verify:jarvis']],
@@ -623,16 +625,8 @@ async function requestLocalDevice(request={}) {
 
 function functionPolicyAction(name, payload={}) {
   const functionName = String(name || 'unknown');
-  const externalAiFunctions = ['llmProxy','runAiTask','generateImage','generateOBDDiagnosis'];
-  const hasExternalImages = externalAiFunctions.includes(functionName)
-    && (
-      (Array.isArray(payload?.file_urls) && payload.file_urls.length > 0)
-      || (Array.isArray(payload?.image_urls) && payload.image_urls.length > 0)
-      || (Array.isArray(payload?.existing_image_urls) && payload.existing_image_urls.length > 0)
-    );
-  // Normal text chat is an explicitly configured OpenRouter feature and must not
-  // interrupt every message with an owner-confirmation dialog. Attachments/images
-  // still cross the sensitive-data confirmation boundary.
+  // Normal AI chat and user-selected AI attachments do not interrupt every request
+  // with a policy dialog. Destructive/system operations keep their own policy gates.
   return {
     type: functionName === 'deleteAccount' ? 'account_delete' : `function:${functionName}`,
     target:functionName,
@@ -784,7 +778,8 @@ function buildRepairPlan(report) {
     if (check.id === 'backup') repairs.push({ id:'repair-backup-directory', checkId:check.id, title:'Backup mappa helyreállítása', description:'Újralétrehozza a Jarvis Backups mappát és ellenőrzi az írhatóságát.', risk:'low', automatic:true });
     else if (check.id === 'network') repairs.push({ id:'repair-network-cache', checkId:check.id, title:'Hálózati gyorsítótár frissítése', description:'Törli az Electron hálózati gyorsítótárát, majd újraellenőrzi a GitHub frissítési csatornát.', risk:'low', automatic:true });
     else if (check.id === 'obd') repairs.push({ id:'repair-obd-reset', checkId:check.id, title:'OBD kapcsolat újraindítása', description:'Biztonságosan bontja az aktuális OBD kapcsolatot, hogy tiszta állapotból lehessen újracsatlakozni.', risk:'low', automatic:true });
-    else if (check.id === 'ai') repairs.push({ id:'repair-ai-session', checkId:check.id, title:'AI kapcsolat helyreállítása', description:'Törli a hálózati gyorsítótárat és újraellenőrzi az OpenRouter kapcsolatot. Az API-kulcsot nem módosítja.', risk:'low', automatic:true });
+    else if (check.id === 'ai' && /kapcsolat/i.test(String(check.detail || ''))) repairs.push({ id:'repair-ai-session', checkId:check.id, title:'AI kapcsolat helyreállítása', description:'Törli a hálózati gyorsítótárat és újraellenőrzi az OpenRouter kapcsolatot. Az API-kulcsot nem módosítja.', risk:'low', automatic:true });
+    else if (check.id === 'ai') repairs.push({ id:'manual-ai-key', checkId:check.id, title:'OpenRouter API-kulcs beállítása szükséges', description:check.detail, risk:'low', automatic:false });
     else repairs.push({ id:'manual-' + check.id, checkId:check.id, title:check.label + ' – kézi beavatkozás szükséges', description:check.detail, risk:check.severity === 'critical' ? 'high' : 'medium', automatic:false });
   }
   return { generatedAt:new Date().toISOString(), repairs };
@@ -1018,7 +1013,8 @@ app.whenReady().then(() => {
       const hash=String(request.hash||'');
       const entry=developerPlans.get(hash);
       if(!entry || !entry.approved) throw new Error('DEV_REPAIR_APPROVAL_REQUIRED');
-      const { hash:_storedHash, ...approvedPlan } = entry.plan;
+      const approvedPlan = { ...entry.plan };
+      delete approvedPlan.hash;
       if(developerRepair.proposalHash(approvedPlan) !== hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
       const backup=developerRepair.snapshot(entry.workspace,entry.plan,developerBackupRoot());
       try {
