@@ -142,7 +142,7 @@
           ]
         }
       ],
-      "requestedExecutionLevel": "requireAdministrator",
+      "requestedExecutionLevel": "asInvoker",
       "artifactName": "Jarvis-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
