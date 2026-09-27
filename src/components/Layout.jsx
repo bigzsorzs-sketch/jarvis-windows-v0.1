@@ -137,7 +137,7 @@ export default function Layout() {
             <div className="mb-1 flex items-center gap-2 text-[10px] font-bold tracking-[0.22em] text-primary/70">
               <span>{pageEyebrow}</span>
               <span className="text-border">/</span>
-              <span className="truncate text-muted-foreground">{location.pathname === '/' ? 'HOME' : location.pathname.toUpperCase()}</span>
+              <span className="truncate text-muted-foreground">{location.pathname === '/' ? t('home').toUpperCase() : pageTitle.toUpperCase()}</span>
             </div>
             <h1 className="truncate text-xl font-bold tracking-tight text-foreground">{pageTitle}</h1>
           </div>
@@ -145,11 +145,11 @@ export default function Layout() {
           <div className="flex items-center gap-2">
             <div className="jarvis-status-chip">
               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-              SECURE
+              {lang === 'hu' ? 'BIZTONSÁGOS' : 'SECURE'}
             </div>
             <div className="jarvis-status-chip">
               <Cpu size={13} />
-              LOCAL CORE
+              {lang === 'hu' ? 'HELYI MAG' : 'LOCAL CORE'}
             </div>
             <div className="ml-2 font-mono text-sm font-semibold text-foreground/80">{clock}</div>
           </div>
