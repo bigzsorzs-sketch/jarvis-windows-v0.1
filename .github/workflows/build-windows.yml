@@ -38,6 +38,12 @@ jobs:
       - name: Run source tests
         run: node --test src/tests/*.test.js
 
+      - name: Lint source
+        run: npm run lint
+
+      - name: Typecheck source
+        run: npm run typecheck
+
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis
 
