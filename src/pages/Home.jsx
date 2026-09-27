@@ -8,10 +8,9 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Mic, MicOff, FileText, Bell, CheckSquare, TrendingUp,
-  Droplets, ChevronRight, ArrowRight, Sparkles, Lock, Check
+  Droplets, ChevronRight, ArrowRight, Sparkles, Cpu, ShieldCheck, Radio
 } from 'lucide-react';
 import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
-import { invokeWithRetry } from '@/lib/llmGateway';
 import { loadFullContext } from '@/lib/assistantTools';
 import { useLang } from '@/lib/i18n';
 import { getIntelligentReminderSuggestions } from '@/lib/intelligentReminderEngine';
@@ -28,13 +27,6 @@ const DEMO_FLOW_CONFIGS = [
   { id: 'life', emoji: '🙋', color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20',
     labelKey: 'demo_life_label', descKey: 'demo_life_desc', promptKey: 'demo_life_prompt',
     stepKeys: ['demo_step1_life_1','demo_step1_life_2','demo_step1_life_3'] },
-];
-
-// ── PLAN TIER KEYS ─────────────────────────────────────────────────────────
-const PLAN_TIER_KEYS = [
-  { labelKey: 'free_plan', colorClass: 'text-muted-foreground', featureKeys: ['free_f1','free_f2','free_f3'] },
-  { labelKey: 'pro_plan', colorClass: 'text-primary', badgeKey: 'most_popular', featureKeys: ['pro_f1','pro_f2','pro_f3','pro_f4','pro_f5'], highlight: true, upgradeKey: 'upgrade_to_pro' },
-  { labelKey: 'premium_plan', colorClass: 'text-yellow-400', featureKeys: ['prem_f1','prem_f2','prem_f3','prem_f4','prem_f5'] },
 ];
 
 // ── QUICK WINS (role-aware) ───────────────────────────────────────────────────
@@ -72,22 +64,17 @@ const HERO_EXAMPLE_KEYS = [
   'demo_driver_prompt',
 ];
 
-// PLAN_TIERS removed — now uses PLAN_TIER_KEYS + t()
-
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function Home() {
   const navigate = useNavigate();
   const voice = useVoiceRuntime();
-  const { t, lang } = useLang();
+  const { t } = useLang();
 
   const [ctx, setCtx] = useState(null);
   const [heroInput, setHeroInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
   const [exampleIdx, setExampleIdx] = useState(0);
   const [role, setRole] = useState(() => localStorage.getItem('jarvis_role') || 'personal');
   const [showDemo, setShowDemo] = useState(null);
-  const [showPricing, setShowPricing] = useState(false);
   const [smartSuggestions, setSmartSuggestions] = useState([]);
   const processedVoiceRef = useRef('');
 
@@ -109,35 +96,22 @@ export default function Home() {
   };
 
   // ── Hero ask ──────────────────────────────────────────────────────────────
-  const handleHeroAsk = useCallback(async (text) => {
+  // The Home screen never performs a second cloud request. It hands the request to
+  // Chat, where local commands, privacy policy and AI routing are handled once.
+  const handleHeroAsk = useCallback((text) => {
     const msg = (text || heroInput).trim();
-    if (!msg || loading) return;
-    setLoading(true);
-    setResult(null);
-
-    try {
-      const res = await invokeWithRetry({
-        prompt: `You are Jarvis, a helpful voice assistant. The user says: "${msg}"\n\nRespond in 1-2 sentences confirming what you're doing or have done. Be friendly and concise.`,
-        model: 'gemini_3_flash',
-      });
-      const reply = typeof res === 'string' ? res : (res?.data?.result || res?.data || '');
-      setResult({ ok: true, message: typeof reply === 'string' ? reply : 'Kérés elküldve.' });
-      navigate('/chat', { state: { initialMessage: msg } });
-    } catch {
-      setResult({ ok: false, message: 'Valami hiba történt. Próbáld meg a chatben.' });
-    } finally {
-      setLoading(false);
-      setHeroInput('');
-    }
-  }, [heroInput, loading, navigate]);
+    if (!msg) return;
+    setHeroInput('');
+    navigate('/chat', { state: { initialMessage: msg } });
+  }, [heroInput, navigate]);
 
   useEffect(() => {
     const transcript = voice.lastTranscript?.trim();
-    if (!transcript || loading || processedVoiceRef.current === transcript) return;
+    if (!transcript || processedVoiceRef.current === transcript) return;
     processedVoiceRef.current = transcript;
     setHeroInput(transcript);
     handleHeroAsk(transcript);
-  }, [voice.lastTranscript, loading, handleHeroAsk]);
+  }, [voice.lastTranscript, handleHeroAsk]);
 
 
   // ── Demo flow ─────────────────────────────────────────────────────────────
@@ -184,7 +158,7 @@ export default function Home() {
   const todayStr = new Date().toISOString().split('T')[0];
 
   return (
-    <div className="h-full overflow-y-auto jarvis-scroll bg-gradient-to-b from-background via-background to-secondary/20">
+    <div className="jarvis-home-stage h-full overflow-y-auto jarvis-scroll">
       <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-24 md:pb-10 space-y-5 md:space-y-6 max-w-[1500px] mx-auto">
 
         {/* ── ROLE SWITCHER ── */}
@@ -208,17 +182,34 @@ export default function Home() {
         </div>
 
         {/* ── HERO BLOCK ── */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="app-surface p-5 md:p-8">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span className="text-xs text-primary font-semibold tracking-wide uppercase">Jarvis</span>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="jarvis-command-deck app-surface p-5 md:p-8">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="jarvis-core-orb flex h-10 w-10 items-center justify-center rounded-xl">
+                <Cpu size={18} className="text-primary" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-primary font-bold tracking-[0.22em] uppercase">Jarvis Core</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shadow-[0_0_12px_hsl(var(--primary))]" />
+                </div>
+                <span className="text-[10px] text-muted-foreground tracking-[0.14em]">LOCAL-FIRST DESKTOP INTELLIGENCE</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="jarvis-status-chip"><ShieldCheck size={12} /> SECURE</span>
+              <span className="jarvis-status-chip"><Radio size={12} /> READY</span>
+            </div>
           </div>
           <h1 className="text-2xl md:text-4xl font-bold tracking-tight text-foreground mb-1">{t('hero_tagline')}</h1>
-          <p className="text-sm text-muted-foreground mb-4">{t('hero_sub')}</p>
+          <p className="text-sm text-muted-foreground mb-2">{t('hero_sub')}</p>
+          <p className="mb-4 text-[11px] text-muted-foreground/75">
+            A helyi parancsokat Jarvis a gépen kezeli; külső AI csak akkor fut, amikor tényleg szükséges.
+          </p>
 
           {/* Input row */}
           <div className="flex gap-2">
-            <div className="flex-1 flex items-center gap-2 bg-secondary rounded-2xl px-4 py-3 border border-border">
+            <div className="jarvis-command-input flex-1 flex items-center gap-2 rounded-2xl px-4 py-3">
               <input
                 aria-label={t(HERO_EXAMPLE_KEYS[exampleIdx])}
                 className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
@@ -239,27 +230,10 @@ export default function Home() {
             </button>
           </div>
 
-          {loading && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-              <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-              {t('jarvis_handling')}
-            </div>
-          )}
-
-          {result && (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`mt-3 rounded-2xl px-4 py-3 text-sm ${result.ok ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}
-            >
-              {result.ok ? '✅ ' : '❌ '}{result.message}
-            </motion.div>
-          )}
-
           <button
             onClick={() => navigate('/chat')}
             aria-label={t('open_full_assistant')}
-            className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 min-h-[44px] rounded-2xl bg-primary text-primary-foreground font-semibold text-sm focus-visible:ring-2 focus-visible:ring-primary"
+            className="jarvis-primary-button mt-4 w-full flex items-center justify-center gap-2 py-2.5 min-h-[44px] rounded-2xl font-semibold text-sm focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Mic size={15} /> {t('open_full_assistant')}
           </button>
@@ -407,52 +381,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ── PRICING TEASER ── */}
-        <div>
-          <button
-            onClick={() => setShowPricing(v => !v)}
-            className="w-full flex items-center justify-between p-4 bg-card border border-border rounded-2xl"
-          >
-            <div className="flex items-center gap-3">
-              <Sparkles size={16} className="text-primary" />
-              <div className="text-left">
-                <p className="text-sm font-semibold text-foreground">{t('unlock_full')}</p>
-                <p className="text-xs text-muted-foreground">{t('unlock_sub')}</p>
-              </div>
-            </div>
-            <ChevronRight size={14} className={`text-muted-foreground transition-transform ${showPricing ? 'rotate-90' : ''}`} />
-          </button>
-
-          <AnimatePresence>
-            {showPricing && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                <div className="pt-3 space-y-3">
-                  {PLAN_TIER_KEYS.map(tier => (
-                    <div key={tier.labelKey} className={`rounded-2xl border p-4 ${tier.highlight ? 'border-primary/40 bg-primary/5' : 'border-border bg-card'}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className={`font-bold text-base ${tier.colorClass}`}>{t(tier.labelKey)}</span>
-                        {tier.badgeKey && <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-semibold">{t(tier.badgeKey)}</span>}
-                      </div>
-                      <div className="space-y-1.5">
-                        {tier.featureKeys.map(fk => (
-                          <div key={fk} className="flex items-center gap-2 text-xs text-muted-foreground">
-                            {tier.labelKey === 'free_plan' ? <Lock size={11} className="text-border" /> : <Check size={11} className={tier.colorClass} />}
-                            {t(fk)}
-                          </div>
-                        ))}
-                      </div>
-                      {tier.highlight && (
-                        <button className="mt-3 w-full py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold">
-                          {t('upgrade_to_pro')}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
 
       </div>
     </div>
