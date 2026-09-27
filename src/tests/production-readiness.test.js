@@ -33,3 +33,12 @@ test('unconfigured recorded voice endpoints return explicit capability results i
   assert.equal(main.includes('RECORDED_STT_BACKEND_NOT_CONFIGURED'), true);
   assert.equal(main.includes('REMOTE_TTS_BACKEND_NOT_CONFIGURED'), true);
 });
+
+test('one-click updater requires stable exact-version release assets and SHA-256 verification', () => {
+  const main = read('electron/main.cjs');
+  assert.equal(main.includes("release.draft || release.prerelease"), true);
+  assert.equal(main.includes("expectedInstallerName"), true);
+  assert.equal(main.includes("UPDATE_CHECKSUM_MISMATCH"), true);
+  assert.equal(main.includes("verification:nextSigned ? 'sha256+authenticode' : 'sha256'"), true);
+  assert.equal(main.includes("if (currentSigned)"), true);
+});
