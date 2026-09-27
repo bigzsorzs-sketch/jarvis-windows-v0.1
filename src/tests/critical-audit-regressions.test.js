@@ -174,7 +174,7 @@ test('Smart Home physical actions are policy-gated and never mutate state after 
 test('release build has a committed dependency lock and CI installs it immutably', () => {
   const workflow = read('.github/workflows/build-windows.yml');
   assert.equal(fs.existsSync(path.join(root, 'package-lock.json')), true);
-  assert.equal(workflow.includes('run: npm ci'), true);
+  assert.equal(/(^|\n)\s*npm ci\s*($|\n)/m.test(workflow), true);
   assert.equal(workflow.includes('npm install'), false);
 });
 
