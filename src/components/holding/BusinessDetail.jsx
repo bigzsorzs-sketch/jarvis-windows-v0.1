@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 
 const OWNER_ERROR = 'A saját adataid kezeléséhez be kell jelentkezned.';
-import { ArrowLeft, Plus, Trash2, Users, FolderOpen, FileText, UserCheck, X } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, X } from 'lucide-react';
 import MobileSelect from '@/components/common/MobileSelect';
 import { motion, AnimatePresence } from 'framer-motion';
 

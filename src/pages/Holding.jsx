@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 
 const OWNER_ERROR = 'A saját adataid betöltéséhez be kell jelentkezned.';
-import { Building2, Plus, Search, X, Loader2, Globe, User, Filter } from 'lucide-react';
+import { Building2, Plus, Search, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TutorialOverlay from '@/components/tutorial/TutorialOverlay';
 import HoldingOverview from '@/components/holding/HoldingOverview';

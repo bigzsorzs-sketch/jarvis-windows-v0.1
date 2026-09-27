@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { jarvis } from '@/api/jarvisClient';
-import { Brain, RefreshCw, Loader2, TrendingUp, Calendar, Clock, Zap } from 'lucide-react';
+import { Brain, RefreshCw, Loader2, Calendar, Clock, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { syncHabits, getProactiveHabitSuggestions } from '@/lib/habitEngine';
 import { useLang } from '@/lib/i18n';

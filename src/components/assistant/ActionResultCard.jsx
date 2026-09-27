@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 export default function ActionResultCard({ results }) {
   if (!results || results.length === 0) return null;

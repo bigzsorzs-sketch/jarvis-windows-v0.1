@@ -9,6 +9,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: jarvis-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows-installer:
     runs-on: windows-latest
@@ -37,6 +41,16 @@ jobs:
 
       - name: Run source tests
         run: node --test src/tests/*.test.js
+
+      - name: Lint source
+        run: npm run lint
+
+      - name: Typecheck legacy JS (diagnostic)
+        continue-on-error: true
+        run: npm run typecheck
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Verify Jarvis security and dependencies
         run: npm run verify:jarvis

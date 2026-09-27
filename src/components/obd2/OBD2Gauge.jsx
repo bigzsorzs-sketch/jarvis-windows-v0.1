@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+
 
 export default function OBD2Gauge({ metric, value, min = 0, max = 100, unit = '', color = '#28a745' }) {
   const percentage = Math.min(Math.max((value - min) / (max - min), 0), 1) * 100;

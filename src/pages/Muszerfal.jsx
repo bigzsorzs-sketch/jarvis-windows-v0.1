@@ -7,7 +7,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
 import SensitiveValue from '@/components/common/SensitiveValue';
-import { maskCurrency, maskBloodSugar } from '@/lib/dataMasker';
+import { maskCurrency } from '@/lib/dataMasker';
 
 const SkeletonBar = () => (
   <div className="h-24 bg-gradient-to-r from-secondary via-secondary to-secondary bg-[length:200%_100%] animate-pulse rounded-xl" />

@@ -4,8 +4,8 @@ import { useLang } from '@/lib/i18n';
 import { FileBarChart, Loader2, RefreshCw, Droplets, UtensilsCrossed, CheckSquare, Sparkles, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
-import SensitiveValue from '@/components/common/SensitiveValue';
-import { maskBloodSugar } from '@/lib/dataMasker';
+
+
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload?.length) {

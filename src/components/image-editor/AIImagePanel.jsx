@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import { Sparkles, Upload, X, Loader2, ImagePlus, Trash2, AlertCircle } from 'lucide-react';
 import { getCachedFileUrl, setCachedFileUrl, getFileSHA256 } from '@/lib/aiFileCache';
-import { checkRateLimit, logRequest, getRateLimitWarning } from '@/lib/aiRateLimiter';
+import { checkRateLimit, logRequest } from '@/lib/aiRateLimiter';
 import { estimateTokens, estimateImageTokens, formatTokenCount } from '@/lib/tokenCounter';
 
 const MAX_IMAGES = 20;

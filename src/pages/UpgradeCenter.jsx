@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invokeWithRetry } from '@/lib/llmGateway';
 import { jarvis } from '@/api/jarvisClient';
-import { Zap, Plus, Check, X, ChevronDown, ChevronUp, Loader2, Bot, Sparkles, AlertTriangle, Clock, CheckCircle2, XCircle, Rocket, Copy, MessageCircle } from 'lucide-react';
+import { Plus, Check, X, ChevronDown, ChevronUp, Loader2, Bot, Sparkles, Clock, CheckCircle2, XCircle, Rocket, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const categoryColors = {

@@ -1,4 +1,4 @@
-import { GripVertical, Eye, EyeOff } from 'lucide-react';
+import { GripVertical } from 'lucide-react';
 
 export default function WidgetCard({ children, title, editMode, dragHandleProps }) {
   return (

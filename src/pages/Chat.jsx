@@ -8,7 +8,7 @@ import { detectLanguage } from '@/lib/languageEngine';
 import { routeUserCommand } from '@/lib/CommandRouter';
 import { useLang } from '@/lib/i18n';
 import { useChatVoiceBridge } from '@/hooks/useChatVoiceBridge';
-import { CONFIG } from '@/lib/appConfig';
+
 import { logger } from '@/lib/logger';
 import { runWorkflow } from '@/lib/workflowEngine';
 

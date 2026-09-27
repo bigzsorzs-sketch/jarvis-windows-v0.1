@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import { invokeWithRetry } from '@/lib/llmGateway';
-import { Mail, Loader2, Inbox, Trash2, Reply, Star, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Mail, Loader2, Inbox, Trash2, Reply, Star, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
 import PullToRefresh from '@/components/common/PullToRefresh';

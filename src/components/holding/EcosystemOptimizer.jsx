@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { loadEcosystemData, analyzeEcosystem } from '@/lib/ecosystemEngine';
 import { invokeWithRetry } from '@/lib/llmGateway';
-import { Loader2, Zap, AlertTriangle, CheckCircle2, TrendingUp, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2, Zap, AlertTriangle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+
 
 const PRIORITY_STYLE = {
   high: 'border-red-500/40 bg-red-500/5',

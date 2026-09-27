@@ -58,25 +58,39 @@ function writeJson(file, value) { fs.mkdirSync(path.dirname(file), {recursive:tr
 
 function protectSecret(value) {
   if (!value) return null;
-  if (safeStorage.isEncryptionAvailable()) return { type:'safeStorage', value:safeStorage.encryptString(value).toString('base64') };
-  return { type:'plain-local-fallback', value:Buffer.from(value,'utf8').toString('base64') };
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('WINDOWS_SECURE_STORAGE_UNAVAILABLE');
+  }
+  return { type:'safeStorage', value:safeStorage.encryptString(value).toString('base64') };
 }
 function unprotectSecret(entry) {
-  if (!entry?.value) return '';
+  if (!entry?.value || entry.type !== 'safeStorage' || !safeStorage.isEncryptionAvailable()) return '';
   try {
-    const buf = Buffer.from(entry.value,'base64');
-    if (entry.type === 'safeStorage' && safeStorage.isEncryptionAvailable()) return safeStorage.decryptString(buf);
-    return buf.toString('utf8');
+    return safeStorage.decryptString(Buffer.from(entry.value,'base64'));
   } catch { return ''; }
+}
+
+function purgeInsecureLegacySecrets() {
+  const file = settingsPath();
+  const raw = readJson(file, {});
+  if (raw.openRouterKey && raw.openRouterKey.type !== 'safeStorage') {
+    delete raw.openRouterKey;
+    writeJson(file, raw);
+    return true;
+  }
+  return false;
 }
 
 function getSettingsInternal() {
   const raw = readJson(settingsPath(), {});
+  const hasSecureOpenRouterKey = raw.openRouterKey?.type === 'safeStorage'
+    && safeStorage.isEncryptionAvailable()
+    && Boolean(raw.openRouterKey?.value);
   return {
     language: raw.language || 'hu',
     aiProvider: raw.aiProvider || 'openrouter',
     aiModel: raw.aiModel || 'openrouter/auto',
-    hasOpenRouterKey: Boolean(raw.openRouterKey),
+    hasOpenRouterKey: hasSecureOpenRouterKey,
   };
 }
 
@@ -562,6 +576,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   seedInitialSettings();
+  purgeInsecureLegacySecrets();
   obdBridge = new NativeObdBridge();
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });

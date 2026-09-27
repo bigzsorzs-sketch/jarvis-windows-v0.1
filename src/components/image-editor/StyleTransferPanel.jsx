@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Palette, Upload, X, Loader2, Sparkles, ImagePlus } from 'lucide-react';
+import { Palette, Upload, X, Loader2, Sparkles } from 'lucide-react';
 import { jarvis } from '@/api/jarvisClient';
 import { canvasToBlob } from '@/lib/canvasOptimization.js';
 

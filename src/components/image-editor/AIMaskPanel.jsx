@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wand2, Loader2, Trash2, Check } from 'lucide-react';
+import { Wand2, Loader2, Trash2 } from 'lucide-react';
 import { jarvis } from '@/api/jarvisClient';
 import { canvasToBlob } from '@/lib/canvasOptimization.js';
 

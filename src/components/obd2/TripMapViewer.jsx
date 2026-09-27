@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
-import { X, Navigation2, AlertCircle } from 'lucide-react';
+import { X, AlertCircle } from 'lucide-react';
 import L from 'leaflet';
 
 // Custom markers

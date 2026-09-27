@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderOpen, Save, Cloud, Trash2, Camera, RotateCcw, Plus, ChevronDown, ChevronRight, Clock, HardDrive } from 'lucide-react';
+import { FolderOpen, Cloud, Trash2, Camera, RotateCcw, ChevronDown, ChevronRight, HardDrive } from 'lucide-react';
 import { deserializeLayers } from '@/hooks/useProjectManager';
 
 export default function ProjectManagerPanel({
