@@ -385,10 +385,13 @@ async function fetchLatestRelease() {
   const res=await fetch(UPDATE_API,{headers:{'Accept':'application/vnd.github+json','User-Agent':'Jarvis-Desktop-Updater'}});
   if(!res.ok) throw new Error(`UPDATE_CHECK_${res.status}`);
   const release=await res.json();
+  if (release.draft || release.prerelease) throw new Error('UPDATE_RELEASE_NOT_STABLE');
   const latestVersion=String(release.tag_name||'').replace(/^v/i,'');
-  const exe=(release.assets||[]).find(a => /^Jarvis-Setup-\d+\.\d+\.\d+-x64\.exe$/i.test(a.name||''));
+  if (!/^\d+\.\d+\.\d+$/.test(latestVersion)) throw new Error('UPDATE_VERSION_INVALID');
+  const expectedInstallerName=`Jarvis-Setup-${latestVersion}-x64.exe`;
+  const exe=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === expectedInstallerName.toLowerCase());
   if(!exe) throw new Error('UPDATE_INSTALLER_NOT_FOUND');
-  const checksum=(release.assets||[]).find(a => a.name === `${exe.name}.sha256`);
+  const checksum=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === `${expectedInstallerName}.sha256`.toLowerCase());
   if(!checksum) throw new Error('UPDATE_CHECKSUM_NOT_FOUND');
   return {latestVersion, releaseName:release.name||release.tag_name, publishedAt:release.published_at, exe, checksum};
 }
@@ -416,13 +419,22 @@ async function getAuthenticodeSignature(filePath) {
 async function verifyUpdateSigner(installerPath) {
   const current = await getAuthenticodeSignature(process.execPath);
   const next = await getAuthenticodeSignature(installerPath);
-  if (current.status !== 'Valid' || next.status !== 'Valid' || !current.thumbprint || !next.thumbprint) {
-    throw new Error('UPDATE_SIGNER_UNVERIFIED');
+  const currentSigned = current.status === 'Valid' && Boolean(current.thumbprint);
+  const nextSigned = next.status === 'Valid' && Boolean(next.thumbprint);
+
+  // Once Jarvis is code-signed, never permit an unsigned update or a signer change.
+  if (currentSigned) {
+    if (!nextSigned) throw new Error('UPDATE_SIGNER_UNVERIFIED');
+    if (String(current.thumbprint).toUpperCase() !== String(next.thumbprint).toUpperCase()) {
+      throw new Error('UPDATE_SIGNER_MISMATCH');
+    }
+    return { ...next, verification:'authenticode' };
   }
-  if (String(current.thumbprint).toUpperCase() !== String(next.thumbprint).toUpperCase()) {
-    throw new Error('UPDATE_SIGNER_MISMATCH');
-  }
-  return next;
+
+  // Existing community builds are unsigned. Their update trust anchor is the
+  // mandatory SHA-256 asset from the stable GitHub Release. If a future update
+  // is signed, report that fact and preserve the stricter policy thereafter.
+  return { ...next, verification:nextSigned ? 'sha256+authenticode' : 'sha256' };
 }
 
 async function oneClickUpdate() {
@@ -433,6 +445,7 @@ async function oneClickUpdate() {
   }
 
   const tempDir=path.join(app.getPath('temp'),`Jarvis-Upgrade-${release.latestVersion}`);
+  fs.rmSync(tempDir,{recursive:true,force:true});
   fs.mkdirSync(tempDir,{recursive:true});
   const installerPath=path.join(tempDir,release.exe.name);
   const checksumPath=`${installerPath}.sha256`;
@@ -479,7 +492,14 @@ Start-Process -FilePath $appExe
   });
   child.unref();
   setTimeout(()=>app.quit(),700);
-  return {status:'installing',currentVersion,latestVersion:release.latestVersion,backupRoot,signer:signer.subject || signer.thumbprint};
+  return {
+    status:'installing',
+    currentVersion,
+    latestVersion:release.latestVersion,
+    backupRoot,
+    verification:signer.verification,
+    signer:signer.subject || signer.thumbprint || null
+  };
 }
 
 function payloadContainsSensitiveContext(payload={}) {
