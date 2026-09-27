@@ -10,7 +10,7 @@ const CORE_RULE_IDS = new Set(['RULE-00','RULE-01','RULE-02','RULE-03','RULE-04'
 const HIGH_RISK_ACTIONS = new Set([
   'system_file_write','system_file_delete','registry_write','registry_delete','service_stop','service_disable',
   'user_privilege_change','disk_format','boot_config_change','security_feature_disable','firewall_rule_change',
-  'driver_install','scheduled_task_system','hosts_file_write'
+  'driver_install','scheduled_task_system','hosts_file_write','account_delete','obd_write'
 ]);
 
 class PolicyEngine {
