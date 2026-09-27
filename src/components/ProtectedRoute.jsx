@@ -9,29 +9,15 @@ const DefaultFallback = () => (
   </div>
 );
 
-export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthenticatedElement }) {
+export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthenticatedElement = null }) {
   const { isAuthenticated, isLoadingAuth, authChecked, authError, checkUserAuth } = useAuth();
 
   useEffect(() => {
-    if (!authChecked && !isLoadingAuth) {
-      checkUserAuth();
-    }
+    if (!authChecked && !isLoadingAuth) checkUserAuth?.();
   }, [authChecked, isLoadingAuth, checkUserAuth]);
 
-  if (isLoadingAuth || !authChecked) {
-    return fallback;
-  }
-
-  if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    }
-    return unauthenticatedElement;
-  }
-
-  if (!isAuthenticated) {
-    return unauthenticatedElement;
-  }
-
+  if (isLoadingAuth || !authChecked) return fallback;
+  if (authError?.type === 'user_not_registered') return <UserNotRegisteredError />;
+  if (authError || !isAuthenticated) return unauthenticatedElement;
   return <Outlet />;
 }
