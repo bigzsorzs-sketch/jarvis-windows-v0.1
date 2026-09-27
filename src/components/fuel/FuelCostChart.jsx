@@ -2,7 +2,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 
 export default function FuelCostChart({ logs }) {
   const chartData = [...logs]
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .map((log) => ({
       date: new Date(log.date).toLocaleDateString('hu-HU', { month: 'short', day: 'numeric' }),
       cost: Number(log.total_cost || 0),
