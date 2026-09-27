@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
-  testAiConnection: () => ipcRenderer.invoke('jarvis:ai:test-connection'),
+  testAiConnection: (apiKey = '') => ipcRenderer.invoke('jarvis:ai:test-connection', { apiKey }),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
   localDeviceRequest: (request) => ipcRenderer.invoke('jarvis:device:request', request),
