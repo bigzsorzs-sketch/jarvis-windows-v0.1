@@ -606,12 +606,14 @@ function functionPolicyAction(name, payload={}) {
       || (Array.isArray(payload?.image_urls) && payload.image_urls.length > 0)
       || (Array.isArray(payload?.existing_image_urls) && payload.existing_image_urls.length > 0)
     );
-  const sendsSensitiveText = externalAiFunctions.includes(functionName) && payloadContainsSensitiveContext(payload);
+  // Normal text chat is an explicitly configured OpenRouter feature and must not
+  // interrupt every message with an owner-confirmation dialog. Attachments/images
+  // still cross the sensitive-data confirmation boundary.
   return {
     type: functionName === 'deleteAccount' ? 'account_delete' : `function:${functionName}`,
     target:functionName,
     authorised:localOwnerAuthorised(),
-    transmitsSensitiveData:hasExternalImages || sendsSensitiveText
+    transmitsSensitiveData:hasExternalImages
   };
 }
 
