@@ -415,7 +415,15 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       } else if (!networkMonitor.isOnline()) {
         setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: 'Most offline vagy. Az üzenetet később újra megpróbálhatod.' }]));
       } else {
-        const userMsg = err?.message?.includes('429') ? '⚠️ Rendszer túlterhelt. Próbáld újra pár másodperc múlva.' : `${t('error_occurred')}. ${t('try_again')}`;
+        const errorMessage = String(err?.message || '');
+        let userMsg = `${t('error_occurred')}. ${t('try_again')}`;
+        if (errorMessage.includes('OPENROUTER_API_KEY_REQUIRED')) {
+          userMsg = '⚠️ Az AI funkciókhoz még nincs OpenRouter API-kulcs beállítva. A helyi Jarvis-funkciók ettől továbbra is működnek.';
+        } else if (errorMessage.includes('401') || errorMessage.includes('OPENROUTER_401')) {
+          userMsg = '⚠️ Az OpenRouter API-kulcsot a szolgáltató elutasította. Ellenőrizd a Beállításokban.';
+        } else if (errorMessage.includes('429')) {
+          userMsg = '⚠️ Rendszer túlterhelt. Próbáld újra pár másodperc múlva.';
+        }
         setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: userMsg }]));
       }
     } finally {
