@@ -7,6 +7,46 @@ import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { findFastChatReply } from '@/lib/fastChatReplies';
 import { isCodeAssistantRequest, runCodeAssistantTurn } from '@/lib/codeAssistant';
 
+function normalizeIntentText(text = '') {
+  return String(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function isSystemCheckRequest(text = '') {
+  const input = normalizeIntentText(text);
+  return /(?:teljes\s+)?rendszer\s*ellenorzes/.test(input)
+    || /rendszert\s+ellenoriz/.test(input)
+    || /system\s+check/.test(input);
+}
+
+function formatSystemCheck(result = {}) {
+  const checks = Array.isArray(result.checks) ? result.checks : [];
+  const lines = checks.map((check) => {
+    const icon = check.ok ? '✅' : check.severity === 'critical' ? '❌' : '⚠️';
+    return `${icon} ${check.label}: ${check.detail}`;
+  });
+  const heading = result.ok
+    ? `✅ Rendszerellenőrzés kész${result.appVersion ? ` – Jarvis v${result.appVersion}` : ''}.`
+    : `⚠️ A rendszerellenőrzés hibát talált${result.appVersion ? ` – Jarvis v${result.appVersion}` : ''}.`;
+  return [heading, ...lines].join('\n');
+}
+
+async function runLocalSystemCheck(text) {
+  if (!isSystemCheckRequest(text)) return null;
+  if (typeof window === 'undefined' || typeof window.jarvisDesktop?.runSystemCheck !== 'function') {
+    return { handled: true, intent: 'system_check', reply: '❌ A helyi rendszerellenőrzés ezen a felületen nem érhető el.' };
+  }
+  try {
+    const result = await window.jarvisDesktop.runSystemCheck();
+    return { handled: true, intent: 'system_check', reply: formatSystemCheck(result), actionResults: result?.checks || [] };
+  } catch (error) {
+    return { handled: true, intent: 'system_check', reply: `❌ A rendszerellenőrzés nem futott le: ${error?.message || 'ismeretlen hiba'}` };
+  }
+}
+
 async function findLegacyCallCommand(text, handlers = {}) {
   const lower = text.toLowerCase();
   if (!isCallCommand(lower)) return null;
@@ -42,6 +82,9 @@ export async function routeUserCommand({
 
   const fastReply = attachedFiles.length === 0 ? findFastChatReply(input, lang) : null;
   if (fastReply) return fastReply;
+
+  const localSystemCheck = attachedFiles.length === 0 ? await runLocalSystemCheck(input) : null;
+  if (localSystemCheck) return localSystemCheck;
 
   const uiCommand = findLocalUiCommand(input);
   if (uiCommand) return uiCommand;
