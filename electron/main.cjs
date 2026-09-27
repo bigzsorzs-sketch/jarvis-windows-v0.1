@@ -221,9 +221,9 @@ async function openRouterRequest(payload={}) {
   } };
 }
 
-async function testOpenRouterConnection() {
+async function testOpenRouterConnection(candidateApiKey = '') {
   const raw = readJson(settingsPath(), {});
-  const apiKey = unprotectSecret(raw.openRouterKey);
+  const apiKey = String(candidateApiKey || '').trim() || unprotectSecret(raw.openRouterKey);
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
   const response = await fetch('https://openrouter.ai/api/v1/models?sort=most-popular', {
     headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
@@ -708,7 +708,13 @@ async function runSystemCheck() {
 
   try {
     const raw = readJson(settingsPath(), {});
-    add('ai', 'AI konfiguráció', Boolean(raw.openRouterKey), raw.openRouterKey ? 'OpenRouter kulcs beállítva' : 'Nincs OpenRouter kulcs', raw.openRouterKey ? 'normal' : 'warning');
+    const decryptedKey = unprotectSecret(raw.openRouterKey);
+    if (!decryptedKey) {
+      add('ai', 'AI / OpenRouter', false, 'Nincs használható OpenRouter API-kulcs', 'warning');
+    } else {
+      const aiStatus = await testOpenRouterConnection();
+      add('ai', 'AI / OpenRouter', aiStatus.success === true, aiStatus.success ? `Kapcsolat rendben · ${aiStatus.modelCount} modell` : 'OpenRouter kapcsolat sikertelen', aiStatus.success ? 'normal' : 'warning');
+    }
   } catch (error) {
     add('ai', 'AI konfiguráció', false, error?.message || error, 'warning');
   }
@@ -886,9 +892,14 @@ app.whenReady().then(() => {
       overrideToken:payload?.__ownerOverrideToken || null
     }
   ));
-  ipcMain.handle('jarvis:ai:test-connection', () => guarded(
+  ipcMain.handle('jarvis:ai:test-connection', (_event, payload={}) => guarded(
     { type:'openrouter_connection_test', target:'openrouter.ai' },
-    () => testOpenRouterConnection()
+    async () => {
+      const candidateApiKey = String(payload?.apiKey || '').trim();
+      const result = await testOpenRouterConnection(candidateApiKey);
+      if (candidateApiKey) await saveSettingsInternal({ openRouterApiKey:candidateApiKey });
+      return result;
+    }
   ));
   ipcMain.handle('jarvis:ai:list-models', async () => {
     const raw=readJson(settingsPath(),{}); const key=unprotectSecret(raw.openRouterKey);
