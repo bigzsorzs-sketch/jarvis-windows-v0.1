@@ -27,6 +27,8 @@ export class DesktopOBDManager extends BaseOBD2Manager {
         type: 'wifi',
         address: this.options.address || '192.168.0.10:35000',
       });
+      if (!result?.success || result.adapterReady !== true) throw new Error('OBD_ADAPTER_NOT_READY');
+      if (!result?.success || result.adapterReady !== true) throw new Error('OBD_ADAPTER_NOT_READY');
       this.deviceName = result.device;
       this.isConnected = true;
       return result;
