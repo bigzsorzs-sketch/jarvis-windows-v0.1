@@ -32,6 +32,10 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
     restore: (passphrase) => ipcRenderer.invoke('jarvis:backup:restore', { passphrase }),
   },
   runSystemCheck: () => ipcRenderer.invoke('jarvis:system:check'),
+  repair: {
+    plan: (report) => ipcRenderer.invoke('jarvis:repair:plan', report),
+    apply: (repairId) => ipcRenderer.invoke('jarvis:repair:apply', { repairId }),
+  },
   obd: {
     listPorts: () => ipcRenderer.invoke('jarvis:obd:list-ports'),
     connect: (options) => ipcRenderer.invoke('jarvis:obd:connect', options),
