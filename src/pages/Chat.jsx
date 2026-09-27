@@ -27,6 +27,8 @@ import { selfHealingMonitor } from '@/lib/selfHealingMonitor';
 import { handleSelfAuditCommand } from '@/lib/selfAuditCommand';
 import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
 import { useSystemStore } from '@/lib/appStore';
+import JarvisVoiceStage from '@/components/command-center/JarvisVoiceStage';
+import CommandCenterActions from '@/components/command-center/CommandCenterActions';
 
 import SetupWizard from '@/components/setup/SetupWizard';
 import ChatHeader from '@/components/chat/ChatHeader';
@@ -79,7 +81,6 @@ export default function Chat() {
     const next = !voice.state.handsFree;
     voice.setHandsFree(next);
     sessionPersistence.save({ handsFree: next });
-    if (next) navigate('/live-assistant');
   }, [navigate, voice]);
 
   const toggleVoice = useCallback(() => {
@@ -547,6 +548,11 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       />
 
       <ActiveRouteCard activeRoute={activeRoute} onFinishTrip={handleFinishTrip} />
+
+      <div className="jarvis-command-center-hero">
+        <JarvisVoiceStage voice={voice} />
+        <CommandCenterActions onNavigate={navigate} />
+      </div>
 
       <ChatHeader
         aiName={ctx?.settings?.ai_name}
