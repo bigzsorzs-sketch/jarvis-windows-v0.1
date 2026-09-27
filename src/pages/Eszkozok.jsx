@@ -6,11 +6,7 @@ import { useState, useEffect } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import { listEntity } from '@/lib/apiThrottler';
 import { updateOwnedEntity, deleteOwnedEntity } from '@/lib/ownedEntityHelpers';
-import {
-  Navigation, ChevronDown, ChevronUp,
-  Plus, Trash2, FileEdit, Pill, Droplets, UtensilsCrossed,
-  Phone
-} from 'lucide-react';
+import { Navigation, ChevronDown, ChevronUp, Plus, Trash2, FileEdit, Pill, Droplets, UtensilsCrossed, Phone } from 'lucide-react';
 import RuleEngine from '@/components/rules/RuleEngine';
 import GlucoSensorConnector from '@/components/glucose/GlucoSensorConnector';
 import { useLang } from '@/lib/i18n';
@@ -20,7 +16,7 @@ import QuickActionButtons from '@/components/tools/QuickActionButtons';
 import ToolsTodoPanel from '@/components/tools/ToolsTodoPanel';
 import ToolsActionModal from '@/components/tools/ToolsActionModal';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link } from 'react-router-dom';
+
 import PullToRefresh from '@/components/common/PullToRefresh';
 import MobileSelect from '@/components/common/MobileSelect';
 import SensitiveValue from '@/components/common/SensitiveValue';
