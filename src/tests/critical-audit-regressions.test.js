@@ -156,12 +156,26 @@ test('misleading implementation and random scan UI markers are gone', () => {
   assert.equal(scanner.includes('scanProgress'), true);
 });
 
-test('Smart Home does not mutate stored device status after an unverified physical command', () => {
+test('Smart Home physical actions are policy-gated and never mutate state after unverified control', () => {
   const env = read('src/lib/environmentTools.js');
+  const main = read('electron/main.cjs');
+  const preload = read('electron/preload.cjs');
   const failureIndex = env.indexOf('if (!apiResult)');
   const updateIndex = env.indexOf("jarvis.entities.SmartDevice.update(device.id");
   assert.equal(failureIndex >= 0, true);
   assert.equal(updateIndex > failureIndex, true);
   assert.equal(env.includes('real_control:false, verified:false'), true);
+  assert.equal(env.includes('await fetch('), false);
+  assert.equal(preload.includes("ipcRenderer.invoke('jarvis:device:request'"), true);
+  assert.equal(main.includes("ipcMain.handle('jarvis:device:request'"), true);
+  assert.equal(main.includes("type:request.readOnly === true ? 'device_status' : 'device_control'"), true);
+  assert.equal(main.includes('LOCAL_DEVICE_HOST_BLOCKED'), true);
+});
+
+test('release build has a committed dependency lock and CI installs it immutably', () => {
+  const workflow = read('.github/workflows/build-windows.yml');
+  assert.equal(fs.existsSync(path.join(root, 'package-lock.json')), true);
+  assert.equal(workflow.includes('run: npm ci'), true);
+  assert.equal(workflow.includes('npm install'), false);
 });
 
