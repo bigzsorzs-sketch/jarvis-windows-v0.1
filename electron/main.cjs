@@ -98,6 +98,8 @@ function getSettingsInternal() {
     language: raw.language || 'hu',
     aiProvider: raw.aiProvider || 'openrouter',
     aiModel: raw.aiModel || 'openrouter/auto',
+    aiRoutingMode: raw.aiRoutingMode || 'smart',
+    aiCostTier: raw.aiCostTier || 'low',
     hasOpenRouterKey: hasSecureOpenRouterKey,
   };
 }
@@ -107,6 +109,8 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.language === 'string') raw.language = patch.language;
   if (typeof patch.aiProvider === 'string') raw.aiProvider = patch.aiProvider;
   if (typeof patch.aiModel === 'string') raw.aiModel = patch.aiModel;
+  if (['smart','manual'].includes(patch.aiRoutingMode)) raw.aiRoutingMode = patch.aiRoutingMode;
+  if (['low','medium','high','xhigh','max'].includes(patch.aiCostTier)) raw.aiCostTier = patch.aiCostTier;
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
@@ -146,8 +150,16 @@ async function openRouterRequest(payload={}) {
   const raw = readJson(settingsPath(), {});
   const apiKey = unprotectSecret(raw.openRouterKey);
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
-  const requestedModel = String(payload.model || '');
-  const model = requestedModel.includes('/') ? requestedModel : (raw.aiModel || 'openrouter/auto');
+  const requestedModel = String(payload.model || '').trim();
+  const routingMode = String(raw.aiRoutingMode || 'smart');
+  const taskType = String(payload.task_type || payload.taskType || 'general').toLowerCase();
+  const taskTier = ['code','coding','repair','development','reasoning','analysis'].includes(taskType) ? 'medium' : 'low';
+  const requestedTier = String(payload.cost_tier || raw.aiCostTier || taskTier);
+  const allowedTiers = new Set(['low','medium','high','xhigh','max']);
+  const costTier = allowedTiers.has(requestedTier) ? requestedTier : taskTier;
+  const model = requestedModel.includes('/')
+    ? requestedModel
+    : (routingMode === 'manual' ? (raw.aiModel || 'openrouter/auto') : 'openrouter/auto');
 
   let messages = Array.isArray(payload.messages) && payload.messages.length
     ? payload.messages.map((message) => ({ ...message }))
@@ -178,7 +190,8 @@ async function openRouterRequest(payload={}) {
     }
   }
 
-  const body = { model, messages };
+  const body = { model, messages, usage:{ include:true } };
+  if (model === 'openrouter/auto') body.cost_tier = costTier;
   if (payload.response_json_schema) body.response_format = { type:'json_object' };
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method:'POST',
@@ -197,7 +210,28 @@ async function openRouterRequest(payload={}) {
   if (payload.response_json_schema) {
     try { result = JSON.parse(content); } catch {}
   }
-  return { success:true, data:{ result, model:json.model || model, usage:json.usage || null } };
+  return { success:true, data:{
+    result,
+    model:json.model || model,
+    requestedModel:model,
+    routingMode,
+    costTier,
+    usage:json.usage || null,
+    cost:Number(json?.usage?.cost ?? 0) || 0
+  } };
+}
+
+async function testOpenRouterConnection() {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = unprotectSecret(raw.openRouterKey);
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
+  const response = await fetch('https://openrouter.ai/api/v1/models?sort=most-popular', {
+    headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
+  });
+  if (!response.ok) throw new Error(`OPENROUTER_CONNECTION_${response.status}`);
+  const json = await response.json();
+  const models = Array.isArray(json?.data) ? json.data : [];
+  return { success:true, modelCount:models.length, routingMode:raw.aiRoutingMode || 'smart', costTier:raw.aiCostTier || 'low' };
 }
 
 async function listOpenRouterImageModels(apiKey) {
@@ -844,6 +878,10 @@ app.whenReady().then(() => {
       message:'Jarvis külső szolgáltatásnak érzékeny adatot küldene, vagy kiemelt műveletet hajtana végre.',
       overrideToken:payload?.__ownerOverrideToken || null
     }
+  ));
+  ipcMain.handle('jarvis:ai:test-connection', () => guarded(
+    { type:'openrouter_connection_test', target:'openrouter.ai' },
+    () => testOpenRouterConnection()
   ));
   ipcMain.handle('jarvis:ai:list-models', async () => {
     const raw=readJson(settingsPath(),{}); const key=unprotectSecret(raw.openRouterKey);
