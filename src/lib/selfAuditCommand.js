@@ -4,50 +4,64 @@ export function isSelfAuditCommand(input, source = 'chat') {
   return source === 'chat' && input === COMMAND;
 }
 
-function renderAuditReport(user) {
+function runtimeChecks() {
+  const desktop = typeof window !== 'undefined' ? window.jarvisDesktop : null;
   return [
+    ['Electron bridge', Boolean(desktop)],
+    ['Policy engine bridge', Boolean(desktop?.getRules && desktop?.evaluateAction)],
+    ['System health check', Boolean(desktop?.runSystemCheck)],
+    ['Encrypted backup bridge', Boolean(desktop?.backup?.create && desktop?.backup?.restore)],
+    ['OBD bridge', Boolean(desktop?.obd?.connect && desktop?.obd?.send)],
+    ['One-click updater', Boolean(desktop?.oneClickUpdate)],
+  ];
+}
+
+async function renderAuditReport(user) {
+  const checks = runtimeChecks();
+  let systemReport = null;
+  try {
+    if (window.jarvisDesktop?.runSystemCheck) systemReport = await window.jarvisDesktop.runSystemCheck();
+  } catch {}
+
+  const lines = [
     'Private admin self-audit report',
     '',
-    'Overall score: 88/100',
+    'Overall score: not calculated.',
+    'Reason: Jarvis no longer reports a fixed self-rating. Only checks actually executed at runtime are shown.',
     '',
-    'Critical issues:',
-    '- Browser SpeechSynthesis audio cannot be reliably analysed by Web Audio; true amplitude lip sync is active only for audio-element TTS playback.',
-    '- Final CI build, Play Store bundle validation, and Snyk/dependency scan still require external verification.',
+    'Runtime capability checks:',
+    ...checks.map(([name, ok]) => `- ${ok ? 'PASS' : 'FAIL'}: ${name}`),
+  ];
+
+  if (systemReport?.checks?.length) {
+    lines.push(
+      '',
+      `System check: ${systemReport.ok ? 'PASS' : 'ATTENTION'} · app v${systemReport.appVersion || '?'}`,
+      ...systemReport.checks.map((check) => `- ${check.ok ? 'PASS' : 'WARN'}: ${check.label} — ${check.detail}`)
+    );
+  }
+
+  lines.push(
     '',
-    'Warnings:',
-    '- Some legacy user-facing error strings remain hardcoded in Hungarian/English in chat, contacts, and tool flows.',
-    '- uuid@13 remains an accepted transitive SDK dependency risk; app code does not directly import it.',
-    '- Package warnings should be reviewed in CI because this in-app audit cannot run npm/build/security scanners.',
+    'Release checks that cannot be truthfully inferred from the running UI:',
+    '- Source syntax and automated tests',
+    '- Production build result',
+    '- Packaged Windows startup smoke test',
+    '- Dependency/security scan',
     '',
-    'Passed checks:',
-    '- Voice runtime has a guarded mic state machine, restart cooldowns, TTS overlap blocking, and no mic capture during speaking.',
-    '- Typed chat replies can trigger TTS through the central voice runtime when auto-speak, hands-free, or TTS settings are enabled.',
-    '- LLM gateway uses queue locking, duplicate active-key protection, retry/backoff for overload, prompt/token validation, and error bubbling.',
-    '- Avatar loader inspects GLB morphTargetDictionary and morphTargetInfluences, logs available morph targets, and reports no lip-sync targets clearly.',
-    '- Real lip-sync bus is present and uses AudioContext, AnalyserNode, RMS amplitude, lerp smoothing, clamping, and requestAnimationFrame lifecycle.',
-    '- Static model fallback does not fake mouth movement when no morph targets are available.',
-    '- Public diagnostic/test routes and visible debug pages were removed from the main router.',
-    '- Native alert/confirm/prompt are replaced by the custom in-app dialog bridge.',
-    '- Safe-area insets, dark mode tokens, visible focus rings, and 44px touch targets are globally configured.',
-    '- Raw JSON-like assistant output is normalized before display in the main chat flow.',
+    'Those must come from CI/build evidence, not a hard-coded score.',
     '',
-    'Recommended next fixes:',
-    '- Prefer generated audio-element TTS for all avatar speech paths so Web Audio lip sync works consistently.',
-    '- Finish localization cleanup for remaining hardcoded user-facing strings.',
-    '- Run production CI: npm ci, build, tests, Snyk/dependency scan, Android WebView smoke test, and Play Console pre-launch report.',
-    '- Verify one production GLB with real mouthOpen/jawOpen/viseme morph targets on device.',
-    '',
-    'Ready for Play Store closed testing: no',
-    '',
-    `Audited as: ${user?.email || 'admin'}`,
-  ].join('\n');
+    `Audited as: ${user?.email || 'owner'}`
+  );
+
+  return lines.join('\n');
 }
 
 export async function handleSelfAuditCommand({ input, source = 'chat', getCurrentUser }) {
   if (!isSelfAuditCommand(input, source)) return null;
   const user = await getCurrentUser?.();
-  if (user?.role !== 'admin') {
+  if (!['admin', 'owner'].includes(user?.role)) {
     return { handled: true, reply: 'I can’t run that command.' };
   }
-  return { handled: true, reply: renderAuditReport(user) };
+  return { handled: true, reply: await renderAuditReport(user) };
 }
