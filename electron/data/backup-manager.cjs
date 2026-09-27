@@ -109,6 +109,19 @@ class BackupManager {
     }
 
     if (!payload?.database) throw new Error('BACKUP_DATABASE_MISSING');
+
+    const confirmation = await this.dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['Mégse', 'Visszaállítás'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: 'Jarvis mentés visszaállítása',
+      message: 'A jelenlegi helyi adatok helyére a kiválasztott mentés kerül.',
+      detail: 'A visszaállítás csak külön jóváhagyás után indul. Importhiba esetén az adatbázis tranzakció visszaáll az eredeti állapotra.'
+    });
+    if (confirmation.response !== 1) return { canceled: true };
+
     this.database.importSnapshot(payload.database);
     if (payload.settings && typeof payload.settings === 'object') await this.saveSettings(payload.settings, { fromBackup: true });
 
