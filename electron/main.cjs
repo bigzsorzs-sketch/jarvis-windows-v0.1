@@ -70,13 +70,27 @@ function unprotectSecret(entry) {
   } catch { return ''; }
 }
 
+function purgeInsecureLegacySecrets() {
+  const file = settingsPath();
+  const raw = readJson(file, {});
+  if (raw.openRouterKey && raw.openRouterKey.type !== 'safeStorage') {
+    delete raw.openRouterKey;
+    writeJson(file, raw);
+    return true;
+  }
+  return false;
+}
+
 function getSettingsInternal() {
   const raw = readJson(settingsPath(), {});
+  const hasSecureOpenRouterKey = raw.openRouterKey?.type === 'safeStorage'
+    && safeStorage.isEncryptionAvailable()
+    && Boolean(raw.openRouterKey?.value);
   return {
     language: raw.language || 'hu',
     aiProvider: raw.aiProvider || 'openrouter',
     aiModel: raw.aiModel || 'openrouter/auto',
-    hasOpenRouterKey: Boolean(raw.openRouterKey),
+    hasOpenRouterKey: hasSecureOpenRouterKey,
   };
 }
 
@@ -562,6 +576,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   seedInitialSettings();
+  purgeInsecureLegacySecrets();
   obdBridge = new NativeObdBridge();
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
