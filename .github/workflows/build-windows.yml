@@ -27,7 +27,21 @@ jobs:
           node-version: '24'
 
       - name: Install locked dependencies
-        run: npm ci
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Host "npm ci attempt $attempt of $maxAttempts"
+            npm ci
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($attempt -lt $maxAttempts) {
+              Write-Warning "npm ci failed; clearing npm cache and retrying after transient registry failure."
+              npm cache clean --force
+              Start-Sleep -Seconds (5 * $attempt)
+            }
+          }
+          throw "npm ci failed after $maxAttempts attempts"
 
       - name: Verify dependency lock is clean
         shell: pwsh
