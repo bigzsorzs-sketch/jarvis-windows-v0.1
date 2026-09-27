@@ -179,3 +179,29 @@ test('release build has a committed dependency lock and CI installs it immutably
   assert.equal(workflow.includes('npm install'), false);
 });
 
+test('ordinary chat omits private knowledge base unless the request needs it', () => {
+  const chat = read('src/lib/chatOrchestrator.js');
+  assert.equal(chat.includes('function buildPublicSystemPrompt'), true);
+  assert.equal(chat.includes('privateContextRequested'), true);
+  assert.equal(chat.includes('? buildSystemPrompt(ctx, langInstruction, userMood)'), true);
+  assert.equal(chat.includes(': buildPublicSystemPrompt(ctx, langInstruction, userMood)'), true);
+  assert.equal(chat.includes('safeHistoryForCloud(history, privateContextRequested)'), true);
+});
+
+test('date/time and full system check requests are handled locally before cloud AI', () => {
+  const fast = read('src/lib/fastChatReplies.js');
+  const router = read('src/lib/CommandRouter.js');
+  assert.equal(fast.includes("intent: 'fast_local_date'"), true);
+  assert.equal(fast.includes("intent: 'fast_local_time'"), true);
+  assert.equal(router.includes("intent: 'system_check'"), true);
+  assert.equal(router.includes('window.jarvisDesktop.runSystemCheck()'), true);
+  assert.equal(router.indexOf('runLocalSystemCheck(input)') < router.indexOf('runAssistantTurn({'), true);
+});
+
+test('chat explains a missing or rejected OpenRouter key instead of generic failure', () => {
+  const chatPage = read('src/pages/Chat.jsx');
+  assert.equal(chatPage.includes('OPENROUTER_API_KEY_REQUIRED'), true);
+  assert.equal(chatPage.includes('OpenRouter API-kulcs'), true);
+  assert.equal(chatPage.includes('OPENROUTER_401'), true);
+});
+
