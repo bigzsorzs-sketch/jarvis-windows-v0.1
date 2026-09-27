@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('jarvisDesktop', {
   platform: process.platform,
+  capabilities: { recordedStt:false, remoteTts:false, gmailOAuth:false, cloudSync:false },
   invokeFunction: (name, payload) => ipcRenderer.invoke('jarvis:function:invoke', name, payload),
   getSystemContext: () => ipcRenderer.invoke('jarvis:system:context'),
   getRules: () => ipcRenderer.invoke('jarvis:policy:rules'),
