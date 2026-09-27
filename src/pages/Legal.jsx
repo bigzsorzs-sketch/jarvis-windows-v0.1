@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { jarvis } from '@/api/jarvisClient';
-import { Scale, Search, Loader2, ChevronDown, ChevronUp, BookOpen, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Scale, Search, Loader2, ChevronDown, ChevronUp, BookOpen, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
 import PullToRefresh from '@/components/common/PullToRefresh';
