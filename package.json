@@ -116,7 +116,8 @@
     "typescript": "^5.8.2",
     "vite": "^6.1.0",
     "wait-on": "^8.0.2",
-    "@types/leaflet": "^1.9.22"
+    "@types/leaflet": "^1.9.22",
+    "@types/three": "^0.171.0"
   },
   "build": {
     "appId": "com.jarvis.desktop",
