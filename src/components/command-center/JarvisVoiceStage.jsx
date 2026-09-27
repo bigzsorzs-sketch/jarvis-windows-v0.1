@@ -16,6 +16,9 @@ export default function JarvisVoiceStage({ voice, title = "Hi, I'm Jarvis.", sub
           <path className="energy-wave wave-one" d="M0 112 C90 35 150 35 240 112 S390 189 480 112 S630 35 720 112 S870 189 960 112 S1110 35 1200 112" />
           <path className="energy-wave wave-two" d="M0 112 C90 178 150 178 240 112 S390 46 480 112 S630 178 720 112 S870 46 960 112 S1110 178 1200 112" />
           <path className="energy-wave wave-three" d="M0 112 C110 72 170 72 260 112 S410 152 500 112 S650 72 740 112 S890 152 980 112 S1120 72 1200 112" />
+          <path className="energy-wave wave-four" d="M0 112 C75 88 125 61 205 112 S340 160 420 112 S555 64 635 112 S770 158 850 112 S1000 68 1200 112" />
+          <path className="energy-wave wave-five" d="M0 112 C100 132 160 151 245 112 S385 73 470 112 S610 151 695 112 S835 73 920 112 S1080 139 1200 112" />
+          <path className="energy-wave wave-six" d="M0 112 C120 101 165 87 255 112 S405 137 495 112 S645 87 735 112 S885 137 975 112 S1120 98 1200 112" />
         </svg>
       </div>
 
