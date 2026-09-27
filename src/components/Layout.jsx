@@ -132,7 +132,7 @@ export default function Layout() {
           <MobileHeader />
         </div>
 
-        <header className="jarvis-topbar hidden h-[72px] shrink-0 items-center justify-between px-7 md:flex xl:px-9">
+        <header className="jarvis-topbar jarvis-reference-topbar hidden h-[42px] shrink-0 items-center justify-between px-5 md:flex">
           <div className="min-w-0">
             <div className="mb-1 flex items-center gap-2 text-[10px] font-bold tracking-[0.22em] text-primary/70">
               <span>{pageEyebrow}</span>
