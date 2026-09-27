@@ -2,15 +2,22 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, MicOff, Square } from 'lucide-react';
 import { requestMicrophonePermission } from '@/lib/microphonePermission';
+import { useLang } from '@/lib/i18n';
 
 export default function JarvisVoiceStage({
   voice,
   busy = false,
   busyLabel = '',
   actions = null,
-  title = "Hi, I'm Jarvis.",
-  subtitle = 'I can think, plan, create, and take action with you.'
+  title = null,
+  subtitle = null
 }) {
+  const { lang } = useLang();
+  const hu = lang === 'hu';
+  const displayTitle = title || (hu ? 'Szia, Jarvis vagyok.' : "Hi, I'm Jarvis.");
+  const displaySubtitle = subtitle || (hu
+    ? 'Gondolkodom, tervezek, alkotok és veled együtt végrehajtok.'
+    : 'I can think, plan, create, and take action with you.');
   const [micError, setMicError] = useState('');
   const runtimePhase = voice?.state?.phase || 'idle';
   const phase = busy && runtimePhase !== 'speaking' ? 'processing' : runtimePhase;
@@ -26,7 +33,7 @@ export default function JarvisVoiceStage({
         ? (busyLabel || 'Gondolkodom…')
         : listening
           ? 'Figyelek…'
-          : 'Speak naturally… I’m listening.');
+          : (hu ? 'Beszélj természetesen… figyelek.' : 'Speak naturally… I’m listening.'));
 
   const orbPhaseClass = speaking
     ? ' is-speaking'
@@ -86,8 +93,8 @@ export default function JarvisVoiceStage({
       </motion.div>
 
       <div className="jarvis-command-copy">
-        <h2>{title}</h2>
-        <p>{subtitle}</p>
+        <h2>{displayTitle}</h2>
+        <p>{displaySubtitle}</p>
       </div>
 
       {actions}
