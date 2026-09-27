@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home, MessageCircle, BarChart3, Brain, Wrench, Settings, MoreHorizontal, X,
-  Car, Activity, Sparkles, ShieldCheck, Wifi, Radio, Cpu, ChevronRight, Database
+  Car, Activity, ShieldCheck, Wifi, Radio, Cpu, ChevronRight, Database
 } from 'lucide-react';
 import LocationSensor from './jarvis/LocationSensor';
 import LanguagePicker from './chat/LanguagePicker';
@@ -57,7 +57,6 @@ export default function Layout() {
   ];
 
   const systemNav = [
-    { path: '/live-assistant', label: 'Live Assistant', icon: Sparkles },
     { path: '/automotive', label: 'Automotive', icon: Car },
     { path: '/obd2', label: 'OBD-II', icon: Activity },
     { path: '/tools/finance', label: 'Finance', icon: BarChart3 },
@@ -73,7 +72,7 @@ export default function Layout() {
       p.startsWith('/eszkozok') ||
       p.startsWith('/tools/') ||
       toolPaths.has(p) ||
-      ['/muszerfal','/memoria','/automotive','/obd2','/live-assistant'].includes(p)
+      ['/muszerfal','/memoria','/automotive','/obd2'].includes(p)
     ) return '/eszkozok';
     return p;
   })();
