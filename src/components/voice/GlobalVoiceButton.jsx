@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { jarvis } from '@/api/jarvisClient';
+
 import { Mic, MicOff, Loader2, X, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { loadFullContext, buildSystemPrompt, parseActions, executeActions } from '@/lib/assistantTools';
