@@ -613,7 +613,7 @@ function functionPolicyAction(name, payload={}) {
     type: functionName === 'deleteAccount' ? 'account_delete' : `function:${functionName}`,
     target:functionName,
     authorised:localOwnerAuthorised(),
-    transmitsSensitiveData:hasExternalImages
+    transmitsSensitiveData:false
   };
 }
 
