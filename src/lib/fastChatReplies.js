@@ -12,6 +12,28 @@ export function findFastChatReply(text, lang = 'hu') {
 
   const isHungarian = lang === 'hu' || /\b(hogy|szia|koszi|köszönöm|vagy|vagyok)\b/i.test(text);
 
+  if (/^(milyen nap van ma|mi a mai datum|mi a mai dátum|hanyadika van|hányadika van|what day is it|what is the date today)$/.test(input)) {
+    const now = new Date();
+    const locale = isHungarian ? 'hu-HU' : 'en-GB';
+    const formatted = new Intl.DateTimeFormat(locale, { dateStyle: 'full' }).format(now);
+    return {
+      handled: true,
+      intent: 'fast_local_date',
+      reply: isHungarian ? `Ma ${formatted} van.` : `Today is ${formatted}.`,
+    };
+  }
+
+  if (/^(mennyi az ido|mennyi az idő|hany ora van|hány óra van|what time is it)$/.test(input)) {
+    const now = new Date();
+    const locale = isHungarian ? 'hu-HU' : 'en-GB';
+    const formatted = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(now);
+    return {
+      handled: true,
+      intent: 'fast_local_time',
+      reply: isHungarian ? `A helyi idő ${formatted}.` : `The local time is ${formatted}.`,
+    };
+  }
+
   if (/^(szia|hello|helo|hali|jo napot|jó napot|hey)$/.test(input)) {
     return {
       handled: true,
