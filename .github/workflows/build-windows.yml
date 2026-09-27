@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - 'fix/**'
+      - 'upgrade/**'
     tags:
       - 'v*'
 
@@ -67,6 +68,27 @@ jobs:
 
       - name: Build Windows installer
         run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Verify Windows update trust chain
+        shell: pwsh
+        run: |
+          $app = Join-Path $PWD "release\win-unpacked\Jarvis.exe"
+          $installer = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
+          if (-not (Test-Path -LiteralPath $app)) { throw "Packaged Jarvis.exe not found" }
+          if (-not $installer) { throw "Jarvis installer not found" }
+          $appSig = Get-AuthenticodeSignature -LiteralPath $app
+          $installerSig = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+          Write-Host "App signature: $($appSig.Status)"
+          Write-Host "Installer signature: $($installerSig.Status)"
+          if ($appSig.Status -ne 'Valid' -or $installerSig.Status -ne 'Valid') {
+            throw "One-click updater requires valid Authenticode signatures"
+          }
+          if (-not $appSig.SignerCertificate -or -not $installerSig.SignerCertificate) {
+            throw "Signer certificate missing"
+          }
+          if ($appSig.SignerCertificate.Thumbprint -ne $installerSig.SignerCertificate.Thumbprint) {
+            throw "Packaged app and installer signer do not match"
+          }
 
       - name: Smoke test packaged Windows startup
         shell: pwsh
