@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
     plan: (report) => ipcRenderer.invoke('jarvis:repair:plan', report),
     apply: (repairId) => ipcRenderer.invoke('jarvis:repair:apply', { repairId }),
   },
+  developerRepair: {
+    plan: (workspace, plan) => ipcRenderer.invoke('jarvis:developer:plan', { workspace, plan }),
+    approve: (hash) => ipcRenderer.invoke('jarvis:developer:approve', { hash }),
+    apply: (hash) => ipcRenderer.invoke('jarvis:developer:apply', { hash }),
+  },
   obd: {
     listPorts: () => ipcRenderer.invoke('jarvis:obd:list-ports'),
     connect: (options) => ipcRenderer.invoke('jarvis:obd:connect', options),
