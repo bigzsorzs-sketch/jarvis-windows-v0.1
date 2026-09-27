@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Activity, CheckCircle2, XCircle, AlertTriangle, Database, ShieldCheck, Save, Upload,
-  RefreshCw, Wrench, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2
+  RefreshCw, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2
 } from 'lucide-react';
 import { jarvis } from '@/api/jarvisClient';
 import { useLang } from '@/lib/i18n';
