@@ -30,8 +30,8 @@ export default function GlobalVoiceControl() {
     setTranscript(currentTranscript);
     setIsProcessing(true);
 
-    if (location.pathname !== '/chat' && location.pathname !== '/live-assistant') {
-      navigate('/live-assistant');
+    if (location.pathname !== '/chat') {
+      navigate('/chat');
     }
 
     const timer = setTimeout(() => {
@@ -53,8 +53,8 @@ export default function GlobalVoiceControl() {
     }
     voice.setHandsFree(next);
 
-    if (next && location.pathname !== '/live-assistant') {
-      navigate('/live-assistant');
+    if (next && location.pathname !== '/chat') {
+      navigate('/chat');
     }
   }, [voice, navigate, location.pathname]);
 

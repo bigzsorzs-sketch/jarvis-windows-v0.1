@@ -1,5 +1,5 @@
-import { TOOLS, loadFullContext, buildSystemPrompt, parseActions, executeActions } from '@/lib/assistantTools';
-import { invokeWithRetry } from '@/lib/llmGateway';
+import { TOOLS, loadFullContext } from '@/lib/assistantTools';
+import { runAssistantTurn } from '@/lib/chatOrchestrator';
 import { isCallCommand, extractCallTarget, isNavigationVoiceCommand, extractNavigationTarget, isFinishTripCommand, isLastTripSummaryCommand, isShareNavigationDestinationCommand, extractShareNavigationContact } from '@/lib/voiceCommandRouter';
 import { findContactForNavigation, startNavigationSession, finishNavigationSession, getFrequentDestinationSuggestion, getLastTripSummary, shareActiveNavigationDestination } from '@/lib/navigationTracker';
 import { executeVoiceWorkflowCommand } from '@/lib/voiceWorkflowCommandCenter';
@@ -78,32 +78,21 @@ export async function executeGlobalVoiceCommand(transcript) {
   }
 
   const ctx = await loadFullContext();
-  const systemPrompt = `${buildSystemPrompt(ctx, 'Mindig magyarul válaszolj.', 'neutral')}
-
-A felhasználó hangparancsot adott. Ha művelet kell, kizárólag JSON action blokkot használj ebben a formában: \`\`\`actions [{"tool":"create_task","params":{}}] \`\`\`. Ha nem kell művelet, adj nagyon rövid magyar választ.`;
-
-  const reply = await invokeWithRetry({
-    prompt: `${systemPrompt}
-
-Felhasználó: ${text}
-
-Asszisztens:`,
-    model: 'gemini_3_flash',
+  const turn = await runAssistantTurn({
+    message: text,
+    history: [],
+    ctx,
+    lang: 'hu',
+    userMood: 'neutral',
+    attachedFiles: [],
+    source: 'voice',
   });
-
-  const parsedReply = typeof reply === 'string' ? reply : (reply?.result ?? reply?.data?.result ?? reply?.data ?? '');
-  const actions = parseActions(parsedReply);
-
-  if (actions.length === 0) {
-    return { handled: true, reply: parsedReply || 'Rendben.', actionResults: [] };
-  }
-
-  const actionResults = await executeActions(actions);
-  const visibleReply = parsedReply.replace(/```actions[\s\S]*?```/gi, '').trim() || actionResults.map(a => a.result?.message).filter(Boolean).join('\n');
 
   return {
     handled: true,
-    reply: visibleReply,
-    actionResults,
+    intent: 'unified_voice_assistant_turn',
+    reply: turn.reply || 'Rendben.',
+    actions: turn.actions || [],
+    actionResults: turn.actionResults || [],
   };
 }
