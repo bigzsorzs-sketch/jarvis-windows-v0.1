@@ -74,3 +74,11 @@ test('Jarvis application does not request permanent administrator privileges', (
   assert.equal(pkg.build?.nsis?.perMachine, true);
 });
 
+test('legacy insecure API key fallback is purged during startup', () => {
+  const main = read('electron/main.cjs');
+  assert.equal(main.includes('function purgeInsecureLegacySecrets()'), true);
+  assert.equal(main.includes("raw.openRouterKey.type !== 'safeStorage'"), true);
+  assert.equal(main.includes('purgeInsecureLegacySecrets();'), true);
+  assert.equal(main.includes('hasSecureOpenRouterKey'), true);
+});
+
