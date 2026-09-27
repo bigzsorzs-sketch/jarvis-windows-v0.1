@@ -100,7 +100,8 @@ Adj vissza JSON-t:
         }
       },
     });
-    const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+    const resultPayload = result?.data?.result ?? result?.data ?? result;
+    const parsed = typeof resultPayload === 'string' ? JSON.parse(resultPayload) : resultPayload;
     setAnalysis(parsed);
     setAnalyzing(false);
   };
