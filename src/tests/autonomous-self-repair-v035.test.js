@@ -109,3 +109,15 @@ test('packaged app includes the files needed to prepare a self-development works
     assert.equal(pkg.build.files.includes(file),true,file);
   }
 });
+
+
+test('packaged Autopilot copies its editable workspace from real resources, not app.asar', () => {
+  assert.match(main,/function autonomousSourceRoot\(\)[\s\S]*process\.resourcesPath[\s\S]*self-development-source/);
+  assert.match(main,/const sourceRoot = autonomousSourceRoot\(\);/);
+  assert.doesNotMatch(main,/const sourceRoot = resourcePath\(\);/);
+  const sourceBundle = (pkg.build.extraResources || []).find((item) => item?.to === 'self-development-source');
+  assert.ok(sourceBundle,'self-development source bundle must be packaged outside app.asar');
+  for (const required of ['src/**/*','electron/**/*','security/**/*','package.json','package-lock.json','scripts/**/*']) {
+    assert.equal(sourceBundle.filter.includes(required),true,required);
+  }
+});
