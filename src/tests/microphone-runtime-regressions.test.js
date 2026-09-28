@@ -26,3 +26,13 @@ test('voice bridge always releases and resumes a hands-free microphone after com
   assert.ok(completions.length >= 2);
   assert.ok(resumes.length >= 2);
 });
+
+
+test('voice overlay consumes transcripts without replaying them', () => {
+  assert.match(globalVoice,/voice-command-overlay[\s\S]*?handledEventIdsRef\.current\.add\(event\.id\)[\s\S]*?return undefined/);
+});
+
+test('microphone failures stay visible as an error state', () => {
+  const errors = mobile.match(/phase: 'error', isListening: false, isRecognitionActive: false/g) || [];
+  assert.ok(errors.length >= 2);
+});
