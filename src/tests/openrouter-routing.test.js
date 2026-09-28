@@ -47,3 +47,11 @@ test('OpenRouter connection test is exposed in Settings UI', () => {
   assert.match(settings, /Kapcsolat tesztelése/);
   assert.match(settings, /type="password"/);
 });
+
+
+test('sensitive OpenRouter context is policy-gated in the main process', () => {
+  assert.match(main, /payloadContainsSensitiveContext\(payload\)/);
+  assert.match(main, /external_ai_sensitive_context/);
+  assert.match(main, /transmitsSensitiveData:true/);
+  assert.match(main, /contains_sensitive_context:Boolean\(adminDiagnosticsManager\?\.isActive\?\.\(\) \|\| crashHistory\.length\)/);
+});
