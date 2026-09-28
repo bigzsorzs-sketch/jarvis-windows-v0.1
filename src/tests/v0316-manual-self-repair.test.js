@@ -14,7 +14,8 @@ test('manual Self-Repair workspace never installs dependencies automatically', (
   assert.ok(start >= 0 && end > start);
   const manual = main.slice(start,end);
   assert.equal(manual.includes("runToolchainNpm(['ci']"), false);
-  assert.equal(manual.includes('manual-self-repair'), true);
+  assert.equal(manual.includes('incompleteWorkspace'), true);
+  assert.equal(main.includes("return path.join(app.getPath('userData'),'manual-self-repair'"), true);
 });
 
 test('manual repair can owner-approve core code but still blocks security and release infrastructure', () => {

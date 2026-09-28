@@ -142,7 +142,14 @@ async function ensureManualRepairWorkspace() {
     currentVersion = String(JSON.parse(fs.readFileSync(path.join(target,'package.json'),'utf8'))?.version || '');
   } catch {}
 
-  const mustRefresh = !currentVersion || (installedVersion && currentVersion !== installedVersion);
+  const requiredWorkspaceFiles = [
+    'src/pages/SystemCenter.jsx',
+    'electron/main.cjs',
+    'electron/developer-repair.cjs',
+    'package.json'
+  ];
+  const incompleteWorkspace = requiredWorkspaceFiles.some((file) => !fs.existsSync(path.join(target,file)));
+  const mustRefresh = incompleteWorkspace || !currentVersion || (installedVersion && currentVersion !== installedVersion);
   if (mustRefresh) {
     for (const entry of entries) {
       const destination = path.join(target,entry);
@@ -1215,7 +1222,11 @@ async function selfRepairChat(payload={}) {
   const language = String(payload?.language || 'hu').toLowerCase();
   const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
   const workspace = await getSelfRepairRoot();
-  const context = developerRepair.buildDiagnosticContext(workspace, message, { maxFiles:20, maxChars:62000 });
+  const contextQuery = [
+    message,
+    ...history.slice(-4).map((item) => String(item?.content || '').slice(0,2400))
+  ].join('\n');
+  const context = developerRepair.buildDiagnosticContext(workspace, contextQuery, { maxFiles:20, maxChars:62000 });
   const learned = selfRepairLearning?.relevant?.(message, 8) || [];
   const learnedText = learned.length
     ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | evidence=${item.evidence || '-'} | validation=${item.validation || '-'}`).join('\n')
