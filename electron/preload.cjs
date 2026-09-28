@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
     sandbox: (hash) => ipcRenderer.invoke('jarvis:developer:sandbox', { hash }),
     approve: (hash) => ipcRenderer.invoke('jarvis:developer:approve', { hash }),
     apply: (hash) => ipcRenderer.invoke('jarvis:developer:apply', { hash }),
+    autonomousStatus: () => ipcRenderer.invoke('jarvis:self-repair:auto:status'),
+    prepareAutonomousWorkspace: () => ipcRenderer.invoke('jarvis:self-repair:auto:workspace'),
+    runAutonomous: (request) => ipcRenderer.invoke('jarvis:self-repair:auto:run', request),
+    stopAutonomous: () => ipcRenderer.invoke('jarvis:self-repair:auto:stop'),
+    approveReleaseCandidate: (candidateId) => ipcRenderer.invoke('jarvis:self-repair:release:approve', { candidateId }),
+    revokeReleaseApproval: () => ipcRenderer.invoke('jarvis:self-repair:release:revoke'),
   },
   obd: {
     listPorts: () => ipcRenderer.invoke('jarvis:obd:list-ports'),
