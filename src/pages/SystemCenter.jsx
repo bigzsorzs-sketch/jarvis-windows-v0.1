@@ -416,7 +416,7 @@ export default function SystemCenter() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {autonomousBusy || ['RUNNING','ANALYZING','SANDBOX_TESTING','APPLYING_VERIFIED_PATCH','PATCH_VERIFIED','PLANNER_RETRY','PLAN_RETRY','SANDBOX_RETRY','VALIDATION_RETRY','ROLLED_BACK_RETRY','STOP_REQUESTED'].includes(autonomousState?.status) ? (
+              {autonomousBusy || ['RUNNING','ANALYZING','SANDBOX_TESTING','APPLYING_VERIFIED_PATCH','PATCH_VERIFIED','PLANNER_RETRY','PLAN_RETRY','SANDBOX_RETRY','VALIDATION_RETRY','ROLLED_BACK_RETRY','BUILDING_RELEASE_CANDIDATE','STOP_REQUESTED'].includes(autonomousState?.status) ? (
                 <button onClick={stopAutonomousRepair} className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 px-4 py-2.5 text-xs font-semibold">
                   {tx('Autopilot leállítása','Stop Autopilot')}
                 </button>
@@ -467,6 +467,16 @@ export default function SystemCenter() {
                       'Jarvis is automatic up to this point. Actual release/publishing may continue only after your explicit approval.'
                     )}
                   </div>
+                  {autonomousState.releaseCandidate?.installer && (
+                    <div className="text-[10px] text-muted-foreground mt-2 break-all">
+                      {tx('Tesztelt telepítő: ','Tested installer: ')}{autonomousState.releaseCandidate.installer}
+                    </div>
+                  )}
+                  {autonomousState.releaseCandidate?.sha256 && (
+                    <div className="text-[10px] text-muted-foreground mt-1 break-all">
+                      SHA-256: {autonomousState.releaseCandidate.sha256}
+                    </div>
+                  )}
                 </div>
                 {autonomousState.releaseApproved ? (
                   <button onClick={revokeReleaseApproval} className="rounded-xl border border-border bg-secondary px-4 py-2 text-xs font-semibold">
