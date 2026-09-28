@@ -32,6 +32,13 @@ let backupManager;
 let selfRepairLearning;
 let adminDiagnosticsManager;
 const adminHelperConfig = parseHelperArgs(process.argv);
+if (adminHelperConfig) {
+  // The elevated helper is a second Electron process. Give it a separate
+  // profile so it cannot collide with locks held by the already-running Jarvis.
+  const helperUserData = path.join(os.tmpdir(),'JarvisAdminHelper',adminHelperConfig.pipeName);
+  fs.mkdirSync(helperUserData,{recursive:true});
+  app.setPath('userData',helperUserData);
+}
 const developerPlans = new Map();
 let latestSystemReport = null;
 let autonomousRepairStopRequested = false;
