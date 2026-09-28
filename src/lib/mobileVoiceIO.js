@@ -326,7 +326,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       stopStream(stream);
       stream = null;
       await closeAudioInputGraph();
-      onStateChange?.({ phase: 'idle', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
+      onStateChange?.({ phase: 'error', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
     }
   };
 
@@ -389,7 +389,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         stream = null;
         await closeAudioInputGraph();
         emitError('microphone_denied', microphoneErrorMessage(error));
-        onStateChange?.({ phase: 'idle', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
+        onStateChange?.({ phase: 'error', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
         return false;
       }
     },
