@@ -2016,8 +2016,16 @@ app.whenReady().then(async () => {
     return buildRepairPlan(latestSystemReport);
   });
   ipcMain.handle('jarvis:self-repair:auto:status', () => readAutonomousRepairState());
-  ipcMain.handle('jarvis:self-repair:auto:crash-mode', (_e, enabled=false) => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+  ipcMain.handle('jarvis:self-repair:auto:crash-mode', async (_e, enabled=false) => {
+    if (enabled === true) {
+      await requireOwnerPresence({
+        title:'Automatikus crash-javítás',
+        message:'Engedélyezed, hogy Jarvis egy későbbi összeomlás után automatikusan elindítsa a Self-Repair Autopilotot?',
+        detail:'A javítás továbbra is sandboxban és teljes validációval fut. Release-t nem publikálhat külön tulajdonosi jóváhagyás nélkül.'
+      });
+    } else if (!localOwnerAuthorised()) {
+      throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    }
     return writeAutonomousRepairState({ autoCrashRepair:enabled === true });
   });
   ipcMain.handle('jarvis:self-repair:auto:workspace', async () => {
