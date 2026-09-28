@@ -79,3 +79,21 @@ test('settings persistence supports owned entity lookup before update', () => {
   assert.match(settings,/UserSettings\.filter\(\{ created_by: currentUser\.email \}, '-updated_date', 1\)/);
   assert.match(settings,/Jarvis settings save failed/);
 });
+
+
+test('repairs incomplete Autopilot workspaces and packages the dependency lockfile', () => {
+  assert.match(main,/Repair partially-created or stale workspaces as well/);
+  assert.match(main,/AUTONOMOUS_REPAIR_LOCKFILE_INVALID/);
+  assert.equal(
+    pkg.build.extraResources.some((entry) =>
+      entry.from === 'package-lock.json' && entry.to === 'self-development-source/package-lock.json'
+    ),
+    true
+  );
+  assert.equal(
+    pkg.build.extraResources.some((entry) =>
+      entry.from === 'package.json' && entry.to === 'self-development-source/package.json'
+    ),
+    true
+  );
+});
