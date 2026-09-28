@@ -4,14 +4,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-
 const require = createRequire(import.meta.url);
 const repair = require('../../electron/developer-repair.cjs');
 const read = (file) => fs.readFileSync(file, 'utf8');
 
 function makeWorkspace() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-v0312-'));
-  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name:'jarvis-desktop', version:'0.3.12' }));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name:'jarvis-desktop', version:'0.3.17' }));
   fs.mkdirSync(path.join(root, 'src', 'pages'), { recursive:true });
   return root;
 }
@@ -21,51 +20,20 @@ test('Self-Repair replacement matching accepts Windows CRLF source with LF model
   try {
     const file = path.join(root, 'src', 'pages', 'SystemCenter.jsx');
     fs.writeFileSync(file, 'alpha\r\nbeta\r\ngamma\r\n', 'utf8');
-
-    const plan = repair.validatePlan(root, {
-      goal:'CRLF repair',
-      risk:'low',
-      patches:[{
-        file:'src/pages/SystemCenter.jsx',
-        replacements:[{
-          search:'alpha\nbeta\ngamma',
-          replace:'alpha\nbeta-fixed\ngamma',
-          all:false
-        }]
-      }]
-    });
-
-    repair.apply(root, plan);
+    const plan = repair.validateOwnerPlan(root, {goal:'CRLF repair',risk:'low',patches:[{file:'src/pages/SystemCenter.jsx',replacements:[{search:'alpha\nbeta\ngamma',replace:'alpha\nbeta-fixed\ngamma',all:false}]}]});
+    repair.applyOwner(root, plan);
     const updated = fs.readFileSync(file, 'utf8');
     assert.equal(updated.includes('beta-fixed'), true);
     assert.equal(updated.includes('\r\n'), true);
-  } finally {
-    fs.rmSync(root, { recursive:true, force:true });
-  }
+  } finally { fs.rmSync(root, { recursive:true, force:true }); }
 });
 
-test('Self-Repair rejects missing search text during plan validation instead of crashing in sandbox', () => {
+test('Self-Repair rejects stale search text before an owner-approved write', () => {
   const root = makeWorkspace();
   try {
     fs.writeFileSync(path.join(root, 'src', 'pages', 'SystemCenter.jsx'), 'export default function SystemCenter(){}\n');
-    assert.throws(() => repair.validatePlan(root, {
-      patches:[{
-        file:'src/pages/SystemCenter.jsx',
-        replacements:[{ search:'stale block from previous version', replace:'x' }]
-      }]
-    }), /DEV_REPAIR_SEARCH_NOT_FOUND:src\/pages\/SystemCenter\.jsx/);
-  } finally {
-    fs.rmSync(root, { recursive:true, force:true });
-  }
-});
-
-test('Autopilot refreshes stale version workspaces and retries bad sandbox plans', () => {
-  const main = read('electron/main.cjs');
-  assert.equal(main.includes('const refreshForVersion = Boolean(installedVersion && workspaceVersion && workspaceVersion !== installedVersion);'), true);
-  assert.equal(main.includes('workspace-upgrade-'), true);
-  assert.equal(main.includes("status:'SANDBOX_RETRY'"), true);
-  assert.equal(main.includes('Do not reuse a stale replacement from a previous iteration.'), true);
-  assert.equal(main.includes('Copy every search string verbatim from RELEVANT SOURCE'), true);
+    assert.throws(() => repair.validateOwnerPlan(root, {patches:[{file:'src/pages/SystemCenter.jsx',replacements:[{ search:'stale block from previous version', replace:'x' }]}]}), /DEV_REPAIR_SEARCH_NOT_FOUND:src\/pages\/SystemCenter\.jsx/);
+  } finally { fs.rmSync(root, { recursive:true, force:true }); }
 });
 
 test('Home reference layout keeps bright energy lines behind the orb', () => {

@@ -81,34 +81,12 @@ test('settings persistence supports owned entity lookup before update', () => {
 });
 
 
-test('repairs incomplete Autopilot workspaces and packages a real lockfile outside app.asar', () => {
-  assert.match(main,/A packaged upgrade must refresh the development workspace/);
-  assert.match(main,/refreshForVersion/);
-  assert.match(main,/AUTONOMOUS_REPAIR_LOCKFILE_INVALID/);
-  assert.equal(pkg.build.files.includes('package.json'), true);
-  assert.equal(
-    pkg.build.extraResources.some((entry) =>
-      entry.from === 'package-lock.json' && entry.to === 'self-development-source/package-lock.json'
-    ),
-    true
-  );
-  assert.equal(
-    pkg.build.extraResources.some((entry) =>
-      entry.from === 'build/self-development-package.json' && entry.to === 'self-development-source/package.json'
-    ),
-    true
-  );
-  assert.match(main,/AUTONOMOUS_REPAIR_PACKAGE_METADATA_INCOMPLETE/);
-  assert.match(main,/AUTONOMOUS_REPAIR_VALIDATION_SOURCE_MISSING/);
-  assert.equal(
-    pkg.build.extraResources.some((entry) =>
-      entry.from === 'build/self-development-build-windows.yml' &&
-      entry.to === 'self-development-source/.github/workflows/build-windows.yml'
-    ),
-    true
-  );
+test('manual Self-Repair workspace stays local and never installs dependencies automatically', () => {
+  assert.match(main,/async function ensureManualRepairWorkspace/);
+  assert.match(main,/manual-self-repair/);
+  assert.equal(pkg.build.files.includes('src/**/*'), true);
+  assert.equal(pkg.build.files.includes('electron/**/*'), true);
 });
-
 
 test('Self-Repair does not diagnose stale crashes from older app versions', () => {
   assert.match(system,/APP_VERSION/);
@@ -122,25 +100,4 @@ test('Self-Repair filters historical crashes inside the model prompt', () => {
   assert.match(main,/currentAppVersion = String\(app\.getVersion/);
   assert.match(main,/readRecentCrashes\(20\)[\s\S]*?filter\(\(item\) => String\(item\?\.appVersion/);
   assert.match(main,/Do not diagnose a historical crash from an older version as a current defect/);
-});
-
-test('Autopilot stale active state is recovered and stop cannot remain stuck forever', () => {
-  assert.match(main,/let autonomousRepairRunning = false/);
-  assert.match(main,/function recoverInterruptedAutonomousRepairState/);
-  assert.match(main,/status:'INTERRUPTED'/);
-  assert.match(main,/recoverInterruptedAutonomousRepairState\(\)/);
-  assert.match(main,/if \(!autonomousRepairRunning\)[\s\S]*?status:'STOPPED'/);
-  assert.match(main,/AUTONOMOUS_REPAIR_ALREADY_RUNNING/);
-  assert.match(main,/finally \{[\s\S]*?autonomousRepairRunning = false/);
-});
-
-
-test('Self-Repair network work is bounded and Autopilot stop aborts the planner', () => {
-  assert.match(main,/timeout_ms:90000/);
-  assert.match(main,/taskType === 'repair' \? 120000 : 75000/);
-  assert.match(main,/OPENROUTER_TIMEOUT_/);
-  assert.match(main,/let autonomousRepairAbortController = null/);
-  assert.match(main,/autonomousRepairAbortController = new AbortController\(\)/);
-  assert.match(main,/autonomousRepairAbortController\?\.abort\(\)/);
-  assert.match(main,/OPENROUTER_ABORTED/);
 });

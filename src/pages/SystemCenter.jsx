@@ -461,8 +461,8 @@ export default function SystemCenter() {
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">
             {tx(
-              'A „Hibák keresése” csak elemez és megmutatja a problémákat. Ha a párbeszédben kéred a javítást, Jarvis elkészíti a konkrét módosítást. Az „Elfogadom” gomb után mentést készít és közvetlenül alkalmazza a fejlesztési forrásra, sandbox és automatikus npm telepítés nélkül.',
-              '“Find bugs” only analyzes and shows problems. If you ask for a fix in the conversation, Jarvis prepares the concrete change. After you press “Accept”, it creates a backup and applies the change directly to the development source without a sandbox or automatic npm install.'
+              'A „Hibák keresése” csak elemez és megmutatja a problémákat. Ha a párbeszédben kéred a javítást, Jarvis elkészíti a konkrét módosítást. Az „Elfogadom” gomb után mentést készít és közvetlenül alkalmazza a fejlesztési forrásra, külön tesztmásolat és automatikus npm telepítés nélkül.',
+              '“Find bugs” only analyzes and shows problems. If you ask for a fix in the conversation, Jarvis prepares the concrete change. After you press “Accept”, it creates a backup and applies the change directly to the development source without a separate test copy or automatic npm install.'
             )}
           </p>
         </section>

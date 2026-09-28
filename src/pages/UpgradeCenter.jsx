@@ -36,48 +36,6 @@ export default function UpgradeCenter() {
   const [form, setForm] = useState({ title: '', description: '', category: 'feature', priority: 'medium' });
   const [showImplementModal, setShowImplementModal] = useState(false);
   const [implementMessage, setImplementMessage] = useState('');
-  const [devWorkspace, setDevWorkspace] = useState('');
-  const [devPlanText, setDevPlanText] = useState('');
-  const [validatedPlan, setValidatedPlan] = useState(null);
-  const [devResult, setDevResult] = useState(null);
-  const [devBusy, setDevBusy] = useState(false);
-  const [sandboxVerified, setSandboxVerified] = useState(false);
-
-  const validateDeveloperPlan = async () => {
-    setDevBusy(true); setDevResult(null);
-    try {
-      const parsed = JSON.parse(devPlanText);
-      const plan = await window.jarvisDesktop.developerRepair.plan(devWorkspace, parsed);
-      setValidatedPlan(plan);
-      setSandboxVerified(false);
-      setDevResult({ status:'PROPOSED', message:'Terv ellenőrizve. Nézd át a fájlokat és a hash-t jóváhagyás előtt.' });
-    } catch (error) { setValidatedPlan(null); setSandboxVerified(false); setDevResult({ status:'ERROR', message:error?.message || String(error) }); }
-    finally { setDevBusy(false); }
-  };
-
-  const runDeveloperSandbox = async () => {
-    if (!validatedPlan?.hash) return;
-    setDevBusy(true); setSandboxVerified(false);
-    try {
-      const result = await window.jarvisDesktop.developerRepair.sandbox(validatedPlan.hash);
-      setDevResult(result);
-      setSandboxVerified(result?.status === 'SANDBOX_VERIFIED');
-    } catch (error) {
-      setDevResult({ status:'ERROR', message:error?.message || String(error) });
-    } finally { setDevBusy(false); }
-  };
-
-  const approveAndApplyDeveloperPlan = async () => {
-    if (!validatedPlan?.hash || !sandboxVerified) return;
-    setDevBusy(true);
-    try {
-      await window.jarvisDesktop.developerRepair.approve(validatedPlan.hash);
-      const result = await window.jarvisDesktop.developerRepair.apply(validatedPlan.hash);
-      setDevResult(result);
-      if (result?.status === 'APPLIED_AND_VERIFIED') { setValidatedPlan(null); setSandboxVerified(false); }
-    } catch (error) { setDevResult({ status:'ERROR', message:error?.message || String(error) }); }
-    finally { setDevBusy(false); }
-  };
 
   useEffect(() => {
     loadProposals();
@@ -195,18 +153,6 @@ Csak a JSON tömböt add vissza, semmi más.`,
             <p>2. Te jóváhagyod amit szeretnél</p>
             <p>3. A jóváhagyás után <span className="text-foreground font-medium">másold be az üzenetet a Chat oldalon</span> – én azonnal implementálom a kódot</p>
           </div>
-        </div>
-
-        <div className="bg-card border border-border rounded-2xl p-4 mb-4 space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-foreground">🛠 Kontrollált önjavítás / önfejlesztés</p>
-            <p className="text-xs text-muted-foreground mt-1">Először izolált sandbox-másolaton dolgozik és ott futtatja a teljes tesztsort. Az eredeti workspace csak sikeres sandbox után, a te külön jóváhagyásoddal módosul. A security/policy/updater mag védett; sikertelen éles ellenőrzés automatikus rollbacket indít.</p>
-          </div>
-          <input className="w-full bg-secondary rounded-xl px-3 py-2 text-xs border border-border text-foreground" placeholder="Fejlesztői workspace, pl. C:\\JarvisDev" value={devWorkspace} onChange={e=>setDevWorkspace(e.target.value)} />
-          <textarea className="w-full bg-secondary rounded-xl px-3 py-2 text-xs border border-border text-foreground font-mono" rows={6} placeholder={'Javítási terv JSON: { "goal":"...", "risk":"low", "patches":[{"file":"src/...","content":"teljes új fájltartalom"}] }'} value={devPlanText} onChange={e=>{setDevPlanText(e.target.value);setValidatedPlan(null);}} />
-          <button disabled={devBusy || !devWorkspace || !devPlanText} onClick={validateDeveloperPlan} className="w-full py-2.5 rounded-xl bg-secondary border border-border text-sm font-medium disabled:opacity-50">Terv ellenőrzése</button>
-          {validatedPlan && <div className="bg-secondary rounded-xl p-3 text-xs space-y-1"><p><strong>Hash:</strong> <span className="font-mono break-all">{validatedPlan.hash}</span></p><p><strong>Kockázat:</strong> {validatedPlan.risk}</p><p><strong>Fájlok:</strong> {validatedPlan.patches.map(p=>p.file).join(', ')}</p><p><strong>Ellenőrzés:</strong> {validatedPlan.validation.join(' → ')}</p><button disabled={devBusy} onClick={runDeveloperSandbox} className="w-full mt-2 py-2.5 rounded-xl bg-secondary border border-border font-semibold">{devBusy?'Sandbox ellenőrzés fut...':'1. Futtatás izolált sandboxban'}</button>{sandboxVerified && <button disabled={devBusy} onClick={approveAndApplyDeveloperPlan} className="w-full mt-2 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold">2. Sandbox rendben – jóváhagyom és alkalmazom</button>}</div>}
-          {devResult && <div className="bg-secondary rounded-xl p-3 text-xs"><strong>{devResult.status}</strong> · {devResult.message || (devResult.success ? 'Ellenőrzés sikeres.' : 'A javítás visszaállítva.')} {devResult.validation?.results?.map((r,i)=><div key={i} className="font-mono mt-1">{r.ok?'✓':'✗'} {r.cmd}</div>)}</div>}
         </div>
 
         {/* AI generálás gomb */}

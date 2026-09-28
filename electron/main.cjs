@@ -40,12 +40,8 @@ if (adminHelperConfig) {
   fs.mkdirSync(helperUserData,{recursive:true});
   app.setPath('userData',helperUserData);
 }
-const developerPlans = new Map();
 const manualRepairPlans = new Map();
 let latestSystemReport = null;
-let autonomousRepairStopRequested = false;
-let autonomousRepairRunning = false;
-let autonomousRepairAbortController = null;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
@@ -62,7 +58,7 @@ function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
 }
 
-function autonomousSourceRoot() {
+function selfRepairSourceRoot() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'self-development-source')
     : path.join(__dirname, '..');
@@ -74,7 +70,7 @@ function selfRepairToolchainPaths() {
   const node = path.join(root, process.platform === 'win32' ? 'node.exe' : 'node');
   const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
   if (!fs.existsSync(node) || !fs.existsSync(npmCli)) {
-    throw new Error('AUTONOMOUS_REPAIR_TOOLCHAIN_MISSING');
+    throw new Error('SELF_REPAIR_TOOLCHAIN_MISSING');
   }
   return { root, node, npmCli };
 }
@@ -97,28 +93,8 @@ async function runToolchainNode(args, options={}) {
   return execFileAsync(toolchain.node, args, withSelfRepairToolchainEnv(options, toolchain));
 }
 
-async function runToolchainNpm(args, options={}) {
-  if (!app.isPackaged) {
-    return execFileAsync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options);
-  }
-  const toolchain = selfRepairToolchainPaths();
-  return execFileAsync(toolchain.node, [toolchain.npmCli, ...args], withSelfRepairToolchainEnv(options, toolchain));
-}
-
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
-function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
-function autonomousRepairStatePath() { return path.join(app.getPath('userData'),'autonomous-self-repair-state.json'); }
-function autonomousWorkspaceRoot() {
-  // Keep Self-Repair out of Documents/OneDrive. Cloud-sync providers can hold
-  // directory handles and make recursive refreshes fail with EPERM on Windows.
-  // A versioned local userData workspace also avoids deleting a previous
-  // release's source tree while upgrading.
-  const safeVersion = String(app.getVersion?.() || 'current')
-    .replace(/^v/i,'')
-    .replace(/[^0-9A-Za-z._-]/g,'_');
-  return path.join(app.getPath('userData'),'self-development-workspaces',`v${safeVersion}`);
-}
 function manualRepairWorkspaceRoot() {
   const safeVersion = String(app.getVersion?.() || 'current')
     .replace(/^v/i,'')
@@ -127,7 +103,7 @@ function manualRepairWorkspaceRoot() {
 }
 async function ensureManualRepairWorkspace() {
   const target = manualRepairWorkspaceRoot();
-  const sourceRoot = autonomousSourceRoot();
+  const sourceRoot = selfRepairSourceRoot();
   const entries = [
     'src','electron','security','build','scripts','.github',
     'package.json','package-lock.json','index.html','eslint.config.js',
@@ -206,30 +182,6 @@ function recordCrash(kind, details={}) {
   return entry;
 }
 
-function activeAutonomousStatus(status='') {
-  return new Set([
-    'RUNNING','ANALYZING','SANDBOX_TESTING','APPLYING_VERIFIED_PATCH','PATCH_VERIFIED',
-    'PLANNER_RETRY','PLAN_RETRY','SANDBOX_RETRY','VALIDATION_RETRY','ROLLED_BACK_RETRY',
-    'BUILDING_RELEASE_CANDIDATE','STOP_REQUESTED'
-  ]).has(String(status));
-}
-
-function scheduleCrashAutopilot(crashEntry) {
-  const state=readAutonomousRepairState();
-  if (state.autoCrashRepair !== true || activeAutonomousStatus(state.status)) return;
-  const goal=[
-    'Crash Watchdog detected a Jarvis runtime failure.',
-    'Analyze the crash evidence, identify the smallest safe source-level fix if supported by evidence,',
-    'run sandbox validation and full tests, and prepare a release candidate without publishing it.',
-    'Crash evidence: ' + JSON.stringify(crashEntry)
-  ].join(' ');
-  setTimeout(()=>{
-    runAutonomousSelfRepair({goal,maxIterations:3}).catch((error)=>{
-      recordCrash('crash-autopilot-failed',{message:String(error?.message || error),sourceCrashId:crashEntry.id});
-    });
-  },2500);
-}
-
 function registerCrashWatchdog(win) {
   if (!win?.webContents) return;
   win.webContents.on('render-process-gone', (_event, details={}) => {
@@ -237,8 +189,6 @@ function registerCrashWatchdog(win) {
       reason:details.reason || 'unknown',
       exitCode:details.exitCode ?? null
     });
-    scheduleCrashAutopilot(crash);
-
     const recent=readRecentCrashes(10).filter((item)=>
       item.kind === 'renderer-process-gone' && Date.now()-Date.parse(item.at) < 10*60*1000
     );
@@ -266,167 +216,6 @@ function registerCrashWatchdog(win) {
   });
 }
 
-function readAutonomousRepairState() {
-  return readJson(autonomousRepairStatePath(), {
-    status:'IDLE',
-    workspace:null,
-    goal:null,
-    iteration:0,
-    applied:[],
-    releaseCandidate:null,
-    releaseApproved:false,
-    autoCrashRepair:false,
-    updatedAt:null
-  });
-}
-
-function writeAutonomousRepairState(patch={}) {
-  const current = readAutonomousRepairState();
-  const next = { ...current, ...patch, updatedAt:new Date().toISOString() };
-  writeJson(autonomousRepairStatePath(), next);
-  return next;
-}
-
-function recoverInterruptedAutonomousRepairState() {
-  const state = readAutonomousRepairState();
-  if (!activeAutonomousStatus(state.status)) return state;
-  autonomousRepairStopRequested = false;
-  autonomousRepairRunning = false;
-  return writeAutonomousRepairState({
-    status:'INTERRUPTED',
-    autoCrashRepair:false,
-    lastError:'Az előző Autopilot futás az alkalmazás újraindításakor megszakadt. Új futás biztonságosan indítható.'
-  });
-}
-
-async function ensureAutonomousWorkspace() {
-  const target = autonomousWorkspaceRoot();
-  fs.mkdirSync(target,{recursive:true});
-
-  const sourceRoot = autonomousSourceRoot();
-  const entries = [
-    'src','electron','security','build','scripts','.github',
-    'package.json','package-lock.json','index.html','eslint.config.js',
-    'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
-    'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
-  ];
-
-  const packagedSourcePackage = path.join(sourceRoot,'package.json');
-  if (app.isPackaged && !fs.existsSync(packagedSourcePackage)) {
-    throw new Error('AUTONOMOUS_REPAIR_SOURCE_PACKAGE_MISSING');
-  }
-
-  // A packaged upgrade must refresh the development workspace. Previously the
-  // workspace was only filled when files were missing, so a v0.3.10 workspace
-  // could survive inside v0.3.11 and the planner would patch stale source.
-  const workspacePackagePath = path.join(target,'package.json');
-  let workspaceVersion = '';
-  try {
-    workspaceVersion = String(JSON.parse(fs.readFileSync(workspacePackagePath,'utf8'))?.version || '');
-  } catch {}
-  const installedVersion = String(app.getVersion?.() || '');
-  const refreshForVersion = Boolean(installedVersion && workspaceVersion && workspaceVersion !== installedVersion);
-
-  if (refreshForVersion) {
-    const archive = path.join(developerBackupRoot(),`workspace-upgrade-${workspaceVersion || 'unknown'}-to-${installedVersion}-${Date.now()}`);
-    fs.mkdirSync(archive,{recursive:true});
-    for (const entry of entries) {
-      const existing = path.join(target,entry);
-      if (!fs.existsSync(existing)) continue;
-      const backup = path.join(archive,entry);
-      fs.mkdirSync(path.dirname(backup),{recursive:true});
-      const stat = fs.statSync(existing);
-      if (stat.isDirectory()) fs.cpSync(existing,backup,{recursive:true});
-      else fs.copyFileSync(existing,backup);
-    }
-  }
-
-  for (const entry of entries) {
-    const destination = path.join(target,entry);
-    const externalSource = path.join(sourceRoot,entry);
-
-    // In packaged builds package metadata must come from the unmodified
-    // self-development source bundle. electron-builder may normalize the
-    // package.json inside app.asar and remove build.files.
-    if (app.isPackaged && (entry === 'package.json' || entry === 'package-lock.json') && !fs.existsSync(externalSource)) {
-      throw new Error('AUTONOMOUS_REPAIR_SOURCE_MISSING:' + entry);
-    }
-
-    const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
-
-    if (!fs.existsSync(source)) {
-      if (entry === 'package.json' || entry === 'package-lock.json') {
-        throw new Error('AUTONOMOUS_REPAIR_SOURCE_MISSING:' + entry);
-      }
-      continue;
-    }
-
-    if (!refreshForVersion && fs.existsSync(destination)) continue;
-
-    const stat = fs.statSync(source);
-    if (stat.isDirectory()) {
-      if (fs.existsSync(destination)) {
-        fs.rmSync(destination,{recursive:true,force:true,maxRetries:5,retryDelay:120});
-      }
-      fs.cpSync(source,destination,{recursive:true});
-    } else {
-      fs.mkdirSync(path.dirname(destination),{recursive:true});
-      fs.writeFileSync(destination,fs.readFileSync(source));
-    }
-  }
-
-  const workspace = developerRepair.validateWorkspace(target);
-  const workspacePackagePathFinal = path.join(workspace,'package.json');
-  let workspacePackage;
-  try {
-    workspacePackage = JSON.parse(fs.readFileSync(workspacePackagePathFinal,'utf8'));
-  } catch {
-    throw new Error('AUTONOMOUS_REPAIR_PACKAGE_INVALID');
-  }
-  if (!Array.isArray(workspacePackage?.build?.files) || !Array.isArray(workspacePackage?.build?.extraResources)) {
-    throw new Error('AUTONOMOUS_REPAIR_PACKAGE_METADATA_INCOMPLETE');
-  }
-  if (installedVersion && String(workspacePackage.version || '') !== installedVersion) {
-    throw new Error('AUTONOMOUS_REPAIR_PACKAGE_VERSION_MISMATCH');
-  }
-
-  const lockPath = path.join(workspace,'package-lock.json');
-  if (!fs.existsSync(lockPath)) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
-
-  try {
-    JSON.parse(fs.readFileSync(lockPath,'utf8'));
-  } catch {
-    throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_INVALID');
-  }
-
-  const validationRequired = [
-    '.github/workflows/build-windows.yml',
-    'scripts/verify-jarvis.cjs',
-    'security/core-rules.json',
-    'security/core-rules.sig',
-    'security/core-rules-public.pem'
-  ];
-  const missingValidationSource = validationRequired.filter((file) => !fs.existsSync(path.join(workspace,file)));
-  if (missingValidationSource.length) {
-    throw new Error('AUTONOMOUS_REPAIR_VALIDATION_SOURCE_MISSING:' + missingValidationSource.join(','));
-  }
-
-  const modulesPath = path.join(workspace,'node_modules');
-  if (refreshForVersion && fs.existsSync(modulesPath)) {
-    fs.rmSync(modulesPath,{recursive:true,force:true,maxRetries:8,retryDelay:180});
-  }
-
-  if (!fs.existsSync(modulesPath)) {
-    await runToolchainNpm(['ci'],{
-      cwd:workspace,
-      windowsHide:true,
-      timeout:600000,
-      shell:false,
-      maxBuffer:12 * 1024 * 1024
-    });
-  }
-  return workspace;
-}
 async function validateDirectOwnerRepair(workspace, plan) {
   const results=[];
   for (const patch of plan?.patches || []) {
@@ -445,7 +234,7 @@ async function validateDirectOwnerRepair(workspace, plan) {
         JSON.parse(fs.readFileSync(full,'utf8'));
         results.push({cmd:'json parse ' + file,ok:true,output:''});
       } else {
-        results.push({cmd:'direct write ' + file,ok:true,output:'Owner-approved direct patch; no sandbox or dependency install was run.'});
+        results.push({cmd:'direct write ' + file,ok:true,output:'Owner-approved direct patch; no dependency install was run.'});
       }
     } catch (error) {
       results.push({cmd:'validate ' + file,ok:false,output:String(error?.stdout || error?.stderr || error?.message || error).slice(-3000)});
@@ -453,117 +242,6 @@ async function validateDirectOwnerRepair(workspace, plan) {
     }
   }
   return {ok:true,results};
-}
-
-async function runDeveloperValidation(workspace) {
-  const requiredFiles = [
-    'electron/main.cjs',
-    'package.json',
-    'package-lock.json',
-    '.github/workflows/build-windows.yml',
-    'scripts/verify-jarvis.cjs',
-    'security/core-rules.json',
-    'security/core-rules.sig',
-    'security/core-rules-public.pem'
-  ];
-  const missing = requiredFiles.filter((file) => !fs.existsSync(path.join(workspace,file)));
-  const testDir = path.join(workspace,'src','tests');
-  if (!fs.existsSync(testDir)) missing.push('src/tests');
-  if (missing.length) {
-    return {
-      ok:false,
-      results:[{
-        cmd:'validation workspace preflight',
-        ok:false,
-        output:'Missing validation source: ' + missing.join(', ')
-      }]
-    };
-  }
-  const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
-  const commands = [
-    { label:'node --check electron/main.cjs', run:() => runToolchainNode(['--check','electron/main.cjs'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
-    { label:'node --test ' + testFiles.join(' '), run:() => runToolchainNode(['--test',...testFiles],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
-    { label:'npm run lint', run:() => runToolchainNpm(['run','lint'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
-    { label:'npm run typecheck', run:() => runToolchainNpm(['run','typecheck'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
-    { label:'npm run verify:jarvis', run:() => runToolchainNpm(['run','verify:jarvis'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
-    { label:'npm run build', run:() => runToolchainNpm(['run','build'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
-  ];
-  const results=[];
-  for (const command of commands) {
-    try {
-      const { stdout, stderr } = await command.run();
-      results.push({cmd:command.label,ok:true,output:(stdout||stderr||'').slice(-4000)});
-    } catch (error) {
-      results.push({cmd:command.label,ok:false,output:String(error?.stdout||error?.stderr||error?.message||error).slice(-4000)});
-      return {ok:false,results};
-    }
-  }
-  return {ok:true,results};
-}
-async function runReleaseCandidateValidation(workspace) {
-  const sourceValidation = await runDeveloperValidation(workspace);
-  if (!sourceValidation.ok) return sourceValidation;
-
-  const packageResult = { cmd:'npm exec -- electron-builder --win nsis --x64 --publish never', ok:false, output:'' };
-  try {
-    const { stdout, stderr } = await runToolchainNpm(
-      ['exec','--','electron-builder','--win','nsis','--x64','--publish','never'],
-      { cwd:workspace, windowsHide:true, timeout:900000, shell:false, maxBuffer:16 * 1024 * 1024 }
-    );
-    packageResult.ok = true;
-    packageResult.output = String(stdout || stderr || '').slice(-5000);
-  } catch (error) {
-    packageResult.output = String(error?.stdout || error?.stderr || error?.message || error).slice(-5000);
-    return { ok:false, results:[...(sourceValidation.results || []), packageResult] };
-  }
-
-  const releaseDir = path.join(workspace,'release');
-  const installer = fs.existsSync(releaseDir)
-    ? fs.readdirSync(releaseDir)
-        .filter((name) => /^Jarvis-Setup-.*-x64\.exe$/i.test(name))
-        .map((name) => path.join(releaseDir,name))
-        .sort((a,b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0]
-    : null;
-  if (!installer || !fs.existsSync(installer)) {
-    return {
-      ok:false,
-      results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:false, output:'Jarvis installer was not produced.' }]
-    };
-  }
-
-  const sha256 = crypto.createHash('sha256').update(fs.readFileSync(installer)).digest('hex');
-  const signature = await getAuthenticodeSignature(installer).catch((error)=>({
-    status:'Unavailable',
-    thumbprint:'',
-    subject:'',
-    error:String(error?.message || error)
-  }));
-  const signed = signature.status === 'Valid' && Boolean(signature.thumbprint);
-  const manifest = {
-    version:JSON.parse(fs.readFileSync(path.join(workspace,'package.json'),'utf8')).version,
-    builtAt:new Date().toISOString(),
-    installer,
-    sha256,
-    signing:{
-      signed,
-      status:signature.status || 'Unknown',
-      subject:signature.subject || null,
-      thumbprint:signature.thumbprint || null
-    },
-    validation:(sourceValidation.results || []).map((item)=>({cmd:item.cmd,ok:item.ok})),
-  };
-  const manifestPath=path.join(releaseDir,'release-candidate-manifest.json');
-  fs.writeFileSync(manifestPath,JSON.stringify(manifest,null,2),'utf8');
-  return {
-    ok:true,
-    results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:true, output:installer }, {cmd:'release-manifest',ok:true,output:manifestPath}],
-    installer,
-    sha256,
-    signature,
-    signed,
-    manifest,
-    manifestPath
-  };
 }
 
 function localOwnerAuthorised() {
@@ -696,11 +374,9 @@ async function deleteAllLocalData() {
     path.join(userData, 'audit'),
     path.join(userData, 'security'),
     developerBackupRoot(),
-    developerSandboxRoot(),
     path.join(userData, 'self-repair-learning.json'),
     path.join(userData, 'crash-watchdog'),
-    autonomousRepairStatePath(),
-    autonomousWorkspaceRoot(),
+    manualRepairWorkspaceRoot(),
     settingsPath(),
     backupDirectory,
   ];
@@ -1259,7 +935,7 @@ async function selfRepairChat(payload={}) {
   const prompt = `You are Jarvis Self-Repair, a source-aware software diagnostic engineer embedded in the Jarvis Windows app.
 You are NOT limited to reading filenames: reason about architecture, imports, state flow, IPC boundaries, UI behavior, tests and likely failure modes.
 Use only evidence from the project map and source excerpts below. Clearly separate confirmed code facts from hypotheses.
-You may propose concrete file-level repairs and validation steps. Repairs are manual and owner-approved: never apply a change until the owner presses the explicit Accept button. Do not use or suggest Autopilot or sandbox execution. Never claim that a proposed change has already been applied.
+You may propose concrete file-level repairs and validation steps. Repairs are manual and owner-approved: never apply a change until the owner presses the explicit Accept button. Do not start background repair loops or hidden execution. Never claim that a proposed change has already been applied.
 When asked to find bugs, inspect interactions across files, not just isolated syntax.
 Follow dependency edges, route reachability and IPC channels before claiming that code is active.
 Treat files marked inactive-or-unreferenced as dormant unless another runtime path proves otherwise.
@@ -1313,7 +989,7 @@ Keep it concise unless the owner asks for deep detail.`;
     ).join('\n\n');
     const planPrompt = `You are preparing a MANUAL, owner-approved Jarvis repair plan.
 The owner explicitly asked to fix the issue. Create the smallest concrete patch from the exact current source below.
-The patch will NOT run in a sandbox and will NOT be applied until the owner presses Accept.
+The patch will NOT be applied until the owner presses Accept.
 Rules:
 - Return JSON only with goal, rationale, risk and patches.
 - Copy every search string exactly from CURRENT SOURCE. Do not invent or paraphrase search text.
@@ -1381,7 +1057,7 @@ ${source}`;
 function parseRepairModelJson(value) {
   if (value && typeof value === 'object') return value;
   const raw = String(value || '').trim();
-  if (!raw) throw new Error('AUTONOMOUS_REPAIR_EMPTY_MODEL_RESPONSE');
+  if (!raw) throw new Error('MANUAL_REPAIR_EMPTY_MODEL_RESPONSE');
   const cleaned = raw
     .replace(/^\`\`\`(?:json)?\s*/i,'')
     .replace(/\s*\`\`\`$/,'')
@@ -1391,332 +1067,7 @@ function parseRepairModelJson(value) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start,end+1));
-    throw new Error('AUTONOMOUS_REPAIR_INVALID_JSON');
-  }
-}
-
-function summarizeValidation(validation) {
-  if (!validation?.results?.length) return validation?.ok ? 'OK' : 'No validation details';
-  return validation.results
-    .map((item) => `${item.cmd}: ${item.ok ? 'OK' : 'FAIL'} ${item.ok ? '' : String(item.output || '').slice(-1800)}`)
-    .join('\n');
-}
-
-async function generateAutonomousRepairProposal(workspace, goal, feedback='', iteration=1, signal=null) {
-  const query = [goal, feedback].filter(Boolean).join('\n\n');
-  const context = developerRepair.buildDiagnosticContext(workspace, query, { maxFiles:20, maxChars:70000 });
-  const learned = selfRepairLearning?.relevant?.(query, 10) || [];
-  const learnedText = learned.length
-    ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | validation=${item.validation || '-'}`).join('\n')
-    : '(no verified prior lessons)';
-  const source = context.excerpts.map((item) =>
-    `--- ${item.path} [${item.reachability}] [${item.protected ? 'PROTECTED READ-ONLY' : 'EDITABLE'}] ---\n${item.excerpt}`
-  ).join('\n\n');
-
-  const prompt = `You are the autonomous Jarvis Self-Repair planner.
-Your job is to improve the supplied Jarvis development workspace until the requested goal is satisfied and all validations pass.
-
-Hard rules:
-- Never edit protected core/security paths. The runtime will reject them.
-- Protected read-only paths include electron/main.cjs, electron/developer-repair.cjs, electron/admin-diagnostics.cjs, electron/security/**, security/**, .github/workflows/**, scripts/**, package.json, package-lock.json, eslint.config.js, tsconfig.json and vite.config.js.
-- Source excerpts marked PROTECTED READ-ONLY are context only. Never target them in patches.
-- If the root cause is in a protected file, prefer an editable caller/dependency/adapter only when that fully solves the goal without weakening safety.
-- If there is no safe unprotected implementation path, return {"done":true,"reason":"OWNER_CORE_REPAIR_REQUIRED: <explain the protected file and why no safe autonomous alternative exists>","patches":[]} instead of repeatedly proposing a protected file.
-- Never publish, tag, push a release, or change GitHub workflow files.
-- Prefer the smallest exact change that solves the current problem.
-- Return JSON only.
-- Use exact text replacements when possible. Copy every search string verbatim from RELEVANT SOURCE; do not reconstruct it from memory.
-- The runtime treats CRLF and LF as equivalent, but all other characters and whitespace must still match uniquely.
-- If a safe exact replacement cannot be formed from the supplied excerpt, either use a full-file "content" patch for that supplied file or return done=true with an explanation instead of inventing a search block.
-- If the goal is already satisfied and no source change is needed, return {"done":true,"reason":"...","patches":[]}.
-- Otherwise return:
-{
-  "done": false,
-  "goal": "short goal",
-  "rationale": "why these edits solve the problem",
-  "risk": "low|medium|high",
-  "patches": [
-    {
-      "file": "relative/path",
-      "replacements": [
-        {"search":"exact existing block","replace":"replacement block","all":false}
-      ]
-    }
-  ]
-}
-- Maximum 6 files and 8 replacements per file.
-- Do not use placeholders, ellipses, or partial pseudo-code in replacement text.
-- Do not modify package version for release. Release/version publication is owner-gated and happens later.
-
-OWNER GOAL:
-${goal}
-
-ITERATION:
-${iteration}
-
-PREVIOUS VALIDATION / REVISION FEEDBACK:
-${feedback || '(none)'}
-
-VERIFIED LOCAL LESSONS:
-${learnedText}
-
-PROJECT MAP:
-${JSON.stringify(context.map,null,2)}
-
-RELEVANT SOURCE:
-${source}`;
-
-  const response = await openRouterRequest({
-    prompt,
-    task_type:'repair',
-    response_json_schema:{ type:'object' },
-    contains_sensitive_context:false,
-    timeout_ms:120000,
-    signal
-  });
-
-  return {
-    proposal:parseRepairModelJson(response?.data?.result),
-    model:response?.data?.model || null,
-    files:context.excerpts.map((item) => item.path)
-  };
-}
-
-async function runAutonomousSelfRepair(payload={}) {
-  if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
-
-  const requestedGoal = String(payload?.goal || '').trim();
-  if (!requestedGoal) throw new Error('AUTONOMOUS_REPAIR_GOAL_REQUIRED');
-
-  const maxIterations = Math.max(1,Math.min(6,Number(payload?.maxIterations) || 4));
-  const workspace = payload?.workspace
-    ? developerRepair.validateWorkspace(String(payload.workspace))
-    : await ensureAutonomousWorkspace();
-
-  if (autonomousRepairRunning) throw new Error('AUTONOMOUS_REPAIR_ALREADY_RUNNING');
-  autonomousRepairRunning = true;
-  autonomousRepairStopRequested = false;
-  autonomousRepairAbortController = new AbortController();
-  const runId = crypto.randomUUID();
-  let feedback = '';
-  const applied = [];
-
-  try {
-  writeAutonomousRepairState({
-    runId,
-    status:'RUNNING',
-    workspace,
-    goal:requestedGoal,
-    iteration:0,
-    applied:[],
-    releaseCandidate:null,
-    releaseApproved:false,
-    releaseApprovedAt:null,
-    autoCrashRepair:true,
-    lastError:null
-  });
-
-  for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
-    if (autonomousRepairStopRequested) {
-      return writeAutonomousRepairState({ status:'STOPPED', iteration, applied });
-    }
-
-    writeAutonomousRepairState({ status:'ANALYZING', iteration, applied, feedback:feedback.slice(-6000) });
-
-    let generated;
-    try {
-      generated = await generateAutonomousRepairProposal(workspace, requestedGoal, feedback, iteration, autonomousRepairAbortController?.signal);
-      if (autonomousRepairStopRequested) {
-        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
-      }
-    } catch (error) {
-      if (autonomousRepairStopRequested || error?.message === 'OPENROUTER_ABORTED') {
-        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false, lastError:null });
-      }
-      feedback = `Planner error: ${error?.message || error}`;
-      writeAutonomousRepairState({ status:'PLANNER_RETRY', iteration, applied, lastError:feedback });
-      continue;
-    }
-
-    const proposal = generated.proposal || {};
-    const patches = Array.isArray(proposal.patches) ? proposal.patches : [];
-    if (proposal.done === true || patches.length === 0) {
-      const doneReason = String(proposal.reason || proposal.rationale || '').trim();
-      if (applied.length === 0 && doneReason.startsWith('OWNER_CORE_REPAIR_REQUIRED:')) {
-        return writeAutonomousRepairState({
-          status:'OWNER_CORE_REPAIR_REQUIRED',
-          iteration,
-          applied,
-          releaseCandidate:null,
-          releaseApproved:false,
-          lastError:doneReason
-        });
-      }
-      writeAutonomousRepairState({ status:'BUILDING_RELEASE_CANDIDATE', iteration, applied, lastError:null });
-      const finalValidation = await runReleaseCandidateValidation(workspace);
-      if (autonomousRepairStopRequested) {
-        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
-      }
-      if (!finalValidation.ok) {
-        feedback = `The model considered the goal complete, but release-candidate validation failed:\n${summarizeValidation(finalValidation)}`;
-        writeAutonomousRepairState({ status:'VALIDATION_RETRY', iteration, applied, lastError:feedback });
-        continue;
-      }
-
-      const candidate = {
-        id:crypto.randomUUID(),
-        runId,
-        workspace,
-        goal:requestedGoal,
-        applied,
-        model:generated.model,
-        validation:finalValidation,
-        installer:finalValidation.installer || null,
-        sha256:finalValidation.sha256 || null,
-        signed:finalValidation.signed === true,
-        signature:finalValidation.signature || null,
-        manifest:finalValidation.manifest || null,
-        manifestPath:finalValidation.manifestPath || null,
-        changedFiles:[...new Set(applied.flatMap((item)=>item.files || []))],
-        riskSummary:applied.some((item)=>item.risk === 'high') ? 'high' : applied.some((item)=>item.risk === 'medium') ? 'medium' : 'low',
-        createdAt:new Date().toISOString(),
-        releaseApproved:false
-      };
-      return writeAutonomousRepairState({
-        status:'RELEASE_CANDIDATE_READY',
-        iteration,
-        applied,
-        releaseCandidate:candidate,
-        releaseApproved:false,
-        lastError:null
-      });
-    }
-
-    let plan;
-    try {
-      plan = developerRepair.validatePlan(workspace,{
-        goal:proposal.goal || requestedGoal,
-        rationale:proposal.rationale || 'Autonomous Self-Repair proposal',
-        risk:proposal.risk || 'medium',
-        patches
-      });
-    } catch (error) {
-      const planError = String(error?.message || error);
-      if (planError.startsWith('DEV_REPAIR_PROTECTED_PATH:')) {
-        const protectedFile = planError.slice('DEV_REPAIR_PROTECTED_PATH:'.length);
-        feedback = [
-          `Plan rejected by safety validator because ${protectedFile} is protected read-only.`,
-          'Do not propose that file again.',
-          'Use only a genuinely editable implementation path that fully fixes the goal without weakening security.',
-          'If no such path exists, return done=true with reason OWNER_CORE_REPAIR_REQUIRED: followed by the exact limitation.'
-        ].join(' ');
-      } else {
-        feedback = `Plan rejected by safety validator: ${planError}. Return a corrected plan using only editable source shown in the current diagnostic context.`;
-      }
-      writeAutonomousRepairState({ status:'PLAN_RETRY', iteration, applied, lastError:feedback });
-      continue;
-    }
-
-    writeAutonomousRepairState({
-      status:'SANDBOX_TESTING',
-      iteration,
-      applied,
-      currentPlan:{ hash:plan.hash, goal:plan.goal, files:plan.patches.map((patch) => patch.file), risk:plan.risk }
-    });
-
-    let sandbox = null;
-    try {
-      sandbox = developerRepair.createSandbox(workspace,plan,developerSandboxRoot());
-      const sandboxValidation = await runDeveloperValidation(sandbox);
-      if (autonomousRepairStopRequested) {
-        developerRepair.destroySandbox(sandbox,developerSandboxRoot());
-        sandbox = null;
-        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
-      }
-      if (!sandboxValidation.ok) {
-        feedback = `Sandbox validation failed. Revise the plan instead of publishing or applying it:\n${summarizeValidation(sandboxValidation)}`;
-        developerRepair.destroySandbox(sandbox,developerSandboxRoot());
-        sandbox = null;
-        writeAutonomousRepairState({ status:'SANDBOX_RETRY', iteration, applied, lastError:feedback });
-        continue;
-      }
-
-      const backup = developerRepair.snapshot(workspace,plan,developerBackupRoot());
-      writeAutonomousRepairState({ status:'APPLYING_VERIFIED_PATCH', iteration, applied, backup });
-
-      try {
-        developerRepair.apply(workspace,plan);
-        const validation = await runDeveloperValidation(workspace);
-        if (autonomousRepairStopRequested) {
-          developerRepair.rollback(workspace,backup);
-          return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
-        }
-        if (!validation.ok) {
-          developerRepair.rollback(workspace,backup);
-          feedback = `The patch passed sandbox but failed after application and was rolled back:\n${summarizeValidation(validation)}`;
-          writeAutonomousRepairState({ status:'ROLLED_BACK_RETRY', iteration, applied, lastError:feedback });
-          continue;
-        }
-
-        const verified = {
-          hash:plan.hash,
-          goal:plan.goal,
-          files:plan.patches.map((patch) => patch.file),
-          risk:plan.risk,
-          validation:summarizeValidation(validation),
-          appliedAt:new Date().toISOString()
-        };
-        applied.push(verified);
-        selfRepairLearning?.recordVerified?.({
-          title:plan.goal || 'Autonomous Self-Repair',
-          repairId:plan.hash,
-          files:verified.files,
-          evidence:plan.rationale || requestedGoal,
-          validation:verified.validation,
-          success:true
-        });
-        feedback = `Verified patch applied successfully. Re-scan the updated workspace and decide whether more work is needed. Applied files: ${verified.files.join(', ')}.`;
-        writeAutonomousRepairState({ status:'PATCH_VERIFIED', iteration, applied, lastError:null });
-      } catch (error) {
-        try { developerRepair.rollback(workspace,backup); } catch {}
-        feedback = `Application failed and was rolled back: ${error?.message || error}`;
-        writeAutonomousRepairState({ status:'ROLLED_BACK_RETRY', iteration, applied, lastError:feedback });
-      }
-    } catch (error) {
-      if (autonomousRepairStopRequested || error?.message === 'OPENROUTER_ABORTED') {
-        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false, lastError:null });
-      }
-      feedback = [
-        'Sandbox preparation failed before validation.',
-        String(error?.message || error),
-        'Re-scan the current workspace and return a new plan using search text copied verbatim from the supplied source.',
-        'Do not reuse a stale replacement from a previous iteration.'
-      ].join(' ');
-      writeAutonomousRepairState({ status:'SANDBOX_RETRY', iteration, applied, lastError:feedback });
-      continue;
-    } finally {
-      if (sandbox) {
-        try { developerRepair.destroySandbox(sandbox,developerSandboxRoot()); } catch {}
-      }
-    }
-  }
-
-  const finalValidation = await runDeveloperValidation(workspace);
-  const finalStatus = finalValidation.ok && applied.length
-    ? 'NEEDS_OWNER_REVIEW_BEFORE_RELEASE'
-    : 'NEEDS_ATTENTION';
-
-  return writeAutonomousRepairState({
-    status:finalStatus,
-    iteration:maxIterations,
-    applied,
-    validation:finalValidation,
-    lastError:feedback || null
-  });
-  } finally {
-    autonomousRepairRunning = false;
-    autonomousRepairAbortController = null;
-    if (autonomousRepairStopRequested) autonomousRepairStopRequested = false;
+    throw new Error('MANUAL_REPAIR_INVALID_JSON');
   }
 }
 
@@ -2384,8 +1735,6 @@ app.whenReady().then(async () => {
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
   selfRepairLearning = new SelfRepairLearning(path.join(app.getPath('userData'),'self-repair-learning.json'));
-  recoverInterruptedAutonomousRepairState();
-  writeAutonomousRepairState({ status:'DISABLED', autoCrashRepair:false, lastError:null });
   adminDiagnosticsManager = new AdminDiagnosticsManager({
     execPath:process.execPath,
     appPath:app.getAppPath(),
@@ -2611,161 +1960,6 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.handle('jarvis:self-repair:auto:status', () => readAutonomousRepairState());
-  ipcMain.handle('jarvis:self-repair:auto:crash-mode', async (_e, enabled=false) => {
-    if (enabled === true) {
-      await requireOwnerPresence({
-        title:'Automatikus crash-javítás',
-        message:'Engedélyezed, hogy Jarvis egy későbbi összeomlás után automatikusan elindítsa a Self-Repair Autopilotot?',
-        detail:'A javítás továbbra is sandboxban és teljes validációval fut. Release-t nem publikálhat külön tulajdonosi jóváhagyás nélkül.'
-      });
-    } else if (!localOwnerAuthorised()) {
-      throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
-    }
-    return writeAutonomousRepairState({ autoCrashRepair:enabled === true });
-  });
-  ipcMain.handle('jarvis:self-repair:auto:workspace', async () => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
-    const workspace = await ensureAutonomousWorkspace();
-    const state = readAutonomousRepairState();
-    if (!activeAutonomousStatus(state.status) && state.workspace !== workspace) {
-      writeAutonomousRepairState({
-        workspace,
-        status:state.status === 'INTERRUPTED' ? 'IDLE' : state.status,
-        lastError:null
-      });
-    }
-    return { success:true, workspace };
-  });
-  ipcMain.handle('jarvis:self-repair:auto:run', async (_e, request={}) => {
-    await requireOwnerPresence({
-      title:'Autopilot önfejlesztés',
-      message:'Engedélyezed az Autopilot futtatását?',
-      detail:'Az Autopilot sandboxban tesztelhet és a fejlesztési munkamásolatot módosíthatja. Kiadást továbbra sem publikálhat külön tulajdonosi jóváhagyás nélkül.'
-    });
-    return runAutonomousSelfRepair(request);
-  });
-  ipcMain.handle('jarvis:self-repair:auto:stop', () => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
-    if (!autonomousRepairRunning) {
-      autonomousRepairStopRequested = false;
-      return writeAutonomousRepairState({ status:'STOPPED', autoCrashRepair:false, lastError:null });
-    }
-    autonomousRepairStopRequested = true;
-    try { autonomousRepairAbortController?.abort(); } catch {}
-    return writeAutonomousRepairState({ status:'STOP_REQUESTED', autoCrashRepair:false });
-  });
-  ipcMain.handle('jarvis:self-repair:release:approve', async (_e, request={}) => {
-    await requireOwnerPresence({
-      title:'Release jóváhagyása',
-      message:'Engedélyezed ennek a tesztelt release candidate-nek a kiadási jóváhagyását?',
-      detail:'Ez csak a Jarvis belső release-kapuját nyitja meg. GitHub publikálás továbbra is külön, explicit kiadási lépést igényel.'
-    });
-    const state = readAutonomousRepairState();
-    const candidate = state.releaseCandidate;
-    if (!candidate?.id || candidate.id !== String(request.candidateId || '')) {
-      throw new Error('RELEASE_CANDIDATE_NOT_FOUND');
-    }
-    if (!['RELEASE_CANDIDATE_READY','NEEDS_OWNER_REVIEW_BEFORE_RELEASE'].includes(state.status)) {
-      throw new Error('RELEASE_CANDIDATE_NOT_READY');
-    }
-    return writeAutonomousRepairState({
-      releaseApproved:true,
-      releaseApprovedAt:new Date().toISOString(),
-      status:'RELEASE_APPROVED_BY_OWNER'
-    });
-  });
-  ipcMain.handle('jarvis:self-repair:release:revoke', () => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
-    const state = readAutonomousRepairState();
-    return writeAutonomousRepairState({
-      releaseApproved:false,
-      releaseApprovedAt:null,
-      status:state.releaseCandidate ? 'RELEASE_CANDIDATE_READY' : state.status
-    });
-  });
-
-  ipcMain.handle('jarvis:developer:plan', (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
-    const workspace = developerRepair.validateWorkspace(String(request.workspace || ''));
-    const plan = developerRepair.validatePlan(workspace, request.plan || {});
-    developerPlans.set(plan.hash,{workspace,plan,approved:false,createdAt:Date.now()});
-    return plan;
-  });
-  ipcMain.handle('jarvis:developer:sandbox', async (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
-    const hash=String(request.hash||'');
-    const entry=developerPlans.get(hash);
-    if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
-    if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');
-    const approvedPlan={...entry.plan}; delete approvedPlan.hash;
-    if(developerRepair.proposalHash(approvedPlan)!==hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
-    if(entry.sandbox) { try { developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot()); } catch {} }
-    const sandbox=developerRepair.createSandbox(entry.workspace,entry.plan,developerSandboxRoot());
-    entry.sandbox=sandbox;
-    const validation=await runDeveloperValidation(sandbox);
-    entry.sandboxValidation=validation;
-    entry.sandboxVerified=Boolean(validation.ok);
-    entry.sandboxVerifiedAt=validation.ok?Date.now():null;
-    if(!validation.ok) {
-      developerRepair.destroySandbox(sandbox,developerSandboxRoot());
-      entry.sandbox=null;
-      return {success:false,status:'SANDBOX_FAILED',hash,validation};
-    }
-    return {success:true,status:'SANDBOX_VERIFIED',hash,validation,files:entry.plan.patches.map(p=>p.file)};
-  });
-  ipcMain.handle('jarvis:developer:approve', async (_e, request={}) => {
-    await requireOwnerPresence({
-      title:'Fejlesztői javítás jóváhagyása',
-      message:'Engedélyezed a sandboxban ellenőrzött javítás alkalmazási jóváhagyását?',
-      detail:'A terv csak sikeres sandbox-ellenőrzés után hagyható jóvá, és alkalmazás után ismét teljes validáció fut.'
-    });
-    const entry=developerPlans.get(String(request.hash||''));
-    if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
-    if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');
-    if(!entry.sandboxVerified || !entry.sandboxValidation?.ok) throw new Error('DEV_REPAIR_SANDBOX_VERIFICATION_REQUIRED');
-    entry.approved=true; entry.approvedAt=Date.now();
-    return {success:true,hash:entry.plan.hash,status:'APPROVED_AFTER_SANDBOX'};
-  });
-  ipcMain.handle('jarvis:developer:apply', (_e, request={}) => guarded(
-    {type:'system_repair',target:'developer-workspace'},
-    async () => {
-      const hash=String(request.hash||'');
-      const entry=developerPlans.get(hash);
-      if(!entry || !entry.approved) throw new Error('DEV_REPAIR_APPROVAL_REQUIRED');
-      if(!entry.sandboxVerified || !entry.sandboxValidation?.ok) throw new Error('DEV_REPAIR_SANDBOX_VERIFICATION_REQUIRED');
-      const approvedPlan={...entry.plan}; delete approvedPlan.hash;
-      if(developerRepair.proposalHash(approvedPlan)!==hash) throw new Error('DEV_REPAIR_PLAN_MUTATED');
-      const backup=developerRepair.snapshot(entry.workspace,entry.plan,developerBackupRoot());
-      try {
-        developerRepair.apply(entry.workspace,entry.plan);
-        const validation=await runDeveloperValidation(entry.workspace);
-        if(!validation.ok) {
-          developerRepair.rollback(entry.workspace,backup);
-          if(entry.sandbox) developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot());
-          developerPlans.delete(hash);
-          return {success:false,status:'ROLLED_BACK',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
-        }
-        if(entry.sandbox) developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot());
-        selfRepairLearning?.recordVerified?.({
-          title:entry.plan.goal || 'Self-Repair fejlesztői javítás',
-          repairId:hash,
-          files:entry.plan.patches.map((patch) => patch.file),
-          evidence:entry.plan.rationale || entry.plan.goal || '',
-          validation:(validation.results || []).map((item) => `${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
-          success:true
-        });
-        developerPlans.delete(hash);
-        return {success:true,status:'APPLIED_AND_VERIFIED',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
-      } catch(error) {
-        developerRepair.rollback(entry.workspace,backup);
-        if(entry.sandbox) { try { developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot()); } catch {} }
-        developerPlans.delete(hash);
-        throw error;
-      }
-    },
-    {message:'A módosítás a sandboxban már sikeresen lefutott és a tulajdonos jóváhagyta. Jarvis mentést készít, alkalmazza a pontos tervet, majd újra ellenőrzi; hiba esetén automatikusan visszaáll.'}
-  ));
   ipcMain.handle('jarvis:repair:apply', (_e, request={}) => guarded(
     { type:'system_repair', target:String(request.repairId || '') },
     () => runApprovedRepair(request.repairId, request.reportId),

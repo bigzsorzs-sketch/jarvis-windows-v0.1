@@ -103,13 +103,11 @@ test('Crash Watchdog history is removed by full local-data erasure', () => {
   assert.match(electronMain,/path\.join\(userData, 'crash-watchdog'\)/);
 });
 
-test('release candidate metadata still includes checksum signing status risk and changed files', () => {
-  assert.match(electronMain,/release-candidate-manifest\.json/);
-  assert.match(electronMain,/getAuthenticodeSignature\(installer\)/);
-  assert.match(electronMain,/changedFiles/);
-  assert.match(electronMain,/riskSummary/);
+test('release publication keeps checksum and signer gates in CI', () => {
+  assert.match(workflow,/Create SHA-256 checksum/);
   assert.match(workflow,/Create release candidate manifest/);
   assert.match(workflow,/Verify signer before publication/);
+  assert.match(workflow,/release-manifest\.json/);
 });
 
 test('GitHub release publication remains explicit owner-controlled and signing-aware', () => {

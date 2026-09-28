@@ -125,54 +125,6 @@ function validateWorkspace(root) {
   if (pkg?.name !== 'jarvis-desktop') throw new Error('DEV_REPAIR_NOT_JARVIS_WORKSPACE');
   return base;
 }
-function validatePlan(root, input={}) {
-  const base = validateWorkspace(root);
-  const patches = Array.isArray(input.patches) ? input.patches : [];
-  if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
-  if (patches.length > 8) throw new Error('DEV_REPAIR_TOO_MANY_PATCHES');
-
-  const clean = patches.map((p) => {
-    const file = normalizeRelative(p.file);
-    const target = resolveInside(base,file);
-    if (/^src[\\/]tests[\\/]/i.test(file) && fs.existsSync(target)) {
-      throw new Error('DEV_REPAIR_EXISTING_TEST_PROTECTED');
-    }
-    const hasFullContent = typeof p.content === 'string';
-    const replacements = Array.isArray(p.replacements) ? p.replacements : [];
-
-    if (!hasFullContent && !replacements.length) throw new Error('DEV_REPAIR_PATCH_REQUIRED');
-    if (hasFullContent && Buffer.byteLength(p.content,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
-    if (replacements.length > 12) throw new Error('DEV_REPAIR_TOO_MANY_REPLACEMENTS');
-
-    const cleanReplacements = replacements.map((edit) => {
-      const search = String(edit?.search || '');
-      const replace = String(edit?.replace ?? '');
-      if (!search) throw new Error('DEV_REPAIR_SEARCH_REQUIRED');
-      if (search.length > 50000 || replace.length > 100000) throw new Error('DEV_REPAIR_REPLACEMENT_TOO_LARGE');
-      return { search, replace, all:edit?.all === true };
-    });
-
-    if (cleanReplacements.length && !fs.existsSync(target)) throw new Error('DEV_REPAIR_REPLACEMENT_TARGET_MISSING');
-    if (cleanReplacements.length) {
-      // Preflight against the exact current file before any sandbox work begins.
-      // Matching is newline-normalized so Windows CRLF files and model LF JSON
-      // cannot fail solely because of platform line endings.
-      preflightReplacementSearches(fs.readFileSync(target,'utf8'), cleanReplacements, file);
-    }
-    return hasFullContent
-      ? { file, content:p.content }
-      : { file, replacements:cleanReplacements };
-  });
-
-  const plan = {
-    goal:String(input.goal || '').slice(0,4000),
-    rationale:String(input.rationale || '').slice(0,8000),
-    risk:['low','medium','high'].includes(input.risk) ? input.risk : 'medium',
-    patches:clean,
-    validation:['syntax','tests','lint','typecheck','verify','build']
-  };
-  return { ...plan, hash:proposalHash(plan) };
-}
 function validateOwnerPlan(root, input={}) {
   const base = validateWorkspace(root);
   const patches = Array.isArray(input.patches) ? input.patches : [];
@@ -215,42 +167,6 @@ function validateOwnerPlan(root, input={}) {
     validation:['owner-approved-direct']
   };
   return { ...plan, hash:proposalHash(plan) };
-}
-function snapshot(root, plan, backupRoot) {
-  const dir = path.join(backupRoot, Date.now()+'-'+plan.hash.slice(0,12));
-  fs.mkdirSync(dir,{recursive:true});
-  const manifest=[];
-  for(const patch of plan.patches){
-    const target=resolveInside(root,patch.file);
-    const existed=fs.existsSync(target);
-    const content=existed?fs.readFileSync(target):null;
-    const backup=path.join(dir,patch.file);
-    if(existed){ fs.mkdirSync(path.dirname(backup),{recursive:true}); fs.writeFileSync(backup,content); }
-    manifest.push({file:patch.file,existed});
-  }
-  fs.writeFileSync(path.join(dir,'manifest.json'),JSON.stringify(manifest,null,2));
-  return dir;
-}
-function apply(root,plan){
-  for(const patch of plan.patches){
-    const target=resolveInside(root,patch.file);
-    fs.mkdirSync(path.dirname(target),{recursive:true});
-    let nextContent;
-
-    if (typeof patch.content === 'string') {
-      nextContent = patch.content;
-    } else {
-      nextContent = applyReplacementEdits(
-        fs.readFileSync(target,'utf8'),
-        patch.replacements || [],
-        patch.file
-      );
-    }
-
-    const tmp=target+'.jarvis-tmp-'+process.pid;
-    fs.writeFileSync(tmp,nextContent,'utf8');
-    fs.renameSync(tmp,target);
-  }
 }
 function snapshotOwner(root, plan, backupRoot) {
   const dir = path.join(backupRoot, Date.now()+'-'+plan.hash.slice(0,12));
@@ -295,79 +211,7 @@ function rollbackOwner(root, dir) {
     }
   }
 }
-function createSandbox(root, plan, sandboxRoot) {
-  const base = validateWorkspace(root);
-  fs.mkdirSync(sandboxRoot,{recursive:true});
-  const dir = path.join(sandboxRoot, Date.now()+'-'+plan.hash.slice(0,12));
-  const ignored = new Set(['.git','release','dist','.jarvis-sandbox']);
-  fs.cpSync(base,dir,{recursive:true,filter:(source)=>{
-    const rel=path.relative(base,source).replace(/\\/g,'/');
-    if(!rel) return true;
-    const first=rel.split('/')[0];
-    return !ignored.has(first) && first !== 'node_modules';
-  }});
-  const sourceModules=path.join(base,'node_modules');
-  const sandboxModules=path.join(dir,'node_modules');
-  if(fs.existsSync(sourceModules)){
-    try { fs.symlinkSync(sourceModules,sandboxModules,process.platform==='win32'?'junction':'dir'); }
-    catch { fs.cpSync(sourceModules,sandboxModules,{recursive:true}); }
-  }
-  apply(dir,plan);
-  fs.writeFileSync(path.join(dir,'.jarvis-sandbox.json'),JSON.stringify({
-    hash:plan.hash, source:base, createdAt:new Date().toISOString(), files:plan.patches.map(p=>p.file)
-  },null,2));
-  return dir;
-}
-function destroySandbox(dir, sandboxRoot) {
-  if(!dir || !sandboxRoot) return { removed:false, skipped:true };
-  const base=path.resolve(sandboxRoot);
-  const target=path.resolve(dir);
-  if(target===base || !target.startsWith(base+path.sep)) throw new Error('DEV_REPAIR_SANDBOX_PATH_INVALID');
-  if(!fs.existsSync(target)) return { removed:true, alreadyMissing:true };
-
-  // Windows can keep a sandbox directory locked briefly after npm/node exits,
-  // especially when node_modules is a junction. Remove the junction first and
-  // use bounded retries so a successful repair is not reported as failed only
-  // because cleanup raced a released file handle.
-  const sandboxModules=path.join(target,'node_modules');
-  try {
-    if(fs.existsSync(sandboxModules)) fs.rmSync(sandboxModules,{recursive:true,force:true,maxRetries:4,retryDelay:120});
-  } catch {}
-
-  try {
-    fs.rmSync(target,{recursive:true,force:true,maxRetries:8,retryDelay:180});
-    return { removed:true };
-  } catch(error) {
-    if(!['EPERM','EBUSY','ENOTEMPTY','EACCES'].includes(error?.code)) throw error;
-    try { fs.chmodSync(target,0o700); } catch {}
-    try {
-      fs.rmSync(target,{recursive:true,force:true,maxRetries:8,retryDelay:220});
-      return { removed:true, retried:true };
-    } catch(secondError) {
-      if(!['EPERM','EBUSY','ENOTEMPTY','EACCES'].includes(secondError?.code)) throw secondError;
-      const quarantine=target+`.pending-delete-${Date.now()}`;
-      try {
-        fs.renameSync(target,quarantine);
-        return { removed:false, deferred:true, quarantine };
-      } catch {
-        // Cleanup failure must not invalidate an otherwise verified repair.
-        // The next run uses a unique sandbox path and can retry stale cleanup.
-        return { removed:false, deferred:true, quarantine:null };
-      }
-    }
-  }
-}
-function rollback(root,dir){
-  const manifest=JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'),'utf8'));
-  for(const item of manifest){
-    const target=resolveInside(root,item.file);
-    const backup=path.join(dir,item.file);
-    if(item.existed){fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(backup,target);}
-    else if(fs.existsSync(target)) fs.rmSync(target,{force:true});
-  }
-}
-
-const INSPECT_IGNORED = new Set(['.git','node_modules','release','dist','coverage','.jarvis-sandbox']);
+const INSPECT_IGNORED = new Set(['.git','node_modules','release','dist','coverage']);
 const INSPECT_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
 function inspectRoot(root) {
@@ -687,6 +531,6 @@ function buildDiagnosticContext(root, query='', options={}) {
 }
 
 module.exports={
-  validateWorkspace,validatePlan,validateOwnerPlan,proposalHash,snapshot,snapshotOwner,apply,applyOwner,createSandbox,destroySandbox,rollback,rollbackOwner,
+  validateWorkspace,validateOwnerPlan,proposalHash,snapshotOwner,applyOwner,rollbackOwner,
   inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED,OWNER_BLOCKED
 };
