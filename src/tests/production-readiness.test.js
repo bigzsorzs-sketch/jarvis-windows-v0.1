@@ -47,3 +47,13 @@ test('one-click updater requires stable exact-version release assets and SHA-256
   assert.equal(main.includes("verification:nextSigned ? 'sha256+authenticode' : 'sha256'"), true);
   assert.equal(main.includes("if (currentSigned)"), true);
 });
+
+
+test('CI gates the Windows installer behind CodeQL security analysis', () => {
+  const workflow = read('.github/workflows/build-windows.yml');
+  assert.equal(workflow.includes('github/codeql-action/init@v3'), true);
+  assert.equal(workflow.includes('github/codeql-action/analyze@v3'), true);
+  assert.equal(workflow.includes('queries: security-extended'), true);
+  assert.match(workflow,/windows-installer:\s*\n\s*needs: codeql/);
+  assert.match(workflow,/security-events: write/);
+});

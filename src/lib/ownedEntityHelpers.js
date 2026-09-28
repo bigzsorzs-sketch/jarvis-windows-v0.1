@@ -9,6 +9,7 @@ async function getCurrentUserOrThrow() {
 async function assertOwned(entityApi, id) {
   const currentUser = await getCurrentUserOrThrow();
   const record = await entityApi.get(id);
+  if (!record) throw new Error('ENTITY_NOT_FOUND');
   if (record?.created_by !== currentUser.email) throw new Error('OWNER_MISMATCH');
   return { currentUser, record };
 }

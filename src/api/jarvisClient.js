@@ -74,6 +74,10 @@ function localEntityApi(entityName) {
   const save = (rows) => write(key, rows);
 
   return {
+    async get(rowId) {
+      const row = all().find((item) => item.id === rowId);
+      return row ? structuredClone(row) : null;
+    },
     async filter(query = {}, sort = null, limit = null) {
       let rows = all().filter((row) => Object.entries(query || {}).every(([k,v]) => row?.[k] === v));
       if (sort) {
@@ -131,6 +135,13 @@ function entityApi(entityName) {
   const fallback = localEntityApi(entityName);
 
   return {
+    async get(rowId) {
+      const api = nativeData();
+      if (!api?.filter) return fallback.get(rowId);
+      await ensureDesktopMigration();
+      const rows = await api.filter(entityName, { id: rowId }, null, 1);
+      return Array.isArray(rows) && rows.length ? rows[0] : null;
+    },
     async filter(query = {}, sort = null, limit = null) {
       const api = nativeData();
       if (!api?.filter) return fallback.filter(query, sort, limit);
