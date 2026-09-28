@@ -126,7 +126,10 @@ test('packaged Autopilot copies its editable workspace from real resources, not 
   for (const [from,to] of required) {
     assert.ok(resources.some((item) => item?.from === from && item?.to === to), from + ' -> ' + to);
   }
-  assert.equal(resources.some((item) => item?.from === 'package.json'),false,'package.json must remain inside app.asar');
+  assert.ok(
+    resources.some((item) => item?.from === 'package.json' && item?.to === 'self-development-source/package.json'),
+    'full package.json must be bundled as editable Self-Repair source'
+  );
   assert.equal(resources.some((item) => item?.from === '.' && String(item?.to || '').startsWith('self-development-source')),false,'project root must not be used as an extraResources source');
   assert.match(main,/const source = fs\.existsSync\(externalSource\) \? externalSource : resourcePath\(entry\)/);
   assert.match(main,/fs\.writeFileSync\(destination,fs\.readFileSync\(source\)\)/);

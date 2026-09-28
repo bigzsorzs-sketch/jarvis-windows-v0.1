@@ -255,6 +255,11 @@ async function ensureAutonomousWorkspace() {
     'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
   ];
 
+  const packagedSourcePackage = path.join(sourceRoot,'package.json');
+  if (app.isPackaged && !fs.existsSync(packagedSourcePackage)) {
+    throw new Error('AUTONOMOUS_REPAIR_SOURCE_PACKAGE_MISSING');
+  }
+
   // A packaged upgrade must refresh the development workspace. Previously the
   // workspace was only filled when files were missing, so a v0.3.10 workspace
   // could survive inside v0.3.11 and the planner would patch stale source.
@@ -283,6 +288,14 @@ async function ensureAutonomousWorkspace() {
   for (const entry of entries) {
     const destination = path.join(target,entry);
     const externalSource = path.join(sourceRoot,entry);
+
+    // In packaged builds package metadata must come from the unmodified
+    // self-development source bundle. electron-builder may normalize the
+    // package.json inside app.asar and remove build.files.
+    if (app.isPackaged && (entry === 'package.json' || entry === 'package-lock.json') && !fs.existsSync(externalSource)) {
+      throw new Error('AUTONOMOUS_REPAIR_SOURCE_MISSING:' + entry);
+    }
+
     const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
 
     if (!fs.existsSync(source)) {
@@ -307,6 +320,20 @@ async function ensureAutonomousWorkspace() {
   }
 
   const workspace = developerRepair.validateWorkspace(target);
+  const workspacePackagePathFinal = path.join(workspace,'package.json');
+  let workspacePackage;
+  try {
+    workspacePackage = JSON.parse(fs.readFileSync(workspacePackagePathFinal,'utf8'));
+  } catch {
+    throw new Error('AUTONOMOUS_REPAIR_PACKAGE_INVALID');
+  }
+  if (!Array.isArray(workspacePackage?.build?.files) || !Array.isArray(workspacePackage?.build?.extraResources)) {
+    throw new Error('AUTONOMOUS_REPAIR_PACKAGE_METADATA_INCOMPLETE');
+  }
+  if (installedVersion && String(workspacePackage.version || '') !== installedVersion) {
+    throw new Error('AUTONOMOUS_REPAIR_PACKAGE_VERSION_MISMATCH');
+  }
+
   const lockPath = path.join(workspace,'package-lock.json');
   if (!fs.existsSync(lockPath)) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
 

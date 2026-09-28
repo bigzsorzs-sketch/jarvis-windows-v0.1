@@ -93,9 +93,12 @@ test('repairs incomplete Autopilot workspaces and packages a real lockfile outsi
     true
   );
   assert.equal(
-    pkg.build.extraResources.some((entry) => entry.from === 'package.json'),
-    false
+    pkg.build.extraResources.some((entry) =>
+      entry.from === 'package.json' && entry.to === 'self-development-source/package.json'
+    ),
+    true
   );
+  assert.match(main,/AUTONOMOUS_REPAIR_PACKAGE_METADATA_INCOMPLETE/);
 });
 
 

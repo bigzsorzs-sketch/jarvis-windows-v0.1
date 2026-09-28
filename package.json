@@ -1,7 +1,7 @@
 {
   "name": "jarvis-desktop",
   "private": true,
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "Jarvis local-first multi-AI desktop assistant for Windows 10 and 11",
   "type": "module",
   "main": "electron/main.cjs",
@@ -208,6 +208,10 @@
       {
         "from": "scripts",
         "to": "self-development-source/scripts"
+      },
+      {
+        "from": "package.json",
+        "to": "self-development-source/package.json"
       },
       {
         "from": "package-lock.json",
