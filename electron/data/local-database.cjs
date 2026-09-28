@@ -128,12 +128,13 @@ class LocalDatabase {
   create(entity, data = {}) {
     this.ensureOpen();
     const user = this.getUser();
+    const incoming = clone(data);
     const row = {
-      id: data.id || crypto.randomUUID(),
-      created_date: data.created_date || now(),
+      ...incoming,
+      id: crypto.randomUUID(),
+      created_date: now(),
       updated_date: now(),
-      created_by: data.created_by || user.email,
-      ...clone(data)
+      created_by: user.email
     };
 
     this.db.prepare([
@@ -157,7 +158,20 @@ class LocalDatabase {
       .get(String(entity), String(id));
     if (!current) throw new Error(String(entity) + ' not found: ' + String(id));
 
-    const row = { ...JSON.parse(current.json), ...clone(patch), id: String(id), updated_date: now() };
+    const currentRow = JSON.parse(current.json);
+    const safePatch = clone(patch);
+    delete safePatch.id;
+    delete safePatch.created_by;
+    delete safePatch.created_date;
+    delete safePatch.updated_date;
+    const row = {
+      ...currentRow,
+      ...safePatch,
+      id:String(id),
+      created_by:currentRow.created_by,
+      created_date:currentRow.created_date,
+      updated_date:now()
+    };
     this.db.prepare([
       'UPDATE entities SET created_date=@created_date,updated_date=@updated_date,created_by=@created_by,json=@json',
       'WHERE entity=@entity AND id=@id'
@@ -206,7 +220,17 @@ class LocalDatabase {
           imported += result.changes;
         }
       }
-      if (snapshot.user) this.setMeta('local_user', snapshot.user);
+      if (snapshot.user) {
+        const restoredUser = clone(snapshot.user);
+        this.setMeta('local_user', {
+          ...restoredUser,
+          id:'local-owner',
+          role:'owner',
+          email:String(restoredUser?.email || 'owner@jarvis.local'),
+          created_date:restoredUser?.created_date || now(),
+          updated_date:now()
+        });
+      }
       this.setMeta('legacy_localstorage_migrated_at', now());
     });
     tx();
@@ -280,7 +304,17 @@ class LocalDatabase {
         }
       }
 
-      if (snapshot.user) this.setMeta('local_user', snapshot.user);
+      if (snapshot.user) {
+        const restoredUser = clone(snapshot.user);
+        this.setMeta('local_user', {
+          ...restoredUser,
+          id:'local-owner',
+          role:'owner',
+          email:String(restoredUser?.email || 'owner@jarvis.local'),
+          created_date:restoredUser?.created_date || now(),
+          updated_date:now()
+        });
+      }
       this.setMeta('last_backup_restore_at', now());
 
       const integrity = this.db.pragma('quick_check', { simple: true });
