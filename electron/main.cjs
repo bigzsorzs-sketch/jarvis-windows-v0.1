@@ -180,6 +180,9 @@ async function deleteAllLocalData() {
     path.join(userData, 'data'),
     path.join(userData, 'audit'),
     path.join(userData, 'security'),
+    developerBackupRoot(),
+    developerSandboxRoot(),
+    path.join(userData, 'self-repair-learning.json'),
     settingsPath(),
     backupDirectory,
   ];
