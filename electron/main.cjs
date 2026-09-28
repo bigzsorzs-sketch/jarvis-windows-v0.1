@@ -793,29 +793,39 @@ async function openRouterTranscribeVoice(payload={}) {
   if (audioBase64.length > 24 * 1024 * 1024) throw new Error('VOICE_AUDIO_TOO_LARGE');
 
   const format = audioFormatFromMimeType(payload.mimeType);
-  const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
-    method:'POST',
-    headers:openRouterAudioHeaders(apiKey),
-    body:JSON.stringify({
-      model,
-      input_audio:{ data:audioBase64, format }
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
+      method:'POST',
+      headers:openRouterAudioHeaders(apiKey),
+      signal:controller.signal,
+      body:JSON.stringify({
+        model,
+        input_audio:{ data:audioBase64, format }
+      })
+    });
 
-  if (!response.ok) {
-    throw new Error(`OPENROUTER_STT_${response.status}:${(await response.text()).slice(0,500)}`);
-  }
-
-  const json = await response.json();
-  return {
-    data:{
-      supported:true,
-      text:String(json?.text || '').trim(),
-      model,
-      usage:json?.usage || null,
-      generationId:response.headers.get('x-generation-id') || null
+    if (!response.ok) {
+      throw new Error(`OPENROUTER_STT_${response.status}:${(await response.text()).slice(0,500)}`);
     }
-  };
+
+    const json = await response.json();
+    return {
+      data:{
+        supported:true,
+        text:String(json?.text || '').trim(),
+        model,
+        usage:json?.usage || null,
+        generationId:response.headers.get('x-generation-id') || null
+      }
+    };
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('OPENROUTER_STT_TIMEOUT');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function requestOpenRouterSpeech({ apiKey, model, voice, input, responseFormat }) {
