@@ -1,7 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme, shell } = require('electron');
 const path = require('path');
+const { fileURLToPath } = require('url');
 const fs = require('fs');
 const os = require('os');
 const { execFile, execFileSync, spawn } = require('child_process');
@@ -62,6 +63,43 @@ function autonomousSourceRoot() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'self-development-source')
     : path.join(__dirname, '..');
+}
+
+function selfRepairToolchainPaths() {
+  if (!app.isPackaged) return null;
+  const root = path.join(process.resourcesPath, 'self-repair-toolchain');
+  const node = path.join(root, process.platform === 'win32' ? 'node.exe' : 'node');
+  const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
+  if (!fs.existsSync(node) || !fs.existsSync(npmCli)) {
+    throw new Error('AUTONOMOUS_REPAIR_TOOLCHAIN_MISSING');
+  }
+  return { root, node, npmCli };
+}
+
+function withSelfRepairToolchainEnv(options={}, toolchain=selfRepairToolchainPaths()) {
+  const env = { ...process.env, ...(options.env || {}) };
+  const existingPath = env.PATH || env.Path || '';
+  const toolchainPath = [toolchain.root, existingPath].filter(Boolean).join(path.delimiter);
+  return {
+    ...options,
+    env:{ ...env, PATH:toolchainPath, Path:toolchainPath }
+  };
+}
+
+async function runToolchainNode(args, options={}) {
+  if (!app.isPackaged) {
+    return execFileAsync(process.platform === 'win32' ? 'node.exe' : 'node', args, options);
+  }
+  const toolchain = selfRepairToolchainPaths();
+  return execFileAsync(toolchain.node, args, withSelfRepairToolchainEnv(options, toolchain));
+}
+
+async function runToolchainNpm(args, options={}) {
+  if (!app.isPackaged) {
+    return execFileAsync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options);
+  }
+  const toolchain = selfRepairToolchainPaths();
+  return execFileAsync(toolchain.node, [toolchain.npmCli, ...args], withSelfRepairToolchainEnv(options, toolchain));
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -215,7 +253,7 @@ async function ensureAutonomousWorkspace() {
   const workspace = developerRepair.validateWorkspace(target);
   if (!fs.existsSync(path.join(workspace,'node_modules'))) {
     if (!fs.existsSync(path.join(workspace,'package-lock.json'))) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
-    await execFileAsync('npm',['ci'],{
+    await runToolchainNpm(['ci'],{
       cwd:workspace,
       windowsHide:true,
       timeout:600000,
@@ -229,20 +267,20 @@ async function runDeveloperValidation(workspace) {
   const testDir = path.join(workspace,'src','tests');
   const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
   const commands = [
-    ['node',['--check','electron/main.cjs']],
-    ['node',['--test',...testFiles]],
-    ['npm',['run','lint']],
-    ['npm',['run','typecheck']],
-    ['npm',['run','verify:jarvis']],
-    ['npm',['run','build']],
+    { label:'node --check electron/main.cjs', run:() => runToolchainNode(['--check','electron/main.cjs'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'node --test ' + testFiles.join(' '), run:() => runToolchainNode(['--test',...testFiles],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run lint', run:() => runToolchainNpm(['run','lint'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run typecheck', run:() => runToolchainNpm(['run','typecheck'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run verify:jarvis', run:() => runToolchainNpm(['run','verify:jarvis'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run build', run:() => runToolchainNpm(['run','build'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
   ];
   const results=[];
-  for (const [cmd,args] of commands) {
+  for (const command of commands) {
     try {
-      const { stdout, stderr } = await execFileAsync(cmd,args,{cwd:workspace,windowsHide:true,timeout:180000,shell:false});
-      results.push({cmd:[cmd,...args].join(' '),ok:true,output:(stdout||stderr||'').slice(-4000)});
+      const { stdout, stderr } = await command.run();
+      results.push({cmd:command.label,ok:true,output:(stdout||stderr||'').slice(-4000)});
     } catch (error) {
-      results.push({cmd:[cmd,...args].join(' '),ok:false,output:String(error?.stdout||error?.stderr||error?.message||error).slice(-4000)});
+      results.push({cmd:command.label,ok:false,output:String(error?.stdout||error?.stderr||error?.message||error).slice(-4000)});
       return {ok:false,results};
     }
   }
@@ -252,12 +290,10 @@ async function runReleaseCandidateValidation(workspace) {
   const sourceValidation = await runDeveloperValidation(workspace);
   if (!sourceValidation.ok) return sourceValidation;
 
-  const runner = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const packageResult = { cmd:'npx electron-builder --win nsis --x64 --publish never', ok:false, output:'' };
+  const packageResult = { cmd:'npm exec -- electron-builder --win nsis --x64 --publish never', ok:false, output:'' };
   try {
-    const { stdout, stderr } = await execFileAsync(
-      runner,
-      ['electron-builder','--win','nsis','--x64','--publish','never'],
+    const { stdout, stderr } = await runToolchainNpm(
+      ['exec','--','electron-builder','--win','nsis','--x64','--publish','never'],
       { cwd:workspace, windowsHide:true, timeout:900000, shell:false, maxBuffer:16 * 1024 * 1024 }
     );
     packageResult.ok = true;
@@ -323,6 +359,25 @@ function localOwnerAuthorised() {
   } catch {
     return false;
   }
+}
+
+async function requireOwnerPresence({title='Jarvis tulajdonosi jóváhagyás',message,detail=''}={}) {
+  if (!localOwnerAuthorised()) throw new Error('JARVIS_OWNER_REQUIRED');
+  const options = {
+    type:'warning',
+    buttons:['Mégse','Engedélyezem'],
+    defaultId:0,
+    cancelId:0,
+    noLink:true,
+    title,
+    message:String(message || 'Ez a művelet külön tulajdonosi jóváhagyást igényel.'),
+    detail:String(detail || 'A jóváhagyás csak erre az egy műveletre érvényes.')
+  };
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  if (result.response !== 1) throw new Error('JARVIS_OWNER_ACTION_CANCELLED');
+  return true;
 }
 
 const INSTALLER_LANG_MAP = {
@@ -465,6 +520,16 @@ async function deleteAllLocalData() {
 }
 
 async function openRouterRequest(payload={}) {
+  if (payloadContainsSensitiveContext(payload)) {
+    await enforcePolicy({
+      type:'external_ai_sensitive_context',
+      target:'openrouter.ai',
+      authorised:localOwnerAuthorised(),
+      transmitsSensitiveData:true
+    }, {
+      message:'Jarvis érzékeny helyi adatokat készül elküldeni az OpenRouter AI szolgáltatásnak.'
+    });
+  }
   const raw = readJson(settingsPath(), {});
   const apiKey = unprotectSecret(raw.openRouterKey);
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
@@ -921,7 +986,7 @@ Keep it concise unless the owner asks for deep detail.`;
   const response = await openRouterRequest({
     prompt,
     task_type:'repair',
-    contains_sensitive_context:false
+    contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
   });
   return {
     data:{
@@ -1750,6 +1815,43 @@ function configureObdBluetoothChooser(win) {
   });
 }
 
+function isTrustedRendererNavigation(targetUrl='') {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (isDev) {
+      return parsed.protocol === 'http:'
+        && parsed.hostname === '127.0.0.1'
+        && parsed.port === '5173';
+    }
+    if (parsed.protocol !== 'file:') return false;
+    const requested = path.resolve(fileURLToPath(parsed));
+    const entry = path.resolve(path.join(__dirname,'..','dist','index.html'));
+    return requested === entry;
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(targetUrl='') {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (!['http:','https:'].includes(parsed.protocol)) return;
+    void shell.openExternal(parsed.toString()).catch(()=>{});
+  } catch {}
+}
+
+function lockRendererNavigation(win) {
+  win.webContents.on('will-navigate',(event,targetUrl)=>{
+    if (isTrustedRendererNavigation(targetUrl)) return;
+    event.preventDefault();
+    openExternalUrl(targetUrl);
+  });
+  win.webContents.setWindowOpenHandler(({url})=>{
+    openExternalUrl(url);
+    return { action:'deny' };
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -1771,6 +1873,7 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
+  lockRendererNavigation(mainWindow);
   configureObdBluetoothChooser(mainWindow);
   registerCrashWatchdog(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
@@ -1828,7 +1931,11 @@ app.whenReady().then(async () => {
   }));
   ipcMain.handle('jarvis:admin:status', () => adminDiagnosticsManager?.status?.() || {active:false,expiresAt:null});
   ipcMain.handle('jarvis:admin:start', async () => {
-    if (!localOwnerAuthorised()) throw new Error('ADMIN_OWNER_REQUIRED');
+    await requireOwnerPresence({
+      title:'Rendszergazdai diagnosztika',
+      message:'Engedélyezed a Jarvis rendszergazdai diagnosztikai munkamenetét?',
+      detail:'A következő lépésben a Windows UAC is külön engedélyt kér. A munkamenet időkorlátos és csak az engedélyezett diagnosztikai műveleteket használhatja.'
+    });
     return adminDiagnosticsManager.start();
   });
   ipcMain.handle('jarvis:admin:snapshot', async () => {
@@ -1958,8 +2065,16 @@ app.whenReady().then(async () => {
     return buildRepairPlan(latestSystemReport);
   });
   ipcMain.handle('jarvis:self-repair:auto:status', () => readAutonomousRepairState());
-  ipcMain.handle('jarvis:self-repair:auto:crash-mode', (_e, enabled=false) => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+  ipcMain.handle('jarvis:self-repair:auto:crash-mode', async (_e, enabled=false) => {
+    if (enabled === true) {
+      await requireOwnerPresence({
+        title:'Automatikus crash-javítás',
+        message:'Engedélyezed, hogy Jarvis egy későbbi összeomlás után automatikusan elindítsa a Self-Repair Autopilotot?',
+        detail:'A javítás továbbra is sandboxban és teljes validációval fut. Release-t nem publikálhat külön tulajdonosi jóváhagyás nélkül.'
+      });
+    } else if (!localOwnerAuthorised()) {
+      throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    }
     return writeAutonomousRepairState({ autoCrashRepair:enabled === true });
   });
   ipcMain.handle('jarvis:self-repair:auto:workspace', async () => {
@@ -1968,7 +2083,11 @@ app.whenReady().then(async () => {
     return { success:true, workspace };
   });
   ipcMain.handle('jarvis:self-repair:auto:run', async (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    await requireOwnerPresence({
+      title:'Autopilot önfejlesztés',
+      message:'Engedélyezed az Autopilot futtatását?',
+      detail:'Az Autopilot sandboxban tesztelhet és a fejlesztési munkamásolatot módosíthatja. Kiadást továbbra sem publikálhat külön tulajdonosi jóváhagyás nélkül.'
+    });
     return runAutonomousSelfRepair(request);
   });
   ipcMain.handle('jarvis:self-repair:auto:stop', () => {
@@ -1976,8 +2095,12 @@ app.whenReady().then(async () => {
     autonomousRepairStopRequested = true;
     return writeAutonomousRepairState({ status:'STOP_REQUESTED', autoCrashRepair:false });
   });
-  ipcMain.handle('jarvis:self-repair:release:approve', (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+  ipcMain.handle('jarvis:self-repair:release:approve', async (_e, request={}) => {
+    await requireOwnerPresence({
+      title:'Release jóváhagyása',
+      message:'Engedélyezed ennek a tesztelt release candidate-nek a kiadási jóváhagyását?',
+      detail:'Ez csak a Jarvis belső release-kapuját nyitja meg. GitHub publikálás továbbra is külön, explicit kiadási lépést igényel.'
+    });
     const state = readAutonomousRepairState();
     const candidate = state.releaseCandidate;
     if (!candidate?.id || candidate.id !== String(request.candidateId || '')) {
@@ -2031,8 +2154,12 @@ app.whenReady().then(async () => {
     }
     return {success:true,status:'SANDBOX_VERIFIED',hash,validation,files:entry.plan.patches.map(p=>p.file)};
   });
-  ipcMain.handle('jarvis:developer:approve', (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
+  ipcMain.handle('jarvis:developer:approve', async (_e, request={}) => {
+    await requireOwnerPresence({
+      title:'Fejlesztői javítás jóváhagyása',
+      message:'Engedélyezed a sandboxban ellenőrzött javítás alkalmazási jóváhagyását?',
+      detail:'A terv csak sikeres sandbox-ellenőrzés után hagyható jóvá, és alkalmazás után ismét teljes validáció fut.'
+    });
     const entry=developerPlans.get(String(request.hash||''));
     if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
     if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');

@@ -131,3 +131,42 @@ test('packaged Autopilot copies its editable workspace from real resources, not 
   assert.match(main,/const source = fs\.existsSync\(externalSource\) \? externalSource : resourcePath\(entry\)/);
   assert.match(main,/fs\.writeFileSync\(destination,fs\.readFileSync\(source\)\)/);
 });
+
+
+test('installed Autopilot uses its bundled Node/npm toolchain instead of system node/npm', () => {
+  assert.match(main,/function selfRepairToolchainPaths\(\)/);
+  assert.match(main,/AUTONOMOUS_REPAIR_TOOLCHAIN_MISSING/);
+  assert.match(main,/runToolchainNode/);
+  assert.match(main,/runToolchainNpm/);
+  assert.doesNotMatch(main,/execFileAsync\('npm',\['ci'\]/);
+  assert.doesNotMatch(main,/const runner = process\.platform === 'win32' \? 'npx\.cmd'/);
+  const resources = pkg.build.extraResources || [];
+  assert.ok(resources.some((item) => item?.from === 'build/self-repair-toolchain' && item?.to === 'self-repair-toolchain'));
+  assert.match(workflow,/Stage installed Self-Repair toolchain/);
+  assert.match(workflow,/Verify packaged Self-Repair toolchain/);
+  assert.match(workflow,/test-packaged-admin-helper\.cjs/);
+});
+
+
+test('main-process owner presence gates protect privileged self-repair actions', () => {
+  assert.match(main,/async function requireOwnerPresence/);
+  assert.match(main,/jarvis:admin:start[\s\S]*requireOwnerPresence/);
+  assert.match(main,/jarvis:self-repair:auto:run[\s\S]*requireOwnerPresence/);
+  assert.match(main,/jarvis:self-repair:release:approve[\s\S]*requireOwnerPresence/);
+  assert.match(main,/jarvis:developer:approve[\s\S]*requireOwnerPresence/);
+  assert.match(main,/JARVIS_OWNER_ACTION_CANCELLED/);
+});
+
+
+test('crash Autopilot enablement is owner-presence gated', () => {
+  assert.match(main,/jarvis:self-repair:auto:crash-mode[\s\S]*enabled === true[\s\S]*requireOwnerPresence/);
+  assert.match(main,/Automatikus crash-javítás/);
+});
+
+
+test('bundled toolchain is prepended to PATH for npm child processes', () => {
+  assert.match(main,/function withSelfRepairToolchainEnv/);
+  assert.match(main,/\[toolchain\.root, existingPath\]/);
+  assert.match(main,/PATH:toolchainPath/);
+  assert.match(main,/runToolchainNpm[\s\S]*withSelfRepairToolchainEnv/);
+});

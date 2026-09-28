@@ -208,6 +208,10 @@
       {
         "from": "scripts",
         "to": "self-development-source/scripts"
+      },
+      {
+        "from": "build/self-repair-toolchain",
+        "to": "self-repair-toolchain"
       }
     ]
   },

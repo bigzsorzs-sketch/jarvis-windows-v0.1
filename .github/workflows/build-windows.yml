@@ -91,11 +91,20 @@ jobs:
       - name: Build renderer
         run: npm run build
 
+      - name: Stage installed Self-Repair toolchain
+        run: node scripts/stage-self-repair-toolchain.cjs
+
       - name: Build Windows installer
         env:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Verify packaged Self-Repair toolchain
+        run: node scripts/test-packaged-toolchain.cjs release\win-unpacked\resources
+
+      - name: Test packaged admin-helper handshake
+        run: node scripts/test-packaged-admin-helper.cjs release\win-unpacked\Jarvis.exe
 
       - name: Smoke test packaged Windows startup
         shell: pwsh
