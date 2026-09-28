@@ -2,6 +2,12 @@ name: Build Jarvis Windows Installer
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Owner approval: publish the tested installer as the package version release'
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -149,7 +155,7 @@ jobs:
           }
 
       - name: Publish immutable GitHub release
-        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'Release v')
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
