@@ -35,28 +35,28 @@ const DEFAULT_ROUTES = [
 ];
 
 const TOOL_DEFINITIONS = [
-  ['create_note','productivity','Create a local note','instant'],
-  ['create_task','productivity','Create a local task','instant'],
-  ['create_reminder','productivity','Create a local reminder','instant'],
-  ['create_contact','communication','Create a local contact','instant'],
-  ['search_contacts','communication','Search local contacts','instant'],
-  ['search_data','memory','Search local Jarvis data','instant'],
-  ['call_contact','communication','Start a phone call','confirm'],
-  ['create_invoice','finance','Create a local invoice draft','instant'],
-  ['generate_pdf','finance','Generate an invoice PDF','instant'],
-  ['draft_email','communication','Send or open an email draft','confirm'],
-  ['log_blood_sugar','health','Store a blood sugar reading locally','instant'],
-  ['log_meal','health','Store a meal locally','instant'],
-  ['log_finance','finance','Store a finance entry locally','instant'],
-  ['control_device','smart-home','Control a physical smart-home device','confirm'],
-  ['check_device_status','smart-home','Read smart-home device status','instant'],
-  ['trigger_scene','smart-home','Trigger a smart-home scene','confirm'],
-  ['run_routine','smart-home','Run a smart-home routine','confirm'],
-  ['translate_text','language','Translate text','instant'],
-  ['save_memory','memory','Save a local Jarvis memory','instant'],
-  ['analyze_ecosystem','business','Analyze business ecosystem data','instant'],
-  ['optimize_workload','business','Analyze workload optimization','instant'],
-  ['optimize_revenue','business','Analyze revenue optimization','instant'],
+  {tool:'create_note',category:'productivity',description:'Create a local note',approval:'instant',params:'title?, content'},
+  {tool:'create_task',category:'productivity',description:'Create a local task',approval:'instant',params:'title, description?, due_date?, category?'},
+  {tool:'create_reminder',category:'productivity',description:'Create a local reminder',approval:'instant',params:'title, description?, due_date?, due_time?, category?'},
+  {tool:'create_contact',category:'communication',description:'Create a local contact',approval:'instant',params:'name, phone?, email?, relationship?, notes?'},
+  {tool:'search_contacts',category:'communication',description:'Search local contacts',approval:'instant',params:'query'},
+  {tool:'search_data',category:'memory',description:'Search local Jarvis data',approval:'instant',params:'query, entity?'},
+  {tool:'call_contact',category:'communication',description:'Start a phone call',approval:'confirm',params:'name?, phone?'},
+  {tool:'create_invoice',category:'finance',description:'Create a local invoice draft',approval:'instant',params:'client_name, client_email?, items[{description,quantity,unit_price}], notes?'},
+  {tool:'generate_pdf',category:'finance',description:'Generate an invoice PDF',approval:'instant',params:'invoice_id'},
+  {tool:'draft_email',category:'communication',description:'Send via configured Gmail or open a mail draft',approval:'confirm',params:'to, subject?, body?'},
+  {tool:'log_blood_sugar',category:'health',description:'Store a blood sugar reading locally',approval:'instant',params:'value, time_of_day?'},
+  {tool:'log_meal',category:'health',description:'Store a meal locally',approval:'instant',params:'meal_name, meal_type?, calories?'},
+  {tool:'log_finance',category:'finance',description:'Store a finance entry locally',approval:'instant',params:'description, amount, type(income|expense)?, category?'},
+  {tool:'control_device',category:'smart-home',description:'Control a physical smart-home device',approval:'confirm',params:'device_name, action, value?'},
+  {tool:'check_device_status',category:'smart-home',description:'Read smart-home device status',approval:'instant',params:'device_name'},
+  {tool:'trigger_scene',category:'smart-home',description:'Trigger a smart-home scene',approval:'confirm',params:'scene_name'},
+  {tool:'run_routine',category:'smart-home',description:'Run a smart-home routine',approval:'confirm',params:'routine_name'},
+  {tool:'translate_text',category:'language',description:'Translate text',approval:'instant',params:'text, target_language'},
+  {tool:'save_memory',category:'memory',description:'Save a local Jarvis memory',approval:'instant',params:'content, category?, importance?'},
+  {tool:'analyze_ecosystem',category:'business',description:'Analyze business ecosystem data',approval:'instant',params:'none'},
+  {tool:'optimize_workload',category:'business',description:'Analyze workload optimization',approval:'instant',params:'none'},
+  {tool:'optimize_revenue',category:'business',description:'Analyze revenue optimization',approval:'instant',params:'none'},
 ];
 
 export function registerCapability(definition = {}) {
@@ -71,6 +71,7 @@ export function registerCapability(definition = {}) {
     approval:['instant','confirm','owner'].includes(definition.approval) ? definition.approval : 'instant',
     route:definition.route || null,
     tool:definition.tool || null,
+    params:String(definition.params || ''),
     voiceAliases:Array.isArray(definition.voiceAliases) ? [...new Set(definition.voiceAliases.filter(Boolean).map(String))] : [],
     enabled:definition.enabled !== false,
   };
@@ -90,16 +91,17 @@ for (const [id, route, aliases] of DEFAULT_ROUTES) {
   });
 }
 
-for (const [tool, category, description, approval] of TOOL_DEFINITIONS) {
+for (const definition of TOOL_DEFINITIONS) {
   registerCapability({
-    id:`tool:${tool}`,
+    id:`tool:${definition.tool}`,
     type:'tool',
-    category,
-    title:tool,
-    description,
-    tool,
-    approval,
-    voiceAliases:[tool.replaceAll('_',' ')],
+    category:definition.category,
+    title:definition.tool,
+    description:definition.description,
+    tool:definition.tool,
+    approval:definition.approval,
+    params:definition.params,
+    voiceAliases:[definition.tool.replaceAll('_',' ')],
   });
 }
 
@@ -130,7 +132,7 @@ export function buildCapabilityPrompt() {
   const groups = new Map();
   for (const item of listToolCapabilities()) {
     if (!groups.has(item.category)) groups.set(item.category, []);
-    groups.get(item.category).push(`${item.tool} [${item.approval}]`);
+    groups.get(item.category).push(`${item.tool}(${item.params || 'none'}) [${item.approval}]`);
   }
   return [...groups.entries()]
     .map(([category, tools]) => `[${category.toUpperCase()}] ${tools.join(', ')}`)
