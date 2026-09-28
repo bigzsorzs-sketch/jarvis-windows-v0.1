@@ -115,9 +115,17 @@ test('packaged Autopilot copies its editable workspace from real resources, not 
   assert.match(main,/function autonomousSourceRoot\(\)[\s\S]*process\.resourcesPath[\s\S]*self-development-source/);
   assert.match(main,/const sourceRoot = autonomousSourceRoot\(\);/);
   assert.doesNotMatch(main,/const sourceRoot = resourcePath\(\);/);
-  const sourceBundle = (pkg.build.extraResources || []).find((item) => item?.to === 'self-development-source');
-  assert.ok(sourceBundle,'self-development source bundle must be packaged outside app.asar');
-  for (const required of ['src/**/*','electron/**/*','security/**/*','package.json','package-lock.json','scripts/**/*']) {
-    assert.equal(sourceBundle.filter.includes(required),true,required);
+  const resources = pkg.build.extraResources || [];
+  const required = new Map([
+    ['src','self-development-source/src'],
+    ['electron','self-development-source/electron'],
+    ['security','self-development-source/security'],
+    ['scripts','self-development-source/scripts'],
+    ['package.json','self-development-source/package.json'],
+    ['package-lock.json','self-development-source/package-lock.json']
+  ]);
+  for (const [from,to] of required) {
+    assert.ok(resources.some((item) => item?.from === from && item?.to === to), from + ' -> ' + to);
   }
+  assert.equal(resources.some((item) => item?.from === '.' && String(item?.to || '').startsWith('self-development-source')),false,'project root must not be used as an extraResources source');
 });
