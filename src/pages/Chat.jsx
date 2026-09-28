@@ -18,7 +18,8 @@ import { requestMotionAccessIfNeeded, startDrivingDetection } from '@/lib/drivin
 import { invokeWithRetry } from '@/lib/llmGateway';
 import { telemetry } from '@/lib/speechTelemetry';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
-import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
+import { sanitizeAssistantText, summarizeActionResults } from '@/lib/assistantResponseHandler';
+import { getApprovalMode } from '@/lib/capabilityRegistry';
 import { networkMonitor } from '@/lib/networkMonitor';
 import { sessionPersistence } from '@/lib/sessionPersistence';
 import { loadChatSnapshot, queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
@@ -76,6 +77,7 @@ export default function Chat() {
   const inputRef = useRef(null);
   const sendMessageRef = useRef(null);
   const messagesRef = useRef([]);
+  const initialMessageRef = useRef('');
 
   // ── Derived voice state from central runtime ───────────────────────────────
   const handsFree = voice.state.handsFree;
@@ -405,23 +407,41 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       const reply = sanitizeAssistantText(normalizeAssistantReply(routed.reply));
       const actions = routed.actions || [];
       let actionResults = routed.actionResults || [];
+      let finalReply = reply;
 
       if (actions.length > 0) {
-        const sensitiveActions = ['create_invoice', 'draft_email', 'call_contact', 'generate_pdf'];
-        if (actions.some(a => sensitiveActions.includes(a.tool))) {
+        const uiConfirmTools = new Set(['create_invoice', 'draft_email', 'call_contact', 'generate_pdf']);
+        const requiresConfirmation = actions.some((action) =>
+          uiConfirmTools.has(action.tool) || getApprovalMode(action.tool) === 'confirm'
+        );
+
+        if (requiresConfirmation) {
           setLoading(false);
           setLoadingStep('');
-          setPendingConfirm({ actions, reply: reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() });
-          setMessages(prev => [...prev, { role: 'assistant', content: reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() + '\n\n⚠️ Megerősítésed szükséges a folytatáshoz.' }]);
+          const cleanReply = reply.replace(/\[ACTION:[^\]]+\]/g, '').trim();
+          setPendingConfirm({
+            actions,
+            reply: cleanReply,
+            lang: detectedFromMessage,
+            goal: msg,
+            preapprovedTools: actions
+              .filter((action) => getApprovalMode(action.tool) === 'confirm')
+              .map((action) => action.tool),
+          });
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `${cleanReply}\n\n⚠️ ${String(detectedFromMessage).startsWith('hu') ? 'Megerősítésed szükséges a folytatáshoz.' : 'Confirmation is required to continue.'}`
+          }]);
           return;
         }
-        setTimeout(async () => {
-          try {
-            setCtx(turn.nextCtx);
-          } catch {
-            setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Az adatok frissítése sikertelen. Kérlek frissítsd az oldalt.' }]);
-          }
-        }, 1500);
+
+        actionResults = await executeActions(actions, {
+          source:'assistant',
+          goal:msg,
+        });
+        finalReply = summarizeActionResults(actionResults, detectedFromMessage);
+        const refreshed = await loadFullContext(true).catch(() => turn.nextCtx || ctx);
+        if (refreshed) setCtx(refreshed);
       } else {
         // Real-time memory extraction — async, non-blocking, runs on every message
         if (msg.length > 8 && ctx && !msg.startsWith('?') && !msg.startsWith('/')) {
@@ -429,7 +449,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         }
       }
 
-      setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: reply, actionResults }]));
+      setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: finalReply, actionResults }]));
 
       const cleanReply = normalizeAssistantReply(reply).replace(/\[ACTION:[^\]]+\]/g, '').replace(/[*_#`]/g, '').trim();
       if (voice.state.autoSpeakReplies || handsFree || ctx?.settings?.tts_enabled) {
@@ -459,25 +479,55 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
   // Keep ref always pointing to latest sendMessage
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
+  // Consume route state exactly once. This keeps legacy/deep-link callers from
+  // losing an initial prompt when they navigate into the unified chat.
+  useEffect(() => {
+    const initial = typeof location.state?.initialMessage === 'string'
+      ? location.state.initialMessage.trim()
+      : '';
+    if (!initial || initialMessageRef.current === initial || !sendMessageRef.current || loading) return;
+    initialMessageRef.current = initial;
+    navigate(location.pathname, { replace:true, state:null });
+    void sendMessageRef.current(initial);
+  }, [location.state, location.pathname, navigate, loading]);
+
   const confirmAndExecute = async () => {
     if (!pendingConfirm) return;
     setLoading(true);
     setLoadingStep('Végrehajtom...');
 
-    let results = [];
-    if (pendingConfirm.workflowType) {
-      results = await runWorkflow(pendingConfirm.workflowType, pendingConfirm.payload);
-    } else {
-      results = await executeActions(pendingConfirm.actions);
-    }
+    try {
+      let results = [];
+      if (pendingConfirm.workflowType) {
+        results = await runWorkflow(pendingConfirm.workflowType, pendingConfirm.payload);
+      } else {
+        results = await executeActions(pendingConfirm.actions, {
+          source:'assistant-confirmed',
+          goal:pendingConfirm.goal || '',
+          preapprovedTools:pendingConfirm.preapprovedTools || [],
+        });
+      }
 
-    setMessages(prev => [...prev, { role: 'assistant', content: '✅ Végrehajtva!', actionResults: results }]);
-    setPendingConfirm(null);
-    setTimeout(() => {
-      loadFullContext(true).then(c => { setCtx(c); }).catch(() => {});
-    }, 1500);
-    setLoading(false);
-    setLoadingStep('');
+      const resultLang = pendingConfirm.lang || detectedLang || lang;
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ ${summarizeActionResults(results, resultLang)}`,
+        actionResults: results
+      }]);
+      setPendingConfirm(null);
+      const refreshed = await loadFullContext(true).catch(() => null);
+      if (refreshed) setCtx(refreshed);
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        role:'assistant',
+        content:String((pendingConfirm.lang || detectedLang || lang)).startsWith('hu')
+          ? `❌ A művelet nem sikerült: ${error?.message || error}`
+          : `❌ Action failed: ${error?.message || error}`
+      }]);
+    } finally {
+      setLoading(false);
+      setLoadingStep('');
+    }
   };
 
   const exportChatToPDF = () => {
