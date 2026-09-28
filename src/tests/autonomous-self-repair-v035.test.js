@@ -131,3 +131,18 @@ test('packaged Autopilot copies its editable workspace from real resources, not 
   assert.match(main,/const source = fs\.existsSync\(externalSource\) \? externalSource : resourcePath\(entry\)/);
   assert.match(main,/fs\.writeFileSync\(destination,fs\.readFileSync\(source\)\)/);
 });
+
+
+test('installed Autopilot uses its bundled Node/npm toolchain instead of system node/npm', () => {
+  assert.match(main,/function selfRepairToolchainPaths\(\)/);
+  assert.match(main,/AUTONOMOUS_REPAIR_TOOLCHAIN_MISSING/);
+  assert.match(main,/runToolchainNode/);
+  assert.match(main,/runToolchainNpm/);
+  assert.doesNotMatch(main,/execFileAsync\('npm',\['ci'\]/);
+  assert.doesNotMatch(main,/const runner = process\.platform === 'win32' \? 'npx\.cmd'/);
+  const resources = pkg.build.extraResources || [];
+  assert.ok(resources.some((item) => item?.from === 'build/self-repair-toolchain' && item?.to === 'self-repair-toolchain'));
+  assert.match(workflow,/Stage installed Self-Repair toolchain/);
+  assert.match(workflow,/Verify packaged Self-Repair toolchain/);
+  assert.match(workflow,/test-packaged-admin-helper\.cjs/);
+});
