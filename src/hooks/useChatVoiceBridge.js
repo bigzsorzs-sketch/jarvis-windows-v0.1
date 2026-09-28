@@ -15,14 +15,18 @@ export function useChatVoiceBridge({ voice, setInput, sendMessageRef, setUserMoo
 
       cycleLockedRef.current = true;
       const startedAt = performance.now();
+      let reason = 'completed';
       try {
         setInput(queued.text);
         analyzeMoodAsync(queued.text, (mood) => setUserMood(mood));
         await sendMessageRef.current(queued.text);
-        const latencyMs = Math.round(performance.now() - startedAt);
-        voice.runtime?.completeVoiceCycle?.(latencyMs, latencyMs > 5000 ? 'latency_timeout' : 'completed');
-        if (voice.runtime?.getState?.().handsFree) voice.runtime?.resumeListening?.();
+      } catch (error) {
+        reason = 'send_failed';
+        console.warn('[voiceBridge] Queued voice command failed', { message:error?.message });
       } finally {
+        const latencyMs = Math.round(performance.now() - startedAt);
+        voice.runtime?.completeVoiceCycle?.(latencyMs, reason === 'completed' && latencyMs > 5000 ? 'latency_timeout' : reason);
+        if (voice.runtime?.getState?.().handsFree) voice.runtime?.resumeListening?.();
         cycleLockedRef.current = false;
       }
     }, 0);
@@ -42,14 +46,13 @@ export function useChatVoiceBridge({ voice, setInput, sendMessageRef, setUserMoo
       const startedAt = performance.now();
       console.info('[voiceBridge] Voice cycle started', { transcript });
 
+      let reason = 'completed';
       try {
         const uiCommand = resolveGlobalUiCommand(transcript);
         if (uiCommand) {
           const result = executeResolvedGlobalUiCommand(uiCommand, { navigate, voice });
           if (result.reply && !result.silent) await voice.speakText(result.reply, 'hu');
-          const latencyMs = Math.round(performance.now() - startedAt);
-          voice.runtime?.completeVoiceCycle?.(latencyMs, 'ui_command');
-          if (voice.runtime?.getState?.().handsFree) voice.runtime?.resumeListening?.();
+          reason = 'ui_command';
           return;
         }
 
@@ -57,10 +60,13 @@ export function useChatVoiceBridge({ voice, setInput, sendMessageRef, setUserMoo
         setInput(transcript);
         analyzeMoodAsync(transcript, (mood) => setUserMood(mood));
         await sendMessageRef.current?.(transcript);
-        const latencyMs = Math.round(performance.now() - startedAt);
-        voice.runtime?.completeVoiceCycle?.(latencyMs, latencyMs > 5000 ? 'latency_timeout' : 'completed');
-        if (voice.runtime?.getState?.().handsFree) voice.runtime?.resumeListening?.();
+      } catch (error) {
+        reason = 'send_failed';
+        console.warn('[voiceBridge] Voice command failed', { message:error?.message });
       } finally {
+        const latencyMs = Math.round(performance.now() - startedAt);
+        voice.runtime?.completeVoiceCycle?.(latencyMs, reason === 'completed' && latencyMs > 5000 ? 'latency_timeout' : reason);
+        if (voice.runtime?.getState?.().handsFree) voice.runtime?.resumeListening?.();
         cycleLockedRef.current = false;
       }
     });
