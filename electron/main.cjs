@@ -749,6 +749,270 @@ Keep it concise unless the owner asks for deep detail.`;
   };
 }
 
+
+function parseRepairModelJson(value) {
+  if (value && typeof value === 'object') return value;
+  const raw = String(value || '').trim();
+  if (!raw) throw new Error('AUTONOMOUS_REPAIR_EMPTY_MODEL_RESPONSE');
+  const cleaned = raw
+    .replace(/^\`\`\`(?:json)?\s*/i,'')
+    .replace(/\s*\`\`\`$/,'')
+    .trim();
+  try { return JSON.parse(cleaned); }
+  catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start,end+1));
+    throw new Error('AUTONOMOUS_REPAIR_INVALID_JSON');
+  }
+}
+
+function summarizeValidation(validation) {
+  if (!validation?.results?.length) return validation?.ok ? 'OK' : 'No validation details';
+  return validation.results
+    .map((item) => `${item.cmd}: ${item.ok ? 'OK' : 'FAIL'} ${item.ok ? '' : String(item.output || '').slice(-1800)}`)
+    .join('\n');
+}
+
+async function generateAutonomousRepairProposal(workspace, goal, feedback='', iteration=1) {
+  const query = [goal, feedback].filter(Boolean).join('\n\n');
+  const context = developerRepair.buildDiagnosticContext(workspace, query, { maxFiles:20, maxChars:70000 });
+  const learned = selfRepairLearning?.relevant?.(query, 10) || [];
+  const learnedText = learned.length
+    ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | validation=${item.validation || '-'}`).join('\n')
+    : '(no verified prior lessons)';
+  const source = context.excerpts.map((item) =>
+    `--- ${item.path} [${item.reachability}] ---\n${item.excerpt}`
+  ).join('\n\n');
+
+  const prompt = `You are the autonomous Jarvis Self-Repair planner.
+Your job is to improve the supplied Jarvis development workspace until the requested goal is satisfied and all validations pass.
+
+Hard rules:
+- Never edit protected core/security paths. The runtime will reject them.
+- Never publish, tag, push a release, or change GitHub workflow files.
+- Prefer the smallest exact change that solves the current problem.
+- Return JSON only.
+- Use exact text replacements when possible. Each replacement search string must match source text exactly and uniquely.
+- If the goal is already satisfied and no source change is needed, return {"done":true,"reason":"...","patches":[]}.
+- Otherwise return:
+{
+  "done": false,
+  "goal": "short goal",
+  "rationale": "why these edits solve the problem",
+  "risk": "low|medium|high",
+  "patches": [
+    {
+      "file": "relative/path",
+      "replacements": [
+        {"search":"exact existing block","replace":"replacement block","all":false}
+      ]
+    }
+  ]
+}
+- Maximum 6 files and 8 replacements per file.
+- Do not use placeholders, ellipses, or partial pseudo-code in replacement text.
+- Do not modify package version for release. Release/version publication is owner-gated and happens later.
+
+OWNER GOAL:
+${goal}
+
+ITERATION:
+${iteration}
+
+PREVIOUS VALIDATION / REVISION FEEDBACK:
+${feedback || '(none)'}
+
+VERIFIED LOCAL LESSONS:
+${learnedText}
+
+PROJECT MAP:
+${JSON.stringify(context.map,null,2)}
+
+RELEVANT SOURCE:
+${source}`;
+
+  const response = await openRouterRequest({
+    prompt,
+    task_type:'repair',
+    response_json_schema:{ type:'object' },
+    contains_sensitive_context:false
+  });
+
+  return {
+    proposal:parseRepairModelJson(response?.data?.result),
+    model:response?.data?.model || null,
+    files:context.excerpts.map((item) => item.path)
+  };
+}
+
+async function runAutonomousSelfRepair(payload={}) {
+  if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+
+  const requestedGoal = String(payload?.goal || '').trim();
+  if (!requestedGoal) throw new Error('AUTONOMOUS_REPAIR_GOAL_REQUIRED');
+
+  const maxIterations = Math.max(1,Math.min(6,Number(payload?.maxIterations) || 4));
+  const workspace = payload?.workspace
+    ? developerRepair.validateWorkspace(String(payload.workspace))
+    : await ensureAutonomousWorkspace();
+
+  autonomousRepairStopRequested = false;
+  const runId = crypto.randomUUID();
+  let feedback = '';
+  const applied = [];
+
+  writeAutonomousRepairState({
+    runId,
+    status:'RUNNING',
+    workspace,
+    goal:requestedGoal,
+    iteration:0,
+    applied:[],
+    releaseCandidate:null,
+    releaseApproved:false,
+    releaseApprovedAt:null,
+    lastError:null
+  });
+
+  for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
+    if (autonomousRepairStopRequested) {
+      return writeAutonomousRepairState({ status:'STOPPED', iteration, applied });
+    }
+
+    writeAutonomousRepairState({ status:'ANALYZING', iteration, applied, feedback:feedback.slice(-6000) });
+
+    let generated;
+    try {
+      generated = await generateAutonomousRepairProposal(workspace, requestedGoal, feedback, iteration);
+    } catch (error) {
+      feedback = `Planner error: ${error?.message || error}`;
+      writeAutonomousRepairState({ status:'PLANNER_RETRY', iteration, applied, lastError:feedback });
+      continue;
+    }
+
+    const proposal = generated.proposal || {};
+    const patches = Array.isArray(proposal.patches) ? proposal.patches : [];
+    if (proposal.done === true || patches.length === 0) {
+      const finalValidation = await runDeveloperValidation(workspace);
+      if (!finalValidation.ok) {
+        feedback = `The model considered the goal complete, but validation failed:\n${summarizeValidation(finalValidation)}`;
+        writeAutonomousRepairState({ status:'VALIDATION_RETRY', iteration, applied, lastError:feedback });
+        continue;
+      }
+
+      const candidate = {
+        id:crypto.randomUUID(),
+        runId,
+        workspace,
+        goal:requestedGoal,
+        applied,
+        model:generated.model,
+        validation:finalValidation,
+        createdAt:new Date().toISOString(),
+        releaseApproved:false
+      };
+      return writeAutonomousRepairState({
+        status:'RELEASE_CANDIDATE_READY',
+        iteration,
+        applied,
+        releaseCandidate:candidate,
+        releaseApproved:false,
+        lastError:null
+      });
+    }
+
+    let plan;
+    try {
+      plan = developerRepair.validatePlan(workspace,{
+        goal:proposal.goal || requestedGoal,
+        rationale:proposal.rationale || 'Autonomous Self-Repair proposal',
+        risk:proposal.risk || 'medium',
+        patches
+      });
+    } catch (error) {
+      feedback = `Plan rejected by safety validator: ${error?.message || error}. Choose another unprotected implementation path and return a corrected plan.`;
+      writeAutonomousRepairState({ status:'PLAN_RETRY', iteration, applied, lastError:feedback });
+      continue;
+    }
+
+    writeAutonomousRepairState({
+      status:'SANDBOX_TESTING',
+      iteration,
+      applied,
+      currentPlan:{ hash:plan.hash, goal:plan.goal, files:plan.patches.map((patch) => patch.file), risk:plan.risk }
+    });
+
+    let sandbox = null;
+    try {
+      sandbox = developerRepair.createSandbox(workspace,plan,developerSandboxRoot());
+      const sandboxValidation = await runDeveloperValidation(sandbox);
+      if (!sandboxValidation.ok) {
+        feedback = `Sandbox validation failed. Revise the plan instead of publishing or applying it:\n${summarizeValidation(sandboxValidation)}`;
+        developerRepair.destroySandbox(sandbox,developerSandboxRoot());
+        sandbox = null;
+        writeAutonomousRepairState({ status:'SANDBOX_RETRY', iteration, applied, lastError:feedback });
+        continue;
+      }
+
+      const backup = developerRepair.snapshot(workspace,plan,developerBackupRoot());
+      writeAutonomousRepairState({ status:'APPLYING_VERIFIED_PATCH', iteration, applied, backup });
+
+      try {
+        developerRepair.apply(workspace,plan);
+        const validation = await runDeveloperValidation(workspace);
+        if (!validation.ok) {
+          developerRepair.rollback(workspace,backup);
+          feedback = `The patch passed sandbox but failed after application and was rolled back:\n${summarizeValidation(validation)}`;
+          writeAutonomousRepairState({ status:'ROLLED_BACK_RETRY', iteration, applied, lastError:feedback });
+          continue;
+        }
+
+        const verified = {
+          hash:plan.hash,
+          goal:plan.goal,
+          files:plan.patches.map((patch) => patch.file),
+          risk:plan.risk,
+          validation:summarizeValidation(validation),
+          appliedAt:new Date().toISOString()
+        };
+        applied.push(verified);
+        selfRepairLearning?.recordVerified?.({
+          title:plan.goal || 'Autonomous Self-Repair',
+          repairId:plan.hash,
+          files:verified.files,
+          evidence:plan.rationale || requestedGoal,
+          validation:verified.validation,
+          success:true
+        });
+        feedback = `Verified patch applied successfully. Re-scan the updated workspace and decide whether more work is needed. Applied files: ${verified.files.join(', ')}.`;
+        writeAutonomousRepairState({ status:'PATCH_VERIFIED', iteration, applied, lastError:null });
+      } catch (error) {
+        try { developerRepair.rollback(workspace,backup); } catch {}
+        feedback = `Application failed and was rolled back: ${error?.message || error}`;
+        writeAutonomousRepairState({ status:'ROLLED_BACK_RETRY', iteration, applied, lastError:feedback });
+      }
+    } finally {
+      if (sandbox) {
+        try { developerRepair.destroySandbox(sandbox,developerSandboxRoot()); } catch {}
+      }
+    }
+  }
+
+  const finalValidation = await runDeveloperValidation(workspace);
+  const finalStatus = finalValidation.ok && applied.length
+    ? 'NEEDS_OWNER_REVIEW_BEFORE_RELEASE'
+    : 'NEEDS_ATTENTION';
+
+  return writeAutonomousRepairState({
+    status:finalStatus,
+    iteration:maxIterations,
+    applied,
+    validation:finalValidation,
+    lastError:feedback || null
+  });
+}
+
 async function openRouterObdDiagnosis(payload={}) {
   const prompt = [
     'You are a cautious automotive diagnostic assistant.',
