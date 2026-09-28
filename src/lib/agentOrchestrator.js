@@ -26,7 +26,7 @@ function compactContext(ctx={}) {
   return {
     openTasks:Array.isArray(ctx.todos) ? ctx.todos.length : 0,
     pendingReminders:Array.isArray(ctx.reminders) ? ctx.reminders.length : 0,
-    contacts:Array.isArray(ctx.contacts) ? ctx.contacts.slice(0,12).map((item) => ({name:item.name,hasPhone:Boolean(item.phone),hasEmail:Boolean(item.email)})) : [],
+    contactCount:Array.isArray(ctx.contacts) ? ctx.contacts.length : 0,
     recentActions:Array.isArray(ctx.actions) ? ctx.actions.slice(0,6).map((item) => ({type:item.action_type,description:item.description,status:item.status})) : [],
   };
 }
@@ -86,7 +86,7 @@ ${JSON.stringify(compactContext(ctx))}`;
     contains_sensitive_context:false,
   },1);
 
-  return parseJsonObject(response);
+  return parseJsonObject(response?.data?.result ?? response?.data ?? response);
 }
 
 function verifyStep(step, execution) {
