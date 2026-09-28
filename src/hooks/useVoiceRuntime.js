@@ -38,9 +38,10 @@ export function useVoiceRuntime() {
 
     // Subscribe to transcripts (for optional consumption)
     const unsubTranscript = runtime.subscribe('transcript', (transcript) => {
+      const normalizedTranscript = normalizeHungarianSpeechInput(transcript);
       transcriptSeqRef.current += 1;
-      setLastTranscript(transcript);
-      setLastTranscriptEvent({ id:transcriptSeqRef.current, text:transcript, at:Date.now() });
+      setLastTranscript(normalizedTranscript);
+      setLastTranscriptEvent({ id:transcriptSeqRef.current, text:normalizedTranscript, at:Date.now() });
     });
 
     // Subscribe to errors
