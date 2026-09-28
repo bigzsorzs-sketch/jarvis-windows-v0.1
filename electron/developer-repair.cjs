@@ -57,6 +57,22 @@ function applyReplacementEdits(currentContent, replacements=[], file='unknown') 
 
   return restoreLineEndings(current, preferredEol);
 }
+
+function preflightReplacementSearches(currentContent, replacements=[], file='unknown') {
+  let current = normalizeLineEndings(currentContent);
+
+  for (const edit of replacements) {
+    const search = normalizeLineEndings(edit.search);
+    const replace = normalizeLineEndings(edit.replace);
+    const occurrences = replacementCount(current, search);
+    if (occurrences < 1) throw new Error('DEV_REPAIR_SEARCH_NOT_FOUND:' + file);
+
+    // Validation only proves that the planner search text belongs to the current
+    // file version. Ambiguity remains an apply-time safety failure, preserving
+    // the existing "never guess which occurrence to edit" rule.
+    current = edit.all ? current.split(search).join(replace) : current.replace(search,replace);
+  }
+}
 function normalizeRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
   if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
@@ -112,7 +128,7 @@ function validatePlan(root, input={}) {
       // Preflight against the exact current file before any sandbox work begins.
       // Matching is newline-normalized so Windows CRLF files and model LF JSON
       // cannot fail solely because of platform line endings.
-      applyReplacementEdits(fs.readFileSync(target,'utf8'), cleanReplacements, file);
+      preflightReplacementSearches(fs.readFileSync(target,'utf8'), cleanReplacements, file);
     }
     return hasFullContent
       ? { file, content:p.content }
