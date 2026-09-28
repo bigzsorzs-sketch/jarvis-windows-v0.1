@@ -108,6 +108,7 @@ export default function Beallitasok() {
   const [interestInput, setInterestInput] = useState('');
   const [themeMode, setThemeMode] = useState(() => getThemeMode());
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting] = useState(false);
   const [inviteStatus, setInviteStatus] = useState(null);
@@ -150,7 +151,7 @@ export default function Beallitasok() {
   useEffect(() => {
     jarvis.auth.me().then((currentUser) => {
       if (!currentUser?.email) return [];
-      return jarvis.entities.UserSettings.filter({ created_by: currentUser.email });
+      return jarvis.entities.UserSettings.filter({ created_by: currentUser.email }, '-updated_date', 1);
     }).then(list => {
       if (list?.length > 0) {
         setSettings(list[0]);
@@ -271,16 +272,33 @@ export default function Beallitasok() {
   };
 
   const saveAll = async () => {
-    const currentUser = await jarvis.auth.me().catch(() => null);
-    if (!currentUser?.email) return;
-    if (settingsId) {
-      await updateOwnedEntity(jarvis.entities.UserSettings, settingsId, settings);
-    } else {
-      const created = await jarvis.entities.UserSettings.create({ ...settings, created_by: currentUser.email });
-      setSettingsId(created.id);
+    setSaveError('');
+    try {
+      const currentUser = await jarvis.auth.me().catch(() => null);
+      if (!currentUser?.email) throw new Error('AUTH_REQUIRED');
+
+      const persisted = settingsId
+        ? await updateOwnedEntity(jarvis.entities.UserSettings, settingsId, settings)
+        : await jarvis.entities.UserSettings.create({ ...settings, created_by: currentUser.email });
+
+      if (persisted?.id) setSettingsId(persisted.id);
+      if (persisted) setSettings(persisted);
+
+      await jarvis.auth.updateMe({
+        assistant_directness: behaviorProfile.directness,
+        assistant_vocabulary: behaviorProfile.vocabulary,
+        assistant_casual_mode: behaviorProfile.casual_mode,
+        assistant_allow_swearing: behaviorProfile.allow_swearing,
+        command_languages: behaviorProfile.command_languages,
+      });
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (error) {
+      console.error('Jarvis settings save failed:', error);
+      setSaved(false);
+      setSaveError(String(error?.message || error || 'SETTINGS_SAVE_FAILED'));
     }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
   };
 
   // Régi save alias – azonnali mentés nélkül, csak state update
@@ -320,15 +338,32 @@ export default function Beallitasok() {
   };
 
   const saveBehaviorProfile = async (updates) => {
+    const previous = behaviorProfile;
     const next = { ...behaviorProfile, ...updates };
     setBehaviorProfile(next);
-    await jarvis.auth.updateMe({
-      assistant_directness: next.directness,
-      assistant_vocabulary: next.vocabulary,
-      assistant_casual_mode: next.casual_mode,
-      assistant_allow_swearing: next.allow_swearing,
-      command_languages: next.command_languages,
-    });
+    setSaveError('');
+    try {
+      const savedUser = await jarvis.auth.updateMe({
+        assistant_directness: next.directness,
+        assistant_vocabulary: next.vocabulary,
+        assistant_casual_mode: next.casual_mode,
+        assistant_allow_swearing: next.allow_swearing,
+        command_languages: next.command_languages,
+      });
+      setBehaviorProfile({
+        directness: savedUser?.assistant_directness || next.directness,
+        vocabulary: savedUser?.assistant_vocabulary || next.vocabulary,
+        casual_mode: savedUser?.assistant_casual_mode ?? next.casual_mode,
+        allow_swearing: savedUser?.assistant_allow_swearing ?? next.allow_swearing,
+        command_languages: savedUser?.command_languages || next.command_languages,
+      });
+      return true;
+    } catch (error) {
+      console.error('Jarvis behavior profile save failed:', error);
+      setBehaviorProfile(previous);
+      setSaveError(String(error?.message || error || 'BEHAVIOR_PROFILE_SAVE_FAILED'));
+      return false;
+    }
   };
 
   const toggleCommandLanguage = async (code) => {
@@ -362,6 +397,11 @@ export default function Beallitasok() {
     <div className="h-full overflow-y-auto jarvis-scroll">
       <div className="px-4 md:px-8 lg:px-10 pt-5 md:pt-8 pb-10 max-w-[1500px] mx-auto">
         <SettingsPageHeader title={t('settings')} saved={saved} onSave={saveAll} t={t} />
+        {saveError && (
+          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {lang === 'hu' ? 'Mentési hiba' : 'Save error'}: {saveError}
+          </div>
+        )}
 
         <div className="settings-desktop-grid">
         <div className="bg-card border border-primary/15 rounded-2xl p-4 md:p-5 mb-4 app-surface">
