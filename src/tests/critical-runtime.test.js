@@ -15,13 +15,13 @@ test('failed snapshot restore rolls back and preserves the previous database', (
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-db-test-'));
   const db = new LocalDatabase(path.join(dir, 'jarvis.sqlite3'));
   try {
-    db.create('Note', { id: 'keep-me', text: 'original' });
+    const original = db.create('Note', { text: 'original' });
     assert.throws(() => db.importSnapshot({
       entities: { Note: [{ id: 'new-row', text: 'replacement' }, null] }
     }), /BACKUP_ENTITY_ROW_INVALID/);
     const rows = db.filter('Note');
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].id, 'keep-me');
+    assert.equal(rows[0].id, original.id);
     assert.equal(rows[0].text, 'original');
     assert.equal(db.stats().integrity, 'ok');
   } finally {
