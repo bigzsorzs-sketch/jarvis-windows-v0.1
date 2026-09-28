@@ -48,12 +48,32 @@ function validatePlan(root, input={}) {
   const base = validateWorkspace(root);
   const patches = Array.isArray(input.patches) ? input.patches : [];
   if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
-  const clean = patches.map(p => {
+  if (patches.length > 8) throw new Error('DEV_REPAIR_TOO_MANY_PATCHES');
+
+  const clean = patches.map((p) => {
     const file = normalizeRelative(p.file);
-    resolveInside(base,file);
-    if (typeof p.content !== 'string') throw new Error('DEV_REPAIR_CONTENT_REQUIRED');
-    return { file, content:p.content };
+    const target = resolveInside(base,file);
+    const hasFullContent = typeof p.content === 'string';
+    const replacements = Array.isArray(p.replacements) ? p.replacements : [];
+
+    if (!hasFullContent && !replacements.length) throw new Error('DEV_REPAIR_PATCH_REQUIRED');
+    if (hasFullContent && Buffer.byteLength(p.content,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
+    if (replacements.length > 12) throw new Error('DEV_REPAIR_TOO_MANY_REPLACEMENTS');
+
+    const cleanReplacements = replacements.map((edit) => {
+      const search = String(edit?.search || '');
+      const replace = String(edit?.replace ?? '');
+      if (!search) throw new Error('DEV_REPAIR_SEARCH_REQUIRED');
+      if (search.length > 50000 || replace.length > 100000) throw new Error('DEV_REPAIR_REPLACEMENT_TOO_LARGE');
+      return { search, replace, all:edit?.all === true };
+    });
+
+    if (cleanReplacements.length && !fs.existsSync(target)) throw new Error('DEV_REPAIR_REPLACEMENT_TARGET_MISSING');
+    return hasFullContent
+      ? { file, content:p.content }
+      : { file, replacements:cleanReplacements };
   });
+
   const plan = {
     goal:String(input.goal || '').slice(0,4000),
     rationale:String(input.rationale || '').slice(0,8000),
@@ -82,8 +102,23 @@ function apply(root,plan){
   for(const patch of plan.patches){
     const target=resolveInside(root,patch.file);
     fs.mkdirSync(path.dirname(target),{recursive:true});
+    let nextContent;
+
+    if (typeof patch.content === 'string') {
+      nextContent = patch.content;
+    } else {
+      let current = fs.readFileSync(target,'utf8');
+      for (const edit of patch.replacements || []) {
+        const occurrences = current.split(edit.search).length - 1;
+        if (occurrences < 1) throw new Error('DEV_REPAIR_SEARCH_NOT_FOUND:' + patch.file);
+        if (!edit.all && occurrences !== 1) throw new Error('DEV_REPAIR_SEARCH_AMBIGUOUS:' + patch.file);
+        current = edit.all ? current.split(edit.search).join(edit.replace) : current.replace(edit.search,edit.replace);
+      }
+      nextContent = current;
+    }
+
     const tmp=target+'.jarvis-tmp-'+process.pid;
-    fs.writeFileSync(tmp,patch.content,'utf8');
+    fs.writeFileSync(tmp,nextContent,'utf8');
     fs.renameSync(tmp,target);
   }
 }
