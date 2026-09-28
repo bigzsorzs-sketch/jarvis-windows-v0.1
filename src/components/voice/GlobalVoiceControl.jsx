@@ -35,7 +35,12 @@ export default function GlobalVoiceControl() {
     if (!event?.id || !event.text || handledEventIdsRef.current.has(event.id)) return undefined;
 
     // The dedicated full-screen voice tool owns commands while its overlay is active.
-    if (document.querySelector('[data-jarvis-voice-command-overlay="true"]')) return undefined;
+    // Mark the event consumed here as well so closing the overlay cannot replay
+    // the same transcript through the global command handler.
+    if (document.querySelector('[data-jarvis-voice-command-overlay="true"]')) {
+      handledEventIdsRef.current.add(event.id);
+      return undefined;
+    }
 
     handledEventIdsRef.current.add(event.id);
     if (handledEventIdsRef.current.size > 250) {
