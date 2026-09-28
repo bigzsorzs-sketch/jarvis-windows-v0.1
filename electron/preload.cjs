@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   invokeFunction: (name, payload) => ipcRenderer.invoke('jarvis:function:invoke', name, payload),
   getSystemContext: () => ipcRenderer.invoke('jarvis:system:context'),
   getRecentCrashes: (limit = 20) => ipcRenderer.invoke('jarvis:crash:recent', limit),
+  reportRendererIssue: (report) => ipcRenderer.invoke('jarvis:crash:report', report),
   getRules: () => ipcRenderer.invoke('jarvis:policy:rules'),
   evaluateAction: (action) => ipcRenderer.invoke('jarvis:policy:evaluate', action),
   ownerOverride: (request) => ipcRenderer.invoke('jarvis:policy:override', request),
