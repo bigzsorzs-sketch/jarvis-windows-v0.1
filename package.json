@@ -190,26 +190,68 @@
         "to": "Jarvis-OneClick-Upgrade.cmd"
       },
       {
-        "from": ".",
-        "to": "self-development-source",
-        "filter": [
-          "src/**/*",
-          "electron/**/*",
-          "security/**/*",
-          "build/**/*",
-          "scripts/**/*",
-          "package.json",
-          "package-lock.json",
-          "index.html",
-          "eslint.config.js",
-          "postcss.config.js",
-          "tailwind.config.js",
-          "vite.config.js",
-          "tsconfig.json",
-          "jsconfig.json",
-          "components.json",
-          "THIRD_PARTY_NOTICES.md"
-        ]
+        "from": "src",
+        "to": "self-development-source/src"
+      },
+      {
+        "from": "electron",
+        "to": "self-development-source/electron"
+      },
+      {
+        "from": "security",
+        "to": "self-development-source/security"
+      },
+      {
+        "from": "build",
+        "to": "self-development-source/build"
+      },
+      {
+        "from": "scripts",
+        "to": "self-development-source/scripts"
+      },
+      {
+        "from": "package.json",
+        "to": "self-development-source/package.json"
+      },
+      {
+        "from": "package-lock.json",
+        "to": "self-development-source/package-lock.json"
+      },
+      {
+        "from": "index.html",
+        "to": "self-development-source/index.html"
+      },
+      {
+        "from": "eslint.config.js",
+        "to": "self-development-source/eslint.config.js"
+      },
+      {
+        "from": "postcss.config.js",
+        "to": "self-development-source/postcss.config.js"
+      },
+      {
+        "from": "tailwind.config.js",
+        "to": "self-development-source/tailwind.config.js"
+      },
+      {
+        "from": "vite.config.js",
+        "to": "self-development-source/vite.config.js"
+      },
+      {
+        "from": "tsconfig.json",
+        "to": "self-development-source/tsconfig.json"
+      },
+      {
+        "from": "jsconfig.json",
+        "to": "self-development-source/jsconfig.json"
+      },
+      {
+        "from": "components.json",
+        "to": "self-development-source/components.json"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "self-development-source/THIRD_PARTY_NOTICES.md"
       }
     ]
   },
