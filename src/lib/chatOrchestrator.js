@@ -1,8 +1,8 @@
-import { loadFullContext, buildSystemPrompt, parseActions, executeActions } from '@/lib/assistantTools';
+import { buildSystemPrompt, parseActions } from '@/lib/assistantTools';
 import { detectLanguage, getLanguageInstruction } from '@/lib/languageEngine';
 import { invokeWithRetry } from '@/lib/llmGateway';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
-import { sanitizeAssistantText, summarizeActionResults } from '@/lib/assistantResponseHandler';
+import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
 import { escapePromptValue } from '@/lib/assistantTools/sanitization';
 import { buildFileAnalysisContext } from '@/lib/fileAnalysisContext';
 
@@ -84,17 +84,20 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
   console.info('[voiceTiming] LLM finished', { source, latencyMs, retryCount });
   const rawReply = normalizeAssistantReply(proxyResponse, { preserveStructured: true });
   const actions = parseActions(rawReply);
-  const actionResults = actions.length > 0 ? await executeActions(actions) : [];
-  const visibleReply = actions.length > 0 ? summarizeActionResults(actionResults) : sanitizeAssistantText(rawReply);
-  const normalizedReply = forceHungarian && actions.length === 0 ? await enforceHungarianReply(visibleReply) : visibleReply;
-  const nextCtx = actions.length > 0 ? await loadFullContext(true).catch(() => ctx) : ctx;
+
+  // Planning and execution are deliberately separated. The assistant turn may
+  // propose actions, but the UI is the single execution owner so confirmation
+  // can happen before any side effect.
+  const actionFallback = forceHungarian ? 'Művelet előkészítve.' : 'Action prepared.';
+  const visibleReply = sanitizeAssistantText(rawReply, actionFallback);
+  const normalizedReply = forceHungarian ? await enforceHungarianReply(visibleReply) : visibleReply;
 
   return {
     reply: normalizedReply,
     actions,
-    actionResults,
+    actionResults: [],
     detectedLang: outputLang,
     latencyMs,
-    nextCtx,
+    nextCtx: ctx,
   };
 }
