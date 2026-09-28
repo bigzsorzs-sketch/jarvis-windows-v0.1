@@ -24,6 +24,8 @@ export function useVoiceRuntime() {
   });
 
   const [lastTranscript, setLastTranscript] = useState('');
+  const [lastTranscriptEvent, setLastTranscriptEvent] = useState(null);
+  const transcriptSeqRef = useRef(0);
   const [lastError, setLastError] = useState(null);
 
   useEffect(() => {
@@ -36,7 +38,9 @@ export function useVoiceRuntime() {
 
     // Subscribe to transcripts (for optional consumption)
     const unsubTranscript = runtime.subscribe('transcript', (transcript) => {
+      transcriptSeqRef.current += 1;
       setLastTranscript(transcript);
+      setLastTranscriptEvent({ id:transcriptSeqRef.current, text:transcript, at:Date.now() });
     });
 
     // Subscribe to errors
@@ -55,6 +59,7 @@ export function useVoiceRuntime() {
   return {
     state,
     lastTranscript,
+    lastTranscriptEvent,
     lastError,
     toggleHandsFree: useCallback(() => {
       runtimeRef.current?.toggleHandsFree();
@@ -85,6 +90,7 @@ export function useVoiceRuntime() {
     }, []),
     clearTranscript: useCallback(() => {
       setLastTranscript('');
+      setLastTranscriptEvent(null);
     }, []),
     // For advanced usage
     runtime: runtimeRef.current,
