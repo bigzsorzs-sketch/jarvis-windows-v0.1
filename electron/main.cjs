@@ -56,6 +56,97 @@ function developerBackupRoot() { return path.join(app.getPath('userData'),'devel
 function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
 function autonomousRepairStatePath() { return path.join(app.getPath('userData'),'autonomous-self-repair-state.json'); }
 function autonomousWorkspaceRoot() { return path.join(app.getPath('documents'),'Jarvis Self-Development'); }
+function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
+function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
+
+function appendJsonLine(file, value) {
+  try {
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    fs.appendFileSync(file,JSON.stringify(value)+'\n','utf8');
+  } catch {}
+}
+
+function readRecentCrashes(limit=20) {
+  try {
+    const lines=fs.readFileSync(crashLogPath(),'utf8').split(/\r?\n/).filter(Boolean);
+    return lines.slice(-Math.max(1,Math.min(100,Number(limit)||20))).reverse().map((line)=>{
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+function recordCrash(kind, details={}) {
+  const entry={
+    id:crypto.randomUUID(),
+    at:new Date().toISOString(),
+    kind:String(kind || 'unknown'),
+    appVersion:app.getVersion?.() || 'unknown',
+    platform:process.platform,
+    details
+  };
+  appendJsonLine(crashLogPath(),entry);
+  return entry;
+}
+
+function activeAutonomousStatus(status='') {
+  return new Set([
+    'RUNNING','ANALYZING','SANDBOX_TESTING','APPLYING_VERIFIED_PATCH','PATCH_VERIFIED',
+    'PLANNER_RETRY','PLAN_RETRY','SANDBOX_RETRY','VALIDATION_RETRY','ROLLED_BACK_RETRY',
+    'BUILDING_RELEASE_CANDIDATE','STOP_REQUESTED'
+  ]).has(String(status));
+}
+
+function scheduleCrashAutopilot(crashEntry) {
+  const state=readAutonomousRepairState();
+  if (state.autoCrashRepair !== true || activeAutonomousStatus(state.status)) return;
+  const goal=[
+    'Crash Watchdog detected a Jarvis runtime failure.',
+    'Analyze the crash evidence, identify the smallest safe source-level fix if supported by evidence,',
+    'run sandbox validation and full tests, and prepare a release candidate without publishing it.',
+    'Crash evidence: ' + JSON.stringify(crashEntry)
+  ].join(' ');
+  setTimeout(()=>{
+    runAutonomousSelfRepair({goal,maxIterations:3}).catch((error)=>{
+      recordCrash('crash-autopilot-failed',{message:String(error?.message || error),sourceCrashId:crashEntry.id});
+    });
+  },2500);
+}
+
+function registerCrashWatchdog(win) {
+  if (!win?.webContents) return;
+  win.webContents.on('render-process-gone', (_event, details={}) => {
+    const crash=recordCrash('renderer-process-gone',{
+      reason:details.reason || 'unknown',
+      exitCode:details.exitCode ?? null
+    });
+    scheduleCrashAutopilot(crash);
+
+    const recent=readRecentCrashes(10).filter((item)=>
+      item.kind === 'renderer-process-gone' && Date.now()-Date.parse(item.at) < 10*60*1000
+    );
+    const state=readJson(crashRecoveryStatePath(),{reloads:[]});
+    const reloads=(state.reloads || []).filter((at)=>Date.now()-Number(at)<10*60*1000);
+    if (recent.length <= 3 && reloads.length < 3) {
+      reloads.push(Date.now());
+      writeJson(crashRecoveryStatePath(),{reloads,lastCrashId:crash.id});
+      setTimeout(()=>{ try { if (!win.isDestroyed()) win.reload(); } catch {} },1200);
+      return;
+    }
+
+    dialog.showMessageBox({
+      type:'error',
+      title:'Jarvis Crash Watchdog',
+      message:'Jarvis többször összeomlott rövid időn belül.',
+      detail:'Az automatikus újraindítást leállítottam, hogy ne alakuljon ki crash-loop. A hibanapló megmaradt a Self-Repair számára.',
+      buttons:['Rendben']
+    }).catch(()=>{});
+  });
+
+  win.webContents.on('did-fail-load', (_event,errorCode,errorDescription,validatedURL,isMainFrame)=>{
+    if (!isMainFrame) return;
+    recordCrash('renderer-load-failed',{errorCode,errorDescription,validatedURL});
+  });
+}
 
 function readAutonomousRepairState() {
   return readJson(autonomousRepairStatePath(), {
@@ -66,6 +157,7 @@ function readAutonomousRepairState() {
     applied:[],
     releaseCandidate:null,
     releaseApproved:false,
+    autoCrashRepair:false,
     updatedAt:null
   });
 }
@@ -736,6 +828,8 @@ async function selfRepairChat(payload={}) {
       adminSystemText = '(administrator diagnostics unavailable: ' + String(error?.message || error) + ')';
     }
   }
+  const crashHistory = readRecentCrashes(8);
+  const crashText = crashHistory.length ? JSON.stringify(crashHistory,null,2).slice(0,18000) : '(no recent crash records)';
   const langRule = language === 'hu'
     ? 'Válaszolj kizárólag magyarul.'
     : 'Reply in the selected application language when possible.';
@@ -756,6 +850,9 @@ ${learnedText}
 
 UAC-AUTHORIZED WINDOWS DIAGNOSTICS:
 ${adminSystemText}
+
+CRASH WATCHDOG HISTORY:
+${crashText}
 
 PROJECT MAP:
 ${mapSummary}
@@ -916,6 +1013,7 @@ async function runAutonomousSelfRepair(payload={}) {
     releaseCandidate:null,
     releaseApproved:false,
     releaseApprovedAt:null,
+    autoCrashRepair:true,
     lastError:null
   });
 
@@ -1624,6 +1722,7 @@ function createWindow() {
   });
   mainWindow.removeMenu();
   configureObdBluetoothChooser(mainWindow);
+  registerCrashWatchdog(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
 }
@@ -1670,6 +1769,7 @@ app.whenReady().then(async () => {
     return policy.setOwnerPin(req.newPin);
   });
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
+  ipcMain.handle('jarvis:crash:recent', (_e, limit=20) => readRecentCrashes(limit));
   ipcMain.handle('jarvis:admin:status', () => adminDiagnosticsManager?.status?.() || {active:false,expiresAt:null});
   ipcMain.handle('jarvis:admin:start', async () => {
     if (!localOwnerAuthorised()) throw new Error('ADMIN_OWNER_REQUIRED');
@@ -1814,7 +1914,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('jarvis:self-repair:auto:stop', () => {
     if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
     autonomousRepairStopRequested = true;
-    return writeAutonomousRepairState({ status:'STOP_REQUESTED' });
+    return writeAutonomousRepairState({ status:'STOP_REQUESTED', autoCrashRepair:false });
   });
   ipcMain.handle('jarvis:self-repair:release:approve', (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
@@ -1926,6 +2026,22 @@ app.whenReady().then(async () => {
   ));
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
+
+process.on('uncaughtExceptionMonitor',(error,origin)=>{
+  recordCrash('main-uncaught-exception',{message:String(error?.message || error),stack:String(error?.stack || '').slice(0,12000),origin});
+});
+process.on('unhandledRejection',(reason)=>{
+  recordCrash('main-unhandled-rejection',{message:String(reason?.message || reason),stack:String(reason?.stack || '').slice(0,12000)});
+});
+app.on('child-process-gone',(_event,details={})=>{
+  recordCrash('child-process-gone',{
+    type:details.type || 'unknown',
+    reason:details.reason || 'unknown',
+    exitCode:details.exitCode ?? null,
+    serviceName:details.serviceName || null,
+    name:details.name || null
+  });
 });
 
 app.on('before-quit', () => {
