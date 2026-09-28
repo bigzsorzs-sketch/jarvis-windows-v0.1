@@ -1868,6 +1868,34 @@ function lockRendererNavigation(win) {
   });
 }
 
+function configureMediaPermissions(win) {
+  const ses = win.webContents.session;
+  const trustedRequester = (webContents, requestingUrl='') => {
+    if (!webContents || webContents !== win.webContents) return false;
+    return isTrustedRendererNavigation(requestingUrl || webContents.getURL());
+  };
+
+  ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details={}) => {
+    if (permission !== 'media') return true;
+    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || requestingOrigin || '';
+    const mediaType = details.mediaType || 'unknown';
+    return trustedRequester(webContents, requestingUrl)
+      && (mediaType === 'audio' || mediaType === 'unknown');
+  });
+
+  ses.setPermissionRequestHandler((webContents, permission, callback, details={}) => {
+    if (permission !== 'media') {
+      callback(true);
+      return;
+    }
+    const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
+    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || details.securityOrigin || '';
+    const requestsVideo = mediaTypes.includes('video');
+    const requestsAudio = mediaTypes.length === 0 || mediaTypes.includes('audio');
+    callback(trustedRequester(webContents, requestingUrl) && requestsAudio && !requestsVideo);
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -1890,6 +1918,7 @@ function createWindow() {
   });
   mainWindow.removeMenu();
   lockRendererNavigation(mainWindow);
+  configureMediaPermissions(mainWindow);
   configureObdBluetoothChooser(mainWindow);
   registerCrashWatchdog(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
