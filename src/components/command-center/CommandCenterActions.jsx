@@ -1,11 +1,10 @@
-import { MessageCircle, BarChart3, Sparkles, MapPin, HeartPulse } from 'lucide-react';
+import { BarChart3, Sparkles, MapPin, HeartPulse } from 'lucide-react';
 import { useLang } from '@/lib/i18n';
 
 export default function CommandCenterActions({ onNavigate }) {
   const { lang } = useLang();
   const hu = lang === 'hu';
   const actions = [
-    { icon: MessageCircle, label: hu ? 'Csevegés' : 'Chat', hint: hu ? 'Kérdezz bármit' : 'Get answers', path: '/chat' },
     { icon: BarChart3, label: hu ? 'Elemzés' : 'Analyse', hint: hu ? 'Találj összefüggéseket' : 'Find insights', path: '/muszerfal' },
     { icon: Sparkles, label: hu ? 'Alkotás' : 'Create', hint: hu ? 'Hozz létre bármit' : 'Generate anything', path: '/eszkozok' },
     { icon: Sparkles, label: hu ? 'Tervezés' : 'Plan', hint: hu ? 'Ötletből feladat' : 'Turn ideas into action', path: '/reminders' },
