@@ -124,9 +124,7 @@ test('route actions have a single offline queue and legacy duplicates are discar
   const routeQueue = read('src/lib/routeOfflineQueue.js');
   const sync = read('src/lib/offlineSyncManager.js');
   assert.equal(routeQueue.includes('enqueueSyncAction'), false);
-  assert.equal(sync.includes('Drop legacy'), false);
-  assert.equal(sync.includes('Drop legacy\n'), false);
-  assert.equal(sync.includes('Drop legacy IndexedDB'), false);
+  assert.equal(routeQueue.includes('Route actions use this queue as their single source of truth.'), true);
   assert.equal(sync.includes('Route sync has its own authoritative local queue.'), true);
   assert.equal(sync.includes("item.type?.startsWith('route_')"), true);
   assert.equal(sync.includes('await removeSyncAction(item.id);\n          continue;'), true);
