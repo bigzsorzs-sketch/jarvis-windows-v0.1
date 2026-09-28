@@ -21,6 +21,8 @@ test('assistant action planning never executes before the chat confirmation gate
   assert.equal(chat.includes('const requiresConfirmation = actions.some'), true);
   assert.equal(chat.includes('actionResults = await executeActions(actions'), true);
   assert.equal(chat.includes('preapprovedTools:pendingConfirm.preapprovedTools || []'), true);
+  assert.equal(chat.includes('conversation={('), true);
+  assert.equal(chat.includes('<ChatConfirmBar'), true);
   assert.equal(tools.includes("approvalMode === 'confirm' && !preapprovedTools.has"), true);
 });
 
