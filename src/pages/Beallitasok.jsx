@@ -18,6 +18,7 @@ import NotificationsCard from '@/components/settings/NotificationsCard';
 import UpdateCard from '@/components/settings/UpdateCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
 import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
+import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
 
 const Toggle = ({ checked, onChange }) => (
   <button
@@ -69,6 +70,7 @@ function prettyVoiceName(voice='') {
 
 export default function Beallitasok() {
   const { t, lang } = useLang();
+  const voice = useVoiceRuntime();
 
   const personalities = [
     { key: 'kedves', label: lang === 'hu' ? 'Kedves' : lang === 'de' ? 'Freundlich' : lang === 'fr' ? 'Aimable' : lang === 'es' ? 'Amable' : 'Friendly' },
@@ -439,6 +441,37 @@ export default function Beallitasok() {
               </select>
             </label>
           </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'Hangaktiválás' : 'Voice activation'}</span>
+              <select
+                value={voice.state.activationMode || 'hands-free'}
+                onChange={(e) => voice.setActivationMode(e.target.value)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+              >
+                <option value="push-to-talk">{lang === 'hu' ? 'Gombnyomásra beszél' : 'Push to talk'}</option>
+                <option value="hands-free">{lang === 'hu' ? 'Folyamatos hands-free' : 'Continuous hands-free'}</option>
+                <option value="wake-word">{lang === 'hu' ? 'Ébresztőszó – „Jarvis”' : 'Wake word – “Jarvis”'}</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'Ébresztőszó' : 'Wake word'}</span>
+              <input
+                value={voice.state.wakeWord || 'jarvis'}
+                onChange={(e) => voice.setWakeWord(e.target.value)}
+                disabled={voice.state.activationMode !== 'wake-word'}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
+                placeholder="Jarvis"
+              />
+            </label>
+          </div>
+          {voice.state.activationMode === 'wake-word' && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {lang === 'hu'
+                ? 'Wake-word módban a mikrofon hands-free marad, és csak a „Jarvis …” kezdetű parancs kerül végrehajtásra.'
+                : 'In wake-word mode the microphone stays hands-free and only commands beginning with “Jarvis …” are executed.'}
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">
               {lang === 'hu' ? 'Aktív:' : 'Active:'} <strong className="text-foreground">{selectedSpeechModel?.name || desktopAi.ttsModel}</strong>
