@@ -6,8 +6,9 @@ import { sanitizeString, escapePromptValue, validateAction } from './assistantTo
 import { logger } from '@/lib/logger';
 import { buildCapabilityPrompt, getApprovalMode, syncDiscoveredTools } from '@/lib/capabilityRegistry';
 import { recordActionEpisode } from '@/lib/agentMemory';
+import { localDateKey } from '@/lib/localDate';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => localDateKey();
 
 async function getCurrentUserOrThrow() {
   const currentUser = await jarvis.auth.me().catch(() => null);
