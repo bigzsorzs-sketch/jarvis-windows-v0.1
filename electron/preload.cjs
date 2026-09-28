@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   ownerOverride: (request) => ipcRenderer.invoke('jarvis:policy:override', request),
   getOwnerPinStatus: () => ipcRenderer.invoke('jarvis:policy:pin:status'),
   setOwnerPin: (request) => ipcRenderer.invoke('jarvis:policy:pin:set', request),
+  elevatedDiagnostics: {
+    status: () => ipcRenderer.invoke('jarvis:admin:status'),
+    start: () => ipcRenderer.invoke('jarvis:admin:start'),
+    snapshot: () => ipcRenderer.invoke('jarvis:admin:snapshot'),
+    stop: () => ipcRenderer.invoke('jarvis:admin:stop'),
+  },
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   setTheme: (theme) => ipcRenderer.invoke('jarvis:theme:set', theme),
