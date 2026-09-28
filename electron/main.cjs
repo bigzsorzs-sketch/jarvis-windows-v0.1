@@ -252,6 +252,8 @@ async function deleteAllLocalData() {
     developerBackupRoot(),
     developerSandboxRoot(),
     path.join(userData, 'self-repair-learning.json'),
+    autonomousRepairStatePath(),
+    autonomousWorkspaceRoot(),
     settingsPath(),
     backupDirectory,
   ];
@@ -699,7 +701,7 @@ async function selfRepairChat(payload={}) {
   const prompt = `You are Jarvis Self-Repair, a source-aware software diagnostic engineer embedded in the Jarvis Windows app.
 You are NOT limited to reading filenames: reason about architecture, imports, state flow, IPC boundaries, UI behavior, tests and likely failure modes.
 Use only evidence from the project map and source excerpts below. Clearly separate confirmed code facts from hypotheses.
-You may propose concrete file-level repairs and validation steps, but never claim a patch was applied unless the owner separately approves a sandbox repair.
+You may propose concrete file-level repairs and validation steps. Manual repair mode remains approval-gated. In Autopilot mode, Jarvis may apply only sandbox-verified, fully validated, unprotected source changes automatically. Never claim or attempt to publish a release without the owner's separate release approval.
 When asked to find bugs, inspect interactions across files, not just isolated syntax.
 Follow dependency edges, route reachability and IPC channels before claiming that code is active.
 Treat files marked inactive-or-unreferenced as dormant unless another runtime path proves otherwise.
