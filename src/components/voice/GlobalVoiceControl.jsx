@@ -8,7 +8,7 @@ import {
   getRecognitionLangFromText,
   resolveGlobalUiCommand,
 } from '@/lib/globalVoiceNavigator';
-import { executeGlobalVoiceCommand } from '@/lib/globalVoiceActions';
+import { queueVoiceCommand } from '@/lib/voiceCommandQueue';
 import { requestMicrophonePermission } from '@/lib/microphonePermission';
 
 export default function GlobalVoiceControl() {
@@ -58,10 +58,9 @@ export default function GlobalVoiceControl() {
         }
 
         await voice.speakInstantAck?.('hu');
-        const result = await executeGlobalVoiceCommand(currentTranscript);
-        const reply = result?.reply || 'Rendben.';
-        if (!cancelled) setResultText(reply);
-        await voice.speakText(reply, 'hu');
+        queueVoiceCommand(currentTranscript);
+        if (!cancelled) setResultText('Átadom a Jarvis parancskezelőnek…');
+        navigate('/chat');
       } catch (error) {
         const message = error?.message ? `Nem sikerült: ${error.message}` : 'A hangparancs végrehajtása nem sikerült.';
         if (!cancelled) setResultText(message);
