@@ -1,7 +1,7 @@
 {
   "name": "jarvis-desktop",
   "private": true,
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "Jarvis local-first multi-AI desktop assistant for Windows 10 and 11",
   "type": "module",
   "main": "electron/main.cjs",
@@ -212,6 +212,10 @@
       {
         "from": "build/self-development-package.json",
         "to": "self-development-source/package.json"
+      },
+      {
+        "from": "build/self-development-build-windows.yml",
+        "to": "self-development-source/.github/workflows/build-windows.yml"
       },
       {
         "from": "package-lock.json",

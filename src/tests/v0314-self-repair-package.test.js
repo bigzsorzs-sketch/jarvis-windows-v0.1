@@ -25,12 +25,11 @@ test('Autopilot refuses incomplete package metadata before sandbox validation', 
   assert.equal(main.includes("entry === 'package.json' || entry === 'package-lock.json'"), true);
 });
 
-test('v0.3.14 version is synchronized', () => {
+test('release version remains synchronized after v0.3.14', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const appVersion = read('src/lib/appVersion.js');
-  assert.equal(pkg.version, '0.3.14');
-  assert.equal(lock.version, '0.3.14');
-  assert.equal(lock.packages[''].version, '0.3.14');
-  assert.equal(appVersion.includes("APP_VERSION = '0.3.14'"), true);
+  assert.equal(lock.version, pkg.version);
+  assert.equal(lock.packages[''].version, pkg.version);
+  assert.equal(appVersion.includes(`APP_VERSION = '${pkg.version}'`), true);
 });

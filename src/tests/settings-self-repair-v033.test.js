@@ -99,6 +99,14 @@ test('repairs incomplete Autopilot workspaces and packages a real lockfile outsi
     true
   );
   assert.match(main,/AUTONOMOUS_REPAIR_PACKAGE_METADATA_INCOMPLETE/);
+  assert.match(main,/AUTONOMOUS_REPAIR_VALIDATION_SOURCE_MISSING/);
+  assert.equal(
+    pkg.build.extraResources.some((entry) =>
+      entry.from === 'build/self-development-build-windows.yml' &&
+      entry.to === 'self-development-source/.github/workflows/build-windows.yml'
+    ),
+    true
+  );
 });
 
 

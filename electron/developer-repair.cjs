@@ -73,10 +73,14 @@ function preflightReplacementSearches(currentContent, replacements=[], file='unk
     current = edit.all ? current.split(search).join(replace) : current.replace(search,replace);
   }
 }
+function isProtectedRelative(input) {
+  const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
+  return Boolean(rel && PROTECTED.some((rx) => rx.test(rel)));
+}
 function normalizeRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
   if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
-  if (PROTECTED.some(rx => rx.test(rel))) throw new Error('DEV_REPAIR_PROTECTED_PATH');
+  if (isProtectedRelative(rel)) throw new Error('DEV_REPAIR_PROTECTED_PATH:' + rel);
   if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
 }
@@ -455,7 +459,8 @@ function inspectWorkspace(root) {
     ...file,
     reachability:architecture.reachability[file.path] || 'unknown',
     dependencies:architecture.dependencies[file.path] || [],
-    dependents:architecture.dependents[file.path] || []
+    dependents:architecture.dependents[file.path] || [],
+    protected:isProtectedRelative(file.path)
   }));
   return {
     root:base,
@@ -548,6 +553,7 @@ function buildDiagnosticContext(root, query='', options={}) {
       dependencies:architecture.dependencies[file.path] || [],
       dependents:architecture.dependents[file.path] || [],
       reachability:architecture.reachability[file.path] || 'unknown',
+      protected:isProtectedRelative(file.path),
       routes:inspection.architecture.routes.filter((route) => route.file === file.path),
       ipc:inspection.architecture.ipc.filter((item) => item.renderer.includes(file.path) || item.main.includes(file.path)),
       excerpt
@@ -571,5 +577,5 @@ function buildDiagnosticContext(root, query='', options={}) {
 
 module.exports={
   validateWorkspace,validatePlan,proposalHash,snapshot,apply,createSandbox,destroySandbox,rollback,
-  inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,PROTECTED
+  inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED
 };

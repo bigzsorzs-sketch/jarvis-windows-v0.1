@@ -17,11 +17,17 @@ const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
 const developmentRoot = path.join(resources, 'self-development-source');
 const developmentLock = path.join(developmentRoot, 'package-lock.json');
 const developmentPackage = path.join(developmentRoot, 'package.json');
+const developmentWorkflow = path.join(developmentRoot, '.github', 'workflows', 'build-windows.yml');
 
 if (!fs.existsSync(node)) throw new Error('PACKAGED_SELF_REPAIR_NODE_MISSING');
 if (!fs.existsSync(npmCli)) throw new Error('PACKAGED_SELF_REPAIR_NPM_MISSING');
 if (!fs.existsSync(developmentLock)) throw new Error('PACKAGED_SELF_REPAIR_LOCKFILE_MISSING');
 if (!fs.existsSync(developmentPackage)) throw new Error('PACKAGED_SELF_REPAIR_PACKAGE_MISSING');
+if (!fs.existsSync(developmentWorkflow)) throw new Error('PACKAGED_SELF_REPAIR_WORKFLOW_MISSING');
+const workflowSource = fs.readFileSync(developmentWorkflow, 'utf8');
+if (!workflowSource.includes('github/codeql-action/init@v3') || !workflowSource.includes('windows-installer:')) {
+  throw new Error('PACKAGED_SELF_REPAIR_WORKFLOW_INVALID');
+}
 try {
   const pkg = JSON.parse(fs.readFileSync(developmentPackage, 'utf8'));
   if (!pkg?.version || !Array.isArray(pkg?.build?.files) || !Array.isArray(pkg?.build?.extraResources)) {

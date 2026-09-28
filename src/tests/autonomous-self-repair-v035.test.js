@@ -130,6 +130,10 @@ test('packaged Autopilot copies its editable workspace from real resources, not 
     resources.some((item) => item?.from === 'build/self-development-package.json' && item?.to === 'self-development-source/package.json'),
     'staged full package.json must be bundled as editable Self-Repair source'
   );
+  assert.ok(
+    resources.some((item) => item?.from === 'build/self-development-build-windows.yml' && item?.to === 'self-development-source/.github/workflows/build-windows.yml'),
+    'workflow source required by sandbox tests must be bundled read-only'
+  );
   assert.equal(resources.some((item) => item?.from === '.' && String(item?.to || '').startsWith('self-development-source')),false,'project root must not be used as an extraResources source');
   assert.match(main,/const source = fs\.existsSync\(externalSource\) \? externalSource : resourcePath\(entry\)/);
   assert.match(main,/fs\.writeFileSync\(destination,fs\.readFileSync\(source\)\)/);
@@ -147,6 +151,7 @@ test('installed Autopilot uses its bundled Node/npm toolchain instead of system 
   assert.ok(resources.some((item) => item?.from === 'build/self-repair-toolchain' && item?.to === 'self-repair-toolchain'));
   assert.match(workflow,/Stage installed Self-Repair toolchain/);
   assert.match(fs.readFileSync('scripts/stage-self-repair-toolchain.cjs','utf8'),/self-development-package\.json/);
+  assert.match(fs.readFileSync('scripts/stage-self-repair-toolchain.cjs','utf8'),/self-development-build-windows\.yml/);
   assert.match(workflow,/Verify packaged Self-Repair toolchain/);
   assert.match(workflow,/test-packaged-admin-helper\.cjs/);
 });

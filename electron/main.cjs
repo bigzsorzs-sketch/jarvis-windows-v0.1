@@ -249,7 +249,7 @@ async function ensureAutonomousWorkspace() {
 
   const sourceRoot = autonomousSourceRoot();
   const entries = [
-    'src','electron','security','build','scripts',
+    'src','electron','security','build','scripts','.github',
     'package.json','package-lock.json','index.html','eslint.config.js',
     'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
     'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
@@ -343,6 +343,18 @@ async function ensureAutonomousWorkspace() {
     throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_INVALID');
   }
 
+  const validationRequired = [
+    '.github/workflows/build-windows.yml',
+    'scripts/verify-jarvis.cjs',
+    'security/core-rules.json',
+    'security/core-rules.sig',
+    'security/core-rules-public.pem'
+  ];
+  const missingValidationSource = validationRequired.filter((file) => !fs.existsSync(path.join(workspace,file)));
+  if (missingValidationSource.length) {
+    throw new Error('AUTONOMOUS_REPAIR_VALIDATION_SOURCE_MISSING:' + missingValidationSource.join(','));
+  }
+
   const modulesPath = path.join(workspace,'node_modules');
   if (refreshForVersion && fs.existsSync(modulesPath)) {
     fs.rmSync(modulesPath,{recursive:true,force:true,maxRetries:8,retryDelay:180});
@@ -360,7 +372,29 @@ async function ensureAutonomousWorkspace() {
   return workspace;
 }
 async function runDeveloperValidation(workspace) {
+  const requiredFiles = [
+    'electron/main.cjs',
+    'package.json',
+    'package-lock.json',
+    '.github/workflows/build-windows.yml',
+    'scripts/verify-jarvis.cjs',
+    'security/core-rules.json',
+    'security/core-rules.sig',
+    'security/core-rules-public.pem'
+  ];
+  const missing = requiredFiles.filter((file) => !fs.existsSync(path.join(workspace,file)));
   const testDir = path.join(workspace,'src','tests');
+  if (!fs.existsSync(testDir)) missing.push('src/tests');
+  if (missing.length) {
+    return {
+      ok:false,
+      results:[{
+        cmd:'validation workspace preflight',
+        ok:false,
+        output:'Missing validation source: ' + missing.join(', ')
+      }]
+    };
+  }
   const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
   const commands = [
     { label:'node --check electron/main.cjs', run:() => runToolchainNode(['--check','electron/main.cjs'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
@@ -1224,7 +1258,7 @@ async function generateAutonomousRepairProposal(workspace, goal, feedback='', it
     ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | validation=${item.validation || '-'}`).join('\n')
     : '(no verified prior lessons)';
   const source = context.excerpts.map((item) =>
-    `--- ${item.path} [${item.reachability}] ---\n${item.excerpt}`
+    `--- ${item.path} [${item.reachability}] [${item.protected ? 'PROTECTED READ-ONLY' : 'EDITABLE'}] ---\n${item.excerpt}`
   ).join('\n\n');
 
   const prompt = `You are the autonomous Jarvis Self-Repair planner.
@@ -1232,6 +1266,10 @@ Your job is to improve the supplied Jarvis development workspace until the reque
 
 Hard rules:
 - Never edit protected core/security paths. The runtime will reject them.
+- Protected read-only paths include electron/main.cjs, electron/developer-repair.cjs, electron/admin-diagnostics.cjs, electron/security/**, security/**, .github/workflows/**, scripts/**, package.json, package-lock.json, eslint.config.js, tsconfig.json and vite.config.js.
+- Source excerpts marked PROTECTED READ-ONLY are context only. Never target them in patches.
+- If the root cause is in a protected file, prefer an editable caller/dependency/adapter only when that fully solves the goal without weakening safety.
+- If there is no safe unprotected implementation path, return {"done":true,"reason":"OWNER_CORE_REPAIR_REQUIRED: <explain the protected file and why no safe autonomous alternative exists>","patches":[]} instead of repeatedly proposing a protected file.
 - Never publish, tag, push a release, or change GitHub workflow files.
 - Prefer the smallest exact change that solves the current problem.
 - Return JSON only.
@@ -1351,6 +1389,17 @@ async function runAutonomousSelfRepair(payload={}) {
     const proposal = generated.proposal || {};
     const patches = Array.isArray(proposal.patches) ? proposal.patches : [];
     if (proposal.done === true || patches.length === 0) {
+      const doneReason = String(proposal.reason || proposal.rationale || '').trim();
+      if (applied.length === 0 && doneReason.startsWith('OWNER_CORE_REPAIR_REQUIRED:')) {
+        return writeAutonomousRepairState({
+          status:'OWNER_CORE_REPAIR_REQUIRED',
+          iteration,
+          applied,
+          releaseCandidate:null,
+          releaseApproved:false,
+          lastError:doneReason
+        });
+      }
       writeAutonomousRepairState({ status:'BUILDING_RELEASE_CANDIDATE', iteration, applied, lastError:null });
       const finalValidation = await runReleaseCandidateValidation(workspace);
       if (autonomousRepairStopRequested) {
@@ -1400,7 +1449,18 @@ async function runAutonomousSelfRepair(payload={}) {
         patches
       });
     } catch (error) {
-      feedback = `Plan rejected by safety validator: ${error?.message || error}. Choose another unprotected implementation path and return a corrected plan.`;
+      const planError = String(error?.message || error);
+      if (planError.startsWith('DEV_REPAIR_PROTECTED_PATH:')) {
+        const protectedFile = planError.slice('DEV_REPAIR_PROTECTED_PATH:'.length);
+        feedback = [
+          `Plan rejected by safety validator because ${protectedFile} is protected read-only.`,
+          'Do not propose that file again.',
+          'Use only a genuinely editable implementation path that fully fixes the goal without weakening security.',
+          'If no such path exists, return done=true with reason OWNER_CORE_REPAIR_REQUIRED: followed by the exact limitation.'
+        ].join(' ');
+      } else {
+        feedback = `Plan rejected by safety validator: ${planError}. Return a corrected plan using only editable source shown in the current diagnostic context.`;
+      }
       writeAutonomousRepairState({ status:'PLAN_RETRY', iteration, applied, lastError:feedback });
       continue;
     }

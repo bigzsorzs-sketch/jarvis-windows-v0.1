@@ -52,6 +52,11 @@ const sourcePackage = path.join(root, 'package.json');
 const stagedDevelopmentPackage = path.join(root, 'build', 'self-development-package.json');
 fs.copyFileSync(sourcePackage, stagedDevelopmentPackage);
 
+const sourceWorkflow = path.join(root, '.github', 'workflows', 'build-windows.yml');
+const stagedDevelopmentWorkflow = path.join(root, 'build', 'self-development-build-windows.yml');
+if (!fs.existsSync(sourceWorkflow)) throw new Error('SELF_REPAIR_WORKFLOW_SOURCE_MISSING');
+fs.copyFileSync(sourceWorkflow, stagedDevelopmentWorkflow);
+
 console.log('Self-repair toolchain staged:', {
   node:process.version,
   npm:npmPackage.version,
