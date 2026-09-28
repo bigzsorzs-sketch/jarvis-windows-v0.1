@@ -1802,6 +1802,12 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
   ipcMain.handle('jarvis:crash:recent', (_e, limit=20) => readRecentCrashes(limit));
+  ipcMain.handle('jarvis:crash:report', (_e, report={}) => recordCrash('renderer-js-error',{
+    kind:String(report.kind || 'runtime').slice(0,80),
+    message:String(report.message || '').slice(0,4000),
+    stack:String(report.stack || '').slice(0,12000),
+    href:String(report.href || '').slice(0,1200)
+  }));
   ipcMain.handle('jarvis:admin:status', () => adminDiagnosticsManager?.status?.() || {active:false,expiresAt:null});
   ipcMain.handle('jarvis:admin:start', async () => {
     if (!localOwnerAuthorised()) throw new Error('ADMIN_OWNER_REQUIRED');
