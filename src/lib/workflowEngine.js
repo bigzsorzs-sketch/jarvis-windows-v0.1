@@ -1,11 +1,10 @@
 import { TOOLS } from '@/lib/assistantTools';
+import { addDaysToDateKey, localDateKey } from '@/lib/localDate';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => localDateKey();
 
 function addDays(dateString, days) {
-  const date = new Date(dateString || today());
-  date.setDate(date.getDate() + days);
-  return date.toISOString().split('T')[0];
+  return addDaysToDateKey(dateString || today(), days);
 }
 
 export function getWorkflowSuggestions(ctx) {
