@@ -55,6 +55,28 @@ test('ambiguous exact replacement is rejected at apply time', () => {
   }
 });
 
+test('Autopilot cannot rewrite existing tests, package metadata or release infrastructure', () => {
+  const root = makeWorkspace();
+  try {
+    fs.mkdirSync(path.join(root,'src','tests'),{recursive:true});
+    fs.writeFileSync(path.join(root,'src','tests','existing.test.js'),'test');
+    assert.throws(
+      () => repair.validatePlan(root,{patches:[{file:'src/tests/existing.test.js',content:'changed'}]}),
+      /EXISTING_TEST_PROTECTED/
+    );
+    assert.throws(
+      () => repair.validatePlan(root,{patches:[{file:'package.json',content:'{}'}]}),
+      /PROTECTED_PATH/
+    );
+    assert.throws(
+      () => repair.validatePlan(root,{patches:[{file:'.github/workflows/build-windows.yml',content:'x'}]}),
+      /PROTECTED_PATH/
+    );
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
 test('Autopilot runs analyze sandbox validate apply revalidate and stops before release', () => {
   assert.match(main,/async function runAutonomousSelfRepair/);
   assert.match(main,/generateAutonomousRepairProposal/);
@@ -83,7 +105,7 @@ test('GitHub release publication requires explicit manual workflow approval', ()
 });
 
 test('packaged app includes the files needed to prepare a self-development workspace', () => {
-  for (const file of ['package-lock.json','index.html','eslint.config.js','postcss.config.js','jsconfig.json','components.json','build/installer.nsh']) {
+  for (const file of ['package-lock.json','index.html','eslint.config.js','postcss.config.js','jsconfig.json','components.json','build/installer.nsh','scripts/**/*']) {
     assert.equal(pkg.build.files.includes(file),true,file);
   }
 });
