@@ -1,7 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme, shell } = require('electron');
 const path = require('path');
+const { fileURLToPath } = require('url');
 const fs = require('fs');
 const os = require('os');
 const { execFile, execFileSync, spawn } = require('child_process');
@@ -1814,6 +1815,43 @@ function configureObdBluetoothChooser(win) {
   });
 }
 
+function isTrustedRendererNavigation(targetUrl='') {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (isDev) {
+      return parsed.protocol === 'http:'
+        && parsed.hostname === '127.0.0.1'
+        && parsed.port === '5173';
+    }
+    if (parsed.protocol !== 'file:') return false;
+    const requested = path.resolve(fileURLToPath(parsed));
+    const entry = path.resolve(path.join(__dirname,'..','dist','index.html'));
+    return requested === entry;
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(targetUrl='') {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (!['http:','https:'].includes(parsed.protocol)) return;
+    void shell.openExternal(parsed.toString()).catch(()=>{});
+  } catch {}
+}
+
+function lockRendererNavigation(win) {
+  win.webContents.on('will-navigate',(event,targetUrl)=>{
+    if (isTrustedRendererNavigation(targetUrl)) return;
+    event.preventDefault();
+    openExternalUrl(targetUrl);
+  });
+  win.webContents.setWindowOpenHandler(({url})=>{
+    openExternalUrl(url);
+    return { action:'deny' };
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -1835,6 +1873,7 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
+  lockRendererNavigation(mainWindow);
   configureObdBluetoothChooser(mainWindow);
   registerCrashWatchdog(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
