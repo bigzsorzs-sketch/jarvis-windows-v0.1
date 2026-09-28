@@ -215,7 +215,16 @@ class AdminDiagnosticsManager {
     ];
     const argsPs='@('+args.map(psQuote).join(',')+')';
     const command=`Start-Process -FilePath ${psQuote(this.execPath)} -ArgumentList ${argsPs} -Verb RunAs -WindowStyle Hidden`;
-    await execFileAsync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',command],{windowsHide:true,timeout:UAC_CONNECT_TIMEOUT_MS});
+    try {
+      await execFileAsync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',command],{windowsHide:true,timeout:UAC_CONNECT_TIMEOUT_MS});
+    } catch (error) {
+      const detail=String(error?.stderr || error?.message || error || '');
+      await this.stop().catch(()=>{});
+      if (/cancel|canceled|cancelled|1223|operation was canceled/i.test(detail)) {
+        throw new Error('ADMIN_UAC_CANCELLED');
+      }
+      throw new Error('ADMIN_UAC_LAUNCH_FAILED: '+detail.slice(0,600));
+    }
     await this._connectWithRetry();
     this.expiresAt=Date.now()+SESSION_TTL_MS;
     const ping=await this.request('ping',{},8000);
