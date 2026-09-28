@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 const text = {
   ok: { hu: 'Rendben', en: 'OK' },
-  dismiss: { hu: 'Bezárás', en: 'Dismiss' },
 };
 
 function getLang() {
@@ -19,27 +18,17 @@ export default function NativeDialogBridge() {
     if (typeof window === 'undefined') return undefined;
 
     const originalAlert = window.alert;
-    const originalConfirm = window.confirm;
-    const originalPrompt = window.prompt;
 
+    // Only replace alert(), which has no return value.
+    // confirm() and prompt() are intentionally left native because callers
+    // require their synchronous return values. Replacing confirm() with a
+    // React modal caused every confirmation to return false immediately.
     window.alert = (message = '') => {
       setDialog({ type: 'alert', message: String(message || '') });
     };
 
-    window.confirm = (message = '') => {
-      setDialog({ type: 'confirm', message: String(message || '') });
-      return false;
-    };
-
-    window.prompt = (message = '') => {
-      setDialog({ type: 'prompt', message: String(message || '') });
-      return null;
-    };
-
     return () => {
       window.alert = originalAlert;
-      window.confirm = originalConfirm;
-      window.prompt = originalPrompt;
     };
   }, []);
 
@@ -49,7 +38,7 @@ export default function NativeDialogBridge() {
         <motion.div
           role="dialog"
           aria-modal="true"
-          aria-label={dialog.message || text.dismiss[lang]}
+          aria-label={dialog.message || text.ok[lang]}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -68,11 +57,11 @@ export default function NativeDialogBridge() {
             <p className="text-sm leading-relaxed text-foreground">{dialog.message}</p>
             <button
               type="button"
-              aria-label={text.dismiss[lang]}
+              aria-label={text.ok[lang]}
               onClick={() => setDialog(null)}
               className="mt-5 min-h-[44px] w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground focus-visible:ring-2 focus-visible:ring-primary"
             >
-              {dialog.type === 'alert' ? text.ok[lang] : text.dismiss[lang]}
+              {text.ok[lang]}
             </button>
           </motion.div>
         </motion.div>
