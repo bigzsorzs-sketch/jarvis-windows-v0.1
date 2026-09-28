@@ -15,6 +15,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getVoiceRuntime } from '@/lib/voiceRuntime';
+import { normalizeHungarianSpeechInput } from '@/lib/voiceInputNormalizer';
 
 export function useVoiceRuntime() {
   const runtimeRef = useRef(null);
@@ -73,6 +74,12 @@ export function useVoiceRuntime() {
     }, []),
     setHandsFree: useCallback((enabled) => {
       runtimeRef.current?.setHandsFree(enabled);
+    }, []),
+    setActivationMode: useCallback((mode) => {
+      return runtimeRef.current?.setActivationMode(mode);
+    }, []),
+    setWakeWord: useCallback((word) => {
+      return runtimeRef.current?.setWakeWord(word);
     }, []),
     toggleAutoSpeakReplies: useCallback(() => {
       return runtimeRef.current?.toggleAutoSpeakReplies();
