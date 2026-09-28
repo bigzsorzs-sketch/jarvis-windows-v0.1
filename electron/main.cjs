@@ -75,12 +75,22 @@ function selfRepairToolchainPaths() {
   return { root, node, npmCli };
 }
 
+function withSelfRepairToolchainEnv(options={}, toolchain=selfRepairToolchainPaths()) {
+  const env = { ...process.env, ...(options.env || {}) };
+  const existingPath = env.PATH || env.Path || '';
+  const toolchainPath = [toolchain.root, existingPath].filter(Boolean).join(path.delimiter);
+  return {
+    ...options,
+    env:{ ...env, PATH:toolchainPath, Path:toolchainPath }
+  };
+}
+
 async function runToolchainNode(args, options={}) {
   if (!app.isPackaged) {
     return execFileAsync(process.platform === 'win32' ? 'node.exe' : 'node', args, options);
   }
   const toolchain = selfRepairToolchainPaths();
-  return execFileAsync(toolchain.node, args, options);
+  return execFileAsync(toolchain.node, args, withSelfRepairToolchainEnv(options, toolchain));
 }
 
 async function runToolchainNpm(args, options={}) {
@@ -88,7 +98,7 @@ async function runToolchainNpm(args, options={}) {
     return execFileAsync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options);
   }
   const toolchain = selfRepairToolchainPaths();
-  return execFileAsync(toolchain.node, [toolchain.npmCli, ...args], options);
+  return execFileAsync(toolchain.node, [toolchain.npmCli, ...args], withSelfRepairToolchainEnv(options, toolchain));
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
