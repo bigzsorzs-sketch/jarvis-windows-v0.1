@@ -34,11 +34,18 @@ let adminDiagnosticsManager;
 const adminHelperConfig = parseHelperArgs(process.argv);
 const developerPlans = new Map();
 let latestSystemReport = null;
+let autonomousRepairStopRequested = false;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
 const FALLBACK_TTS_MODEL = 'google/gemini-3.8-flash-lite-tts';
 const DEFAULT_TTS_VOICE = 'Charon';
+const GOOGLE_TTS_VOICES = new Set([
+  'Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe',
+  'Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi',
+  'Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird',
+  'Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'
+]);
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
@@ -47,6 +54,160 @@ function resourcePath(...parts) {
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
 function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
+function autonomousRepairStatePath() { return path.join(app.getPath('userData'),'autonomous-self-repair-state.json'); }
+function autonomousWorkspaceRoot() { return path.join(app.getPath('documents'),'Jarvis Self-Development'); }
+function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
+function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
+
+function appendJsonLine(file, value) {
+  try {
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    fs.appendFileSync(file,JSON.stringify(value)+'\n','utf8');
+  } catch {}
+}
+
+function readRecentCrashes(limit=20) {
+  try {
+    const lines=fs.readFileSync(crashLogPath(),'utf8').split(/\r?\n/).filter(Boolean);
+    return lines.slice(-Math.max(1,Math.min(100,Number(limit)||20))).reverse().map((line)=>{
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+function recordCrash(kind, details={}) {
+  const entry={
+    id:crypto.randomUUID(),
+    at:new Date().toISOString(),
+    kind:String(kind || 'unknown'),
+    appVersion:app.getVersion?.() || 'unknown',
+    platform:process.platform,
+    details
+  };
+  appendJsonLine(crashLogPath(),entry);
+  return entry;
+}
+
+function activeAutonomousStatus(status='') {
+  return new Set([
+    'RUNNING','ANALYZING','SANDBOX_TESTING','APPLYING_VERIFIED_PATCH','PATCH_VERIFIED',
+    'PLANNER_RETRY','PLAN_RETRY','SANDBOX_RETRY','VALIDATION_RETRY','ROLLED_BACK_RETRY',
+    'BUILDING_RELEASE_CANDIDATE','STOP_REQUESTED'
+  ]).has(String(status));
+}
+
+function scheduleCrashAutopilot(crashEntry) {
+  const state=readAutonomousRepairState();
+  if (state.autoCrashRepair !== true || activeAutonomousStatus(state.status)) return;
+  const goal=[
+    'Crash Watchdog detected a Jarvis runtime failure.',
+    'Analyze the crash evidence, identify the smallest safe source-level fix if supported by evidence,',
+    'run sandbox validation and full tests, and prepare a release candidate without publishing it.',
+    'Crash evidence: ' + JSON.stringify(crashEntry)
+  ].join(' ');
+  setTimeout(()=>{
+    runAutonomousSelfRepair({goal,maxIterations:3}).catch((error)=>{
+      recordCrash('crash-autopilot-failed',{message:String(error?.message || error),sourceCrashId:crashEntry.id});
+    });
+  },2500);
+}
+
+function registerCrashWatchdog(win) {
+  if (!win?.webContents) return;
+  win.webContents.on('render-process-gone', (_event, details={}) => {
+    const crash=recordCrash('renderer-process-gone',{
+      reason:details.reason || 'unknown',
+      exitCode:details.exitCode ?? null
+    });
+    scheduleCrashAutopilot(crash);
+
+    const recent=readRecentCrashes(10).filter((item)=>
+      item.kind === 'renderer-process-gone' && Date.now()-Date.parse(item.at) < 10*60*1000
+    );
+    const state=readJson(crashRecoveryStatePath(),{reloads:[]});
+    const reloads=(state.reloads || []).filter((at)=>Date.now()-Number(at)<10*60*1000);
+    if (recent.length <= 3 && reloads.length < 3) {
+      reloads.push(Date.now());
+      writeJson(crashRecoveryStatePath(),{reloads,lastCrashId:crash.id});
+      setTimeout(()=>{ try { if (!win.isDestroyed()) win.reload(); } catch {} },1200);
+      return;
+    }
+
+    dialog.showMessageBox({
+      type:'error',
+      title:'Jarvis Crash Watchdog',
+      message:'Jarvis többször összeomlott rövid időn belül.',
+      detail:'Az automatikus újraindítást leállítottam, hogy ne alakuljon ki crash-loop. A hibanapló megmaradt a Self-Repair számára.',
+      buttons:['Rendben']
+    }).catch(()=>{});
+  });
+
+  win.webContents.on('did-fail-load', (_event,errorCode,errorDescription,validatedURL,isMainFrame)=>{
+    if (!isMainFrame) return;
+    recordCrash('renderer-load-failed',{errorCode,errorDescription,validatedURL});
+  });
+}
+
+function readAutonomousRepairState() {
+  return readJson(autonomousRepairStatePath(), {
+    status:'IDLE',
+    workspace:null,
+    goal:null,
+    iteration:0,
+    applied:[],
+    releaseCandidate:null,
+    releaseApproved:false,
+    autoCrashRepair:false,
+    updatedAt:null
+  });
+}
+
+function writeAutonomousRepairState(patch={}) {
+  const current = readAutonomousRepairState();
+  const next = { ...current, ...patch, updatedAt:new Date().toISOString() };
+  writeJson(autonomousRepairStatePath(), next);
+  return next;
+}
+
+async function ensureAutonomousWorkspace() {
+  const target = autonomousWorkspaceRoot();
+  const packagePath = path.join(target,'package.json');
+
+  if (!fs.existsSync(packagePath)) {
+    fs.mkdirSync(target,{recursive:true});
+    const sourceRoot = resourcePath();
+    const entries = [
+      'src','electron','security','build','scripts',
+      'package.json','package-lock.json','index.html','eslint.config.js',
+      'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
+      'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
+    ];
+    for (const entry of entries) {
+      const source = path.join(sourceRoot,entry);
+      if (!fs.existsSync(source)) continue;
+      const destination = path.join(target,entry);
+      if (fs.statSync(source).isDirectory()) {
+        fs.cpSync(source,destination,{recursive:true});
+      } else {
+        fs.mkdirSync(path.dirname(destination),{recursive:true});
+        fs.copyFileSync(source,destination);
+      }
+    }
+  }
+
+  const workspace = developerRepair.validateWorkspace(target);
+  if (!fs.existsSync(path.join(workspace,'node_modules'))) {
+    if (!fs.existsSync(path.join(workspace,'package-lock.json'))) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
+    await execFileAsync('npm',['ci'],{
+      cwd:workspace,
+      windowsHide:true,
+      timeout:600000,
+      shell:false,
+      maxBuffer:12 * 1024 * 1024
+    });
+  }
+  return workspace;
+}
 async function runDeveloperValidation(workspace) {
   const testDir = path.join(workspace,'src','tests');
   const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
@@ -70,6 +231,74 @@ async function runDeveloperValidation(workspace) {
   }
   return {ok:true,results};
 }
+async function runReleaseCandidateValidation(workspace) {
+  const sourceValidation = await runDeveloperValidation(workspace);
+  if (!sourceValidation.ok) return sourceValidation;
+
+  const runner = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const packageResult = { cmd:'npx electron-builder --win nsis --x64 --publish never', ok:false, output:'' };
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      runner,
+      ['electron-builder','--win','nsis','--x64','--publish','never'],
+      { cwd:workspace, windowsHide:true, timeout:900000, shell:false, maxBuffer:16 * 1024 * 1024 }
+    );
+    packageResult.ok = true;
+    packageResult.output = String(stdout || stderr || '').slice(-5000);
+  } catch (error) {
+    packageResult.output = String(error?.stdout || error?.stderr || error?.message || error).slice(-5000);
+    return { ok:false, results:[...(sourceValidation.results || []), packageResult] };
+  }
+
+  const releaseDir = path.join(workspace,'release');
+  const installer = fs.existsSync(releaseDir)
+    ? fs.readdirSync(releaseDir)
+        .filter((name) => /^Jarvis-Setup-.*-x64\.exe$/i.test(name))
+        .map((name) => path.join(releaseDir,name))
+        .sort((a,b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0]
+    : null;
+  if (!installer || !fs.existsSync(installer)) {
+    return {
+      ok:false,
+      results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:false, output:'Jarvis installer was not produced.' }]
+    };
+  }
+
+  const sha256 = crypto.createHash('sha256').update(fs.readFileSync(installer)).digest('hex');
+  const signature = await getAuthenticodeSignature(installer).catch((error)=>({
+    status:'Unavailable',
+    thumbprint:'',
+    subject:'',
+    error:String(error?.message || error)
+  }));
+  const signed = signature.status === 'Valid' && Boolean(signature.thumbprint);
+  const manifest = {
+    version:JSON.parse(fs.readFileSync(path.join(workspace,'package.json'),'utf8')).version,
+    builtAt:new Date().toISOString(),
+    installer,
+    sha256,
+    signing:{
+      signed,
+      status:signature.status || 'Unknown',
+      subject:signature.subject || null,
+      thumbprint:signature.thumbprint || null
+    },
+    validation:(sourceValidation.results || []).map((item)=>({cmd:item.cmd,ok:item.ok})),
+  };
+  const manifestPath=path.join(releaseDir,'release-candidate-manifest.json');
+  fs.writeFileSync(manifestPath,JSON.stringify(manifest,null,2),'utf8');
+  return {
+    ok:true,
+    results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:true, output:installer }, {cmd:'release-manifest',ok:true,output:manifestPath}],
+    installer,
+    sha256,
+    signature,
+    signed,
+    manifest,
+    manifestPath
+  };
+}
+
 function localOwnerAuthorised() {
   try {
     const user = database?.getUser?.();
@@ -157,7 +386,7 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.ttsModel === 'string' && patch.ttsModel.trim()) raw.ttsModel = patch.ttsModel.trim();
   if (['male','female'].includes(patch.ttsGender)) {
     raw.ttsGender = patch.ttsGender;
-    if (!patch.ttsVoice) raw.ttsVoice = patch.ttsGender === 'female' ? 'Kore' : 'Charon';
+    if (!patch.ttsVoice && !raw.ttsVoice) raw.ttsVoice = patch.ttsGender === 'female' ? 'Kore' : 'Charon';
   }
   if (typeof patch.ttsVoice === 'string' && patch.ttsVoice.trim()) raw.ttsVoice = patch.ttsVoice.trim();
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
@@ -183,6 +412,9 @@ async function deleteAllLocalData() {
     developerBackupRoot(),
     developerSandboxRoot(),
     path.join(userData, 'self-repair-learning.json'),
+    path.join(userData, 'crash-watchdog'),
+    autonomousRepairStatePath(),
+    autonomousWorkspaceRoot(),
     settingsPath(),
     backupDirectory,
   ];
@@ -377,6 +609,26 @@ function getOpenRouterAudioCredentials() {
   return { raw, apiKey };
 }
 
+async function listOpenRouterSpeechModels() {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = unprotectSecret(raw.openRouterKey);
+  const headers = apiKey ? { Authorization:`Bearer ${apiKey}` } : {};
+  const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=speech', { headers });
+  if (!response.ok) throw new Error(`OPENROUTER_SPEECH_MODELS_${response.status}`);
+  const json = await response.json();
+
+  return (json.data || [])
+    .filter((model) => Array.isArray(model?.supported_voices) && model.supported_voices.length > 0)
+    .map((model) => ({
+      id:model.id,
+      name:model.name || model.id,
+      voices:model.supported_voices,
+      pricing:model.pricing || null,
+      context_length:model.context_length || null
+    }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
 function audioFormatFromMimeType(mimeType='') {
   const value = String(mimeType || '').toLowerCase();
   if (value.includes('webm')) return 'webm';
@@ -498,18 +750,29 @@ async function requestOpenRouterSpeech({ apiKey, model, voice, input, responseFo
 async function openRouterSynthesizeVoice(payload={}) {
   const { raw, apiKey } = getOpenRouterAudioCredentials();
   const requestedModel = String(raw.ttsModel || DEFAULT_TTS_MODEL);
-  const voice = String(raw.ttsVoice || DEFAULT_TTS_VOICE);
+  const requestedVoice = String(raw.ttsVoice || DEFAULT_TTS_VOICE);
+  const gender = raw.ttsGender === 'female' ? 'female' : 'male';
+  const defaultGenderVoice = gender === 'female' ? 'Kore' : 'Charon';
   const input = String(payload.text || '').trim();
 
   if (payload.warmup === true) {
-    return { data:{ supported:true, model:requestedModel, voice, audioBase64:null } };
+    return { data:{ supported:true, model:requestedModel, voice:requestedVoice, audioBase64:null } };
   }
   if (!input) throw new Error('VOICE_TEXT_REQUIRED');
 
-  const models = [...new Set([requestedModel, DEFAULT_TTS_MODEL, FALLBACK_TTS_MODEL])];
+  const requestedIsGoogle = requestedModel.startsWith('google/gemini-') && GOOGLE_TTS_VOICES.has(requestedVoice);
+  const fallbackVoice = requestedIsGoogle ? requestedVoice : defaultGenderVoice;
+  const candidates = [
+    { model:requestedModel, voice:requestedVoice },
+    { model:DEFAULT_TTS_MODEL, voice:fallbackVoice },
+    { model:FALLBACK_TTS_MODEL, voice:fallbackVoice }
+  ].filter((candidate, index, all) =>
+    all.findIndex((item) => item.model === candidate.model && item.voice === candidate.voice) === index
+  );
   let lastError = 'MODEL_TTS_UNAVAILABLE';
 
-  for (const model of models) {
+  for (const candidate of candidates) {
+    const { model, voice } = candidate;
     for (const responseFormat of ['mp3', 'pcm']) {
       const attempt = await requestOpenRouterSpeech({ apiKey, model, voice, input, responseFormat });
       if (!attempt.response) {
@@ -592,6 +855,8 @@ async function selfRepairChat(payload={}) {
       adminSystemText = '(administrator diagnostics unavailable: ' + String(error?.message || error) + ')';
     }
   }
+  const crashHistory = readRecentCrashes(8);
+  const crashText = crashHistory.length ? JSON.stringify(crashHistory,null,2).slice(0,18000) : '(no recent crash records)';
   const langRule = language === 'hu'
     ? 'Válaszolj kizárólag magyarul.'
     : 'Reply in the selected application language when possible.';
@@ -599,7 +864,7 @@ async function selfRepairChat(payload={}) {
   const prompt = `You are Jarvis Self-Repair, a source-aware software diagnostic engineer embedded in the Jarvis Windows app.
 You are NOT limited to reading filenames: reason about architecture, imports, state flow, IPC boundaries, UI behavior, tests and likely failure modes.
 Use only evidence from the project map and source excerpts below. Clearly separate confirmed code facts from hypotheses.
-You may propose concrete file-level repairs and validation steps, but never claim a patch was applied unless the owner separately approves a sandbox repair.
+You may propose concrete file-level repairs and validation steps. Manual repair mode remains approval-gated. In Autopilot mode, Jarvis may apply only sandbox-verified, fully validated, unprotected source changes automatically. Never claim or attempt to publish a release without the owner's separate release approval.
 When asked to find bugs, inspect interactions across files, not just isolated syntax.
 Follow dependency edges, route reachability and IPC channels before claiming that code is active.
 Treat files marked inactive-or-unreferenced as dormant unless another runtime path proves otherwise.
@@ -612,6 +877,9 @@ ${learnedText}
 
 UAC-AUTHORIZED WINDOWS DIAGNOSTICS:
 ${adminSystemText}
+
+CRASH WATCHDOG HISTORY:
+${crashText}
 
 PROJECT MAP:
 ${mapSummary}
@@ -647,6 +915,280 @@ Keep it concise unless the owner asks for deep detail.`;
       files:context.excerpts.map(item=>item.path)
     }
   };
+}
+
+
+function parseRepairModelJson(value) {
+  if (value && typeof value === 'object') return value;
+  const raw = String(value || '').trim();
+  if (!raw) throw new Error('AUTONOMOUS_REPAIR_EMPTY_MODEL_RESPONSE');
+  const cleaned = raw
+    .replace(/^\`\`\`(?:json)?\s*/i,'')
+    .replace(/\s*\`\`\`$/,'')
+    .trim();
+  try { return JSON.parse(cleaned); }
+  catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start,end+1));
+    throw new Error('AUTONOMOUS_REPAIR_INVALID_JSON');
+  }
+}
+
+function summarizeValidation(validation) {
+  if (!validation?.results?.length) return validation?.ok ? 'OK' : 'No validation details';
+  return validation.results
+    .map((item) => `${item.cmd}: ${item.ok ? 'OK' : 'FAIL'} ${item.ok ? '' : String(item.output || '').slice(-1800)}`)
+    .join('\n');
+}
+
+async function generateAutonomousRepairProposal(workspace, goal, feedback='', iteration=1) {
+  const query = [goal, feedback].filter(Boolean).join('\n\n');
+  const context = developerRepair.buildDiagnosticContext(workspace, query, { maxFiles:20, maxChars:70000 });
+  const learned = selfRepairLearning?.relevant?.(query, 10) || [];
+  const learnedText = learned.length
+    ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | validation=${item.validation || '-'}`).join('\n')
+    : '(no verified prior lessons)';
+  const source = context.excerpts.map((item) =>
+    `--- ${item.path} [${item.reachability}] ---\n${item.excerpt}`
+  ).join('\n\n');
+
+  const prompt = `You are the autonomous Jarvis Self-Repair planner.
+Your job is to improve the supplied Jarvis development workspace until the requested goal is satisfied and all validations pass.
+
+Hard rules:
+- Never edit protected core/security paths. The runtime will reject them.
+- Never publish, tag, push a release, or change GitHub workflow files.
+- Prefer the smallest exact change that solves the current problem.
+- Return JSON only.
+- Use exact text replacements when possible. Each replacement search string must match source text exactly and uniquely.
+- If the goal is already satisfied and no source change is needed, return {"done":true,"reason":"...","patches":[]}.
+- Otherwise return:
+{
+  "done": false,
+  "goal": "short goal",
+  "rationale": "why these edits solve the problem",
+  "risk": "low|medium|high",
+  "patches": [
+    {
+      "file": "relative/path",
+      "replacements": [
+        {"search":"exact existing block","replace":"replacement block","all":false}
+      ]
+    }
+  ]
+}
+- Maximum 6 files and 8 replacements per file.
+- Do not use placeholders, ellipses, or partial pseudo-code in replacement text.
+- Do not modify package version for release. Release/version publication is owner-gated and happens later.
+
+OWNER GOAL:
+${goal}
+
+ITERATION:
+${iteration}
+
+PREVIOUS VALIDATION / REVISION FEEDBACK:
+${feedback || '(none)'}
+
+VERIFIED LOCAL LESSONS:
+${learnedText}
+
+PROJECT MAP:
+${JSON.stringify(context.map,null,2)}
+
+RELEVANT SOURCE:
+${source}`;
+
+  const response = await openRouterRequest({
+    prompt,
+    task_type:'repair',
+    response_json_schema:{ type:'object' },
+    contains_sensitive_context:false
+  });
+
+  return {
+    proposal:parseRepairModelJson(response?.data?.result),
+    model:response?.data?.model || null,
+    files:context.excerpts.map((item) => item.path)
+  };
+}
+
+async function runAutonomousSelfRepair(payload={}) {
+  if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+
+  const requestedGoal = String(payload?.goal || '').trim();
+  if (!requestedGoal) throw new Error('AUTONOMOUS_REPAIR_GOAL_REQUIRED');
+
+  const maxIterations = Math.max(1,Math.min(6,Number(payload?.maxIterations) || 4));
+  const workspace = payload?.workspace
+    ? developerRepair.validateWorkspace(String(payload.workspace))
+    : await ensureAutonomousWorkspace();
+
+  autonomousRepairStopRequested = false;
+  const runId = crypto.randomUUID();
+  let feedback = '';
+  const applied = [];
+
+  writeAutonomousRepairState({
+    runId,
+    status:'RUNNING',
+    workspace,
+    goal:requestedGoal,
+    iteration:0,
+    applied:[],
+    releaseCandidate:null,
+    releaseApproved:false,
+    releaseApprovedAt:null,
+    autoCrashRepair:true,
+    lastError:null
+  });
+
+  for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
+    if (autonomousRepairStopRequested) {
+      return writeAutonomousRepairState({ status:'STOPPED', iteration, applied });
+    }
+
+    writeAutonomousRepairState({ status:'ANALYZING', iteration, applied, feedback:feedback.slice(-6000) });
+
+    let generated;
+    try {
+      generated = await generateAutonomousRepairProposal(workspace, requestedGoal, feedback, iteration);
+    } catch (error) {
+      feedback = `Planner error: ${error?.message || error}`;
+      writeAutonomousRepairState({ status:'PLANNER_RETRY', iteration, applied, lastError:feedback });
+      continue;
+    }
+
+    const proposal = generated.proposal || {};
+    const patches = Array.isArray(proposal.patches) ? proposal.patches : [];
+    if (proposal.done === true || patches.length === 0) {
+      writeAutonomousRepairState({ status:'BUILDING_RELEASE_CANDIDATE', iteration, applied, lastError:null });
+      const finalValidation = await runReleaseCandidateValidation(workspace);
+      if (!finalValidation.ok) {
+        feedback = `The model considered the goal complete, but release-candidate validation failed:\n${summarizeValidation(finalValidation)}`;
+        writeAutonomousRepairState({ status:'VALIDATION_RETRY', iteration, applied, lastError:feedback });
+        continue;
+      }
+
+      const candidate = {
+        id:crypto.randomUUID(),
+        runId,
+        workspace,
+        goal:requestedGoal,
+        applied,
+        model:generated.model,
+        validation:finalValidation,
+        installer:finalValidation.installer || null,
+        sha256:finalValidation.sha256 || null,
+        signed:finalValidation.signed === true,
+        signature:finalValidation.signature || null,
+        manifest:finalValidation.manifest || null,
+        manifestPath:finalValidation.manifestPath || null,
+        changedFiles:[...new Set(applied.flatMap((item)=>item.files || []))],
+        riskSummary:applied.some((item)=>item.risk === 'high') ? 'high' : applied.some((item)=>item.risk === 'medium') ? 'medium' : 'low',
+        createdAt:new Date().toISOString(),
+        releaseApproved:false
+      };
+      return writeAutonomousRepairState({
+        status:'RELEASE_CANDIDATE_READY',
+        iteration,
+        applied,
+        releaseCandidate:candidate,
+        releaseApproved:false,
+        lastError:null
+      });
+    }
+
+    let plan;
+    try {
+      plan = developerRepair.validatePlan(workspace,{
+        goal:proposal.goal || requestedGoal,
+        rationale:proposal.rationale || 'Autonomous Self-Repair proposal',
+        risk:proposal.risk || 'medium',
+        patches
+      });
+    } catch (error) {
+      feedback = `Plan rejected by safety validator: ${error?.message || error}. Choose another unprotected implementation path and return a corrected plan.`;
+      writeAutonomousRepairState({ status:'PLAN_RETRY', iteration, applied, lastError:feedback });
+      continue;
+    }
+
+    writeAutonomousRepairState({
+      status:'SANDBOX_TESTING',
+      iteration,
+      applied,
+      currentPlan:{ hash:plan.hash, goal:plan.goal, files:plan.patches.map((patch) => patch.file), risk:plan.risk }
+    });
+
+    let sandbox = null;
+    try {
+      sandbox = developerRepair.createSandbox(workspace,plan,developerSandboxRoot());
+      const sandboxValidation = await runDeveloperValidation(sandbox);
+      if (!sandboxValidation.ok) {
+        feedback = `Sandbox validation failed. Revise the plan instead of publishing or applying it:\n${summarizeValidation(sandboxValidation)}`;
+        developerRepair.destroySandbox(sandbox,developerSandboxRoot());
+        sandbox = null;
+        writeAutonomousRepairState({ status:'SANDBOX_RETRY', iteration, applied, lastError:feedback });
+        continue;
+      }
+
+      const backup = developerRepair.snapshot(workspace,plan,developerBackupRoot());
+      writeAutonomousRepairState({ status:'APPLYING_VERIFIED_PATCH', iteration, applied, backup });
+
+      try {
+        developerRepair.apply(workspace,plan);
+        const validation = await runDeveloperValidation(workspace);
+        if (!validation.ok) {
+          developerRepair.rollback(workspace,backup);
+          feedback = `The patch passed sandbox but failed after application and was rolled back:\n${summarizeValidation(validation)}`;
+          writeAutonomousRepairState({ status:'ROLLED_BACK_RETRY', iteration, applied, lastError:feedback });
+          continue;
+        }
+
+        const verified = {
+          hash:plan.hash,
+          goal:plan.goal,
+          files:plan.patches.map((patch) => patch.file),
+          risk:plan.risk,
+          validation:summarizeValidation(validation),
+          appliedAt:new Date().toISOString()
+        };
+        applied.push(verified);
+        selfRepairLearning?.recordVerified?.({
+          title:plan.goal || 'Autonomous Self-Repair',
+          repairId:plan.hash,
+          files:verified.files,
+          evidence:plan.rationale || requestedGoal,
+          validation:verified.validation,
+          success:true
+        });
+        feedback = `Verified patch applied successfully. Re-scan the updated workspace and decide whether more work is needed. Applied files: ${verified.files.join(', ')}.`;
+        writeAutonomousRepairState({ status:'PATCH_VERIFIED', iteration, applied, lastError:null });
+      } catch (error) {
+        try { developerRepair.rollback(workspace,backup); } catch {}
+        feedback = `Application failed and was rolled back: ${error?.message || error}`;
+        writeAutonomousRepairState({ status:'ROLLED_BACK_RETRY', iteration, applied, lastError:feedback });
+      }
+    } finally {
+      if (sandbox) {
+        try { developerRepair.destroySandbox(sandbox,developerSandboxRoot()); } catch {}
+      }
+    }
+  }
+
+  const finalValidation = await runDeveloperValidation(workspace);
+  const finalStatus = finalValidation.ok && applied.length
+    ? 'NEEDS_OWNER_REVIEW_BEFORE_RELEASE'
+    : 'NEEDS_ATTENTION';
+
+  return writeAutonomousRepairState({
+    status:finalStatus,
+    iteration:maxIterations,
+    applied,
+    validation:finalValidation,
+    lastError:feedback || null
+  });
 }
 
 async function openRouterObdDiagnosis(payload={}) {
@@ -1213,6 +1755,7 @@ function createWindow() {
   });
   mainWindow.removeMenu();
   configureObdBluetoothChooser(mainWindow);
+  registerCrashWatchdog(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
 }
@@ -1259,6 +1802,13 @@ app.whenReady().then(async () => {
     return policy.setOwnerPin(req.newPin);
   });
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
+  ipcMain.handle('jarvis:crash:recent', (_e, limit=20) => readRecentCrashes(limit));
+  ipcMain.handle('jarvis:crash:report', (_e, report={}) => recordCrash('renderer-js-error',{
+    kind:String(report.kind || 'runtime').slice(0,80),
+    message:String(report.message || '').slice(0,4000),
+    stack:String(report.stack || '').slice(0,12000),
+    href:String(report.href || '').slice(0,1200)
+  }));
   ipcMain.handle('jarvis:admin:status', () => adminDiagnosticsManager?.status?.() || {active:false,expiresAt:null});
   ipcMain.handle('jarvis:admin:start', async () => {
     if (!localOwnerAuthorised()) throw new Error('ADMIN_OWNER_REQUIRED');
@@ -1321,6 +1871,7 @@ app.whenReady().then(async () => {
     const json=await res.json();
     return (json.data||[]).map(m=>({id:m.id,name:m.name||m.id,context_length:m.context_length||null,pricing:m.pricing||null}));
   });
+  ipcMain.handle('jarvis:ai:list-speech-models', () => listOpenRouterSpeechModels());
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
   ipcMain.handle('jarvis:update:one-click', () => guarded(
     { type:'system_file_write', target:process.execPath },
@@ -1389,6 +1940,51 @@ app.whenReady().then(async () => {
     if (!latestSystemReport?.id || report?.id !== latestSystemReport.id) throw new Error('JARVIS_REPAIR_REPORT_STALE');
     return buildRepairPlan(latestSystemReport);
   });
+  ipcMain.handle('jarvis:self-repair:auto:status', () => readAutonomousRepairState());
+  ipcMain.handle('jarvis:self-repair:auto:crash-mode', (_e, enabled=false) => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    return writeAutonomousRepairState({ autoCrashRepair:enabled === true });
+  });
+  ipcMain.handle('jarvis:self-repair:auto:workspace', async () => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    const workspace = await ensureAutonomousWorkspace();
+    return { success:true, workspace };
+  });
+  ipcMain.handle('jarvis:self-repair:auto:run', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    return runAutonomousSelfRepair(request);
+  });
+  ipcMain.handle('jarvis:self-repair:auto:stop', () => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    autonomousRepairStopRequested = true;
+    return writeAutonomousRepairState({ status:'STOP_REQUESTED', autoCrashRepair:false });
+  });
+  ipcMain.handle('jarvis:self-repair:release:approve', (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    const state = readAutonomousRepairState();
+    const candidate = state.releaseCandidate;
+    if (!candidate?.id || candidate.id !== String(request.candidateId || '')) {
+      throw new Error('RELEASE_CANDIDATE_NOT_FOUND');
+    }
+    if (!['RELEASE_CANDIDATE_READY','NEEDS_OWNER_REVIEW_BEFORE_RELEASE'].includes(state.status)) {
+      throw new Error('RELEASE_CANDIDATE_NOT_READY');
+    }
+    return writeAutonomousRepairState({
+      releaseApproved:true,
+      releaseApprovedAt:new Date().toISOString(),
+      status:'RELEASE_APPROVED_BY_OWNER'
+    });
+  });
+  ipcMain.handle('jarvis:self-repair:release:revoke', () => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    const state = readAutonomousRepairState();
+    return writeAutonomousRepairState({
+      releaseApproved:false,
+      releaseApprovedAt:null,
+      status:state.releaseCandidate ? 'RELEASE_CANDIDATE_READY' : state.status
+    });
+  });
+
   ipcMain.handle('jarvis:developer:plan', (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
     const workspace = developerRepair.validateWorkspace(String(request.workspace || ''));
@@ -1473,6 +2069,19 @@ app.whenReady().then(async () => {
   ));
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
+
+process.on('uncaughtExceptionMonitor',(error,origin)=>{
+  recordCrash('main-uncaught-exception',{message:String(error?.message || error),stack:String(error?.stack || '').slice(0,12000),origin});
+});
+app.on('child-process-gone',(_event,details={})=>{
+  recordCrash('child-process-gone',{
+    type:details.type || 'unknown',
+    reason:details.reason || 'unknown',
+    exitCode:details.exitCode ?? null,
+    serviceName:details.serviceName || null,
+    name:details.name || null
+  });
 });
 
 app.on('before-quit', () => {

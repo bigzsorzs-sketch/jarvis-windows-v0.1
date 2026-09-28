@@ -71,9 +71,11 @@ test('voice prompt knows voice conversation is active', () => {
   assert.match(chat,/Never claim that voice conversation is unavailable or text-only/);
 });
 
-test('System Center provides source-aware conversation without bypassing sandbox', () => {
+test('System Center provides source-aware conversation and owner-gated Autopilot', () => {
   assert.match(system,/Self-Repair párbeszéd/);
   assert.match(system,/Program feltérképezése/);
   assert.match(system,/Hibák keresése/);
-  assert.match(system,/nem írja át magát automatikusan/);
+  assert.match(system,/Autopilot önfejlesztés/);
+  assert.match(system,/sandbox \+ teljes teszt \+ automatikus rollback/);
+  assert.match(system,/Release engedélyezése/);
 });

@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
 import MobileHeader from './MobileHeader';
 import { recordTabPath, getLastTabPath, resetTabPath } from '@/lib/tabHistory';
+import { applyThemeMode } from '@/lib/themeManager';
 
 const toolPaths = new Set([
   '/contacts','/smarthome','/routines','/legal','/retail','/gmail',
@@ -35,6 +36,25 @@ export default function Layout() {
     updateClock();
     const timer = window.setInterval(updateClock, 30000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onSidebarCommand = (event) => {
+      if (typeof event?.detail?.collapsed === 'boolean') {
+        setSidebarCollapsed(event.detail.collapsed);
+      }
+    };
+    const onVoiceTheme = (event) => {
+      const mode = event?.detail?.mode;
+      if (mode) applyThemeMode(mode);
+    };
+
+    window.addEventListener('jarvis:sidebar-command', onSidebarCommand);
+    window.addEventListener('jarvis:voice-theme', onVoiceTheme);
+    return () => {
+      window.removeEventListener('jarvis:sidebar-command', onSidebarCommand);
+      window.removeEventListener('jarvis:voice-theme', onVoiceTheme);
+    };
   }, []);
 
   const mobileMainNav = [

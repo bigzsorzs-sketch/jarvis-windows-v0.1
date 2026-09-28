@@ -40,12 +40,151 @@ export default function SystemCenter() {
   const [adminStatus, setAdminStatus] = useState({ active:false, expiresAt:null });
   const [adminSnapshot, setAdminSnapshot] = useState(null);
   const [adminBusy, setAdminBusy] = useState(false);
+  const [autonomousState, setAutonomousState] = useState(null);
+  const [autonomousGoal, setAutonomousGoal] = useState(
+    'Térképezd fel a Jarvist, keresd meg a bizonyítható hibákat és regressziókat, javítsd őket a legkisebb biztonságos módosítással, majd futtasd végig az összes ellenőrzést.'
+  );
+  const [autonomousBusy, setAutonomousBusy] = useState(false);
+  const [crashes, setCrashes] = useState([]);
 
   useEffect(() => {
     window.jarvisDesktop?.elevatedDiagnostics?.status?.()
       .then((status) => setAdminStatus(status || { active:false, expiresAt:null }))
       .catch(() => {});
+    window.jarvisDesktop?.getRecentCrashes?.(12)
+      .then((items) => setCrashes(Array.isArray(items) ? items : []))
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const state = await window.jarvisDesktop?.developerRepair?.autonomousStatus?.();
+        if (!cancelled && state) setAutonomousState(state);
+      } catch {}
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const toggleCrashAutoRepair = async () => {
+    try {
+      const next = !autonomousState?.autoCrashRepair;
+      const state = await window.jarvisDesktop?.developerRepair?.setCrashAutoRepair?.(next);
+      if (state) setAutonomousState(state);
+      setMessage(next
+        ? tx('✓ Crash esetén az Autopilot automatikusan megpróbál biztonságos javítást készíteni.', '✓ Autopilot will automatically prepare a safe repair after crashes.')
+        : tx('Automatikus crash-javítás kikapcsolva.', 'Automatic crash repair disabled.'));
+    } catch (error) {
+      setMessage(tx('Crash-javítás beállítási hiba: ', 'Crash repair setting error: ') + (error?.message || error));
+    }
+  };
+
+  const analyzeLatestCrash = () => {
+    const latest = crashes[0];
+    if (!latest) {
+      setMessage(tx('Nincs friss crash napló.', 'No recent crash record.'));
+      return;
+    }
+    const evidence = JSON.stringify(latest);
+    sendSelfRepairMessage(tx(
+      `Elemezd a legutóbbi Crash Watchdog eseményt. Azonosítsd a valószínű okot és javasolj vagy készíts biztonságos javítást. Crash: ${evidence}`,
+      `Analyze the latest Crash Watchdog event. Identify the likely cause and propose or prepare a safe repair. Crash: ${evidence}`
+    ));
+  };
+
+  const startAutonomousRepair = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.runAutonomous) {
+      setMessage(tx('Az automatikus Self-Repair nem érhető el.', 'Autonomous Self-Repair is unavailable.'));
+      return;
+    }
+
+    const goal = autonomousGoal.trim();
+    if (!goal) {
+      setMessage(tx('Adj meg egy fejlesztési vagy javítási célt.', 'Enter a repair or development goal.'));
+      return;
+    }
+
+    const confirmed = window.confirm(tx(
+      'Az Autopilot ezután önállóan elemezhet és módosíthatja a Jarvis fejlesztési munkamásolatát. Minden módosítást sandboxban tesztel, hibánál visszaállít, és a kiadást NEM publikálja a jóváhagyásod nélkül. Elindítod?',
+      'Autopilot may now analyze and modify the Jarvis development workspace automatically. Every change is sandbox-tested, failures are rolled back, and no release is published without your approval. Start it?'
+    ));
+    if (!confirmed) return;
+
+    setAutonomousBusy(true);
+    setMessage(tx('Autopilot munkamappa előkészítése...', 'Preparing Autopilot workspace...'));
+    try {
+      const prepared = await window.jarvisDesktop.developerRepair.prepareAutonomousWorkspace();
+      setMessage(tx('Autopilot fut: elemzés → javítás → sandbox → teszt → újraellenőrzés...', 'Autopilot running: analyze → repair → sandbox → test → revalidate...'));
+      const result = await window.jarvisDesktop.developerRepair.runAutonomous({
+        workspace:prepared?.workspace,
+        goal,
+        maxIterations:4
+      });
+      setAutonomousState(result || null);
+      if (result?.status === 'RELEASE_CANDIDATE_READY') {
+        setMessage(tx(
+          '✓ A javítási ciklus kész. Release candidate előkészítve; a kiadás továbbra is a te jóváhagyásodra vár.',
+          '✓ Repair cycle complete. Release candidate prepared; publishing still waits for your approval.'
+        ));
+      } else {
+        setMessage(tx(
+          'Az Autopilot befejezte a jelenlegi ciklust. Ellenőrizd az állapotot a panelen.',
+          'Autopilot finished the current cycle. Check the status panel.'
+        ));
+      }
+    } catch (error) {
+      setMessage(tx('Autopilot hiba: ', 'Autopilot error: ') + (error?.message || error));
+    } finally {
+      setAutonomousBusy(false);
+    }
+  };
+
+  const stopAutonomousRepair = async () => {
+    try {
+      const state = await window.jarvisDesktop?.developerRepair?.stopAutonomous?.();
+      if (state) setAutonomousState(state);
+      setMessage(tx('Az Autopilot leállítását kértem.', 'Autopilot stop requested.'));
+    } catch (error) {
+      setMessage(tx('Leállítási hiba: ', 'Stop error: ') + (error?.message || error));
+    }
+  };
+
+  const approveReleaseCandidate = async () => {
+    const candidateId = autonomousState?.releaseCandidate?.id;
+    if (!candidateId) return;
+    const confirmed = window.confirm(tx(
+      'Ez feloldja a kiadási kaput ehhez a release candidate-hez. A kód addig nem tekinthető kiadásra engedélyezettnek. Jóváhagyod?',
+      'This unlocks the release gate for this release candidate. Approve it for release?'
+    ));
+    if (!confirmed) return;
+
+    try {
+      const state = await window.jarvisDesktop?.developerRepair?.approveReleaseCandidate?.(candidateId);
+      if (state) setAutonomousState(state);
+      setMessage(tx(
+        '✓ Release jóváhagyva. Ez a lépés még nem publikált semmit; csak a tulajdonosi kiadási kaput oldotta fel.',
+        '✓ Release approved. Nothing was published by this step; it only unlocked the owner release gate.'
+      ));
+    } catch (error) {
+      setMessage(tx('Release jóváhagyási hiba: ', 'Release approval error: ') + (error?.message || error));
+    }
+  };
+
+  const revokeReleaseApproval = async () => {
+    try {
+      const state = await window.jarvisDesktop?.developerRepair?.revokeReleaseApproval?.();
+      if (state) setAutonomousState(state);
+      setMessage(tx('Release engedély visszavonva.', 'Release approval revoked.'));
+    } catch (error) {
+      setMessage(tx('Visszavonási hiba: ', 'Revoke error: ') + (error?.message || error));
+    }
+  };
 
   const startElevatedDiagnostics = async () => {
     if (!window.jarvisDesktop?.elevatedDiagnostics?.start) {
@@ -293,6 +432,146 @@ export default function SystemCenter() {
         </section>
 
         <section className="app-surface rounded-3xl p-5 md:p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0"><AlertTriangle size={19} className="text-red-400"/></div>
+              <div>
+                <h2 className="font-semibold">{tx('Crash Watchdog + automatikus helyreállítás','Crash Watchdog + automatic recovery')}</h2>
+                <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                  {tx(
+                    'Renderer- vagy folyamatösszeomlásnál naplót készít, korlátozottan újraindítja a felületet, crash-loop esetén leáll, és aktív Autopilot mellett a crash bizonyítékot automatikusan átadja a Self-Repairnek.',
+                    'On renderer or process failure it records evidence, performs bounded UI recovery, stops on crash loops, and with Autopilot active feeds crash evidence into Self-Repair automatically.'
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={toggleCrashAutoRepair} className={autonomousState?.autoCrashRepair
+                ? 'rounded-xl border border-green-500/30 bg-green-500/10 text-green-400 px-4 py-2.5 text-xs font-semibold'
+                : 'rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold'}>
+                {autonomousState?.autoCrashRepair ? tx('Auto crash-javítás: BE','Auto crash repair: ON') : tx('Auto crash-javítás: KI','Auto crash repair: OFF')}
+              </button>
+              <button onClick={analyzeLatestCrash} disabled={!crashes.length || chatBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
+                {tx('Legutóbbi crash elemzése','Analyze latest crash')}
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+            <div className="jarvis-metric"><span>{tx('Naplózott crash','Recorded crashes')}</span><strong>{crashes.length}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Auto crash-javítás','Auto crash repair')}</span><strong>{autonomousState?.autoCrashRepair ? tx('AKTÍV','ACTIVE') : tx('KIKAPCSOLVA','OFF')}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Utolsó típus','Latest type')}</span><strong className="text-[10px]">{crashes[0]?.kind || '-'}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Utolsó időpont','Latest time')}</span><strong className="text-[10px]">{crashes[0]?.at ? new Date(crashes[0].at).toLocaleString() : '-'}</strong></div>
+          </div>
+        </section>
+
+        <section className="app-surface rounded-3xl p-5 md:p-6 border border-primary/20">
+          <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><Sparkles size={19} className="text-primary"/></div>
+              <div className="min-w-0">
+                <h2 className="font-semibold">{tx('Autopilot önfejlesztés','Autopilot self-development')}</h2>
+                <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                  {tx(
+                    'Egy indítás után önállóan végigviszi az elemzés → javítási terv → sandbox → tesztek → alkalmazás → újratesztelés ciklust. Hibás javításnál visszaáll. A release publikálása külön tulajdonosi kapu mögött marad.',
+                    'After one start, it automatically runs analyze → repair plan → sandbox → tests → apply → revalidate. Failed changes roll back. Release publication remains behind a separate owner gate.'
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {autonomousBusy || ['RUNNING','ANALYZING','SANDBOX_TESTING','APPLYING_VERIFIED_PATCH','PATCH_VERIFIED','PLANNER_RETRY','PLAN_RETRY','SANDBOX_RETRY','VALIDATION_RETRY','ROLLED_BACK_RETRY','BUILDING_RELEASE_CANDIDATE','STOP_REQUESTED'].includes(autonomousState?.status) ? (
+                <button onClick={stopAutonomousRepair} className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 px-4 py-2.5 text-xs font-semibold">
+                  {tx('Autopilot leállítása','Stop Autopilot')}
+                </button>
+              ) : (
+                <button onClick={startAutonomousRepair} disabled={autonomousBusy} className="rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
+                  {tx('Autopilot indítása','Start Autopilot')}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <textarea
+            value={autonomousGoal}
+            onChange={(e)=>setAutonomousGoal(e.target.value)}
+            rows={3}
+            disabled={autonomousBusy}
+            className="mt-4 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none resize-y disabled:opacity-60"
+            placeholder={tx('Mit javítson vagy fejlesszen automatikusan?','What should it repair or improve automatically?')}
+          />
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
+            <div className="jarvis-metric"><span>{tx('Autopilot állapot','Autopilot status')}</span><strong className="text-[11px]">{autonomousState?.status || 'IDLE'}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Iteráció','Iteration')}</span><strong>{autonomousState?.iteration ?? 0}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Igazolt javítás','Verified repairs')}</span><strong>{autonomousState?.applied?.length ?? 0}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Release kapu','Release gate')}</span><strong>{autonomousState?.releaseApproved ? tx('JÓVÁHAGYVA','APPROVED') : tx('ZÁRVA','LOCKED')}</strong></div>
+          </div>
+
+          {autonomousState?.workspace && (
+            <p className="mt-3 text-[10px] text-muted-foreground break-all">
+              {tx('Fejlesztési munkamappa: ','Development workspace: ')}{autonomousState.workspace}
+            </p>
+          )}
+
+          {autonomousState?.lastError && (
+            <div className="mt-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300 whitespace-pre-wrap max-h-40 overflow-y-auto">
+              {autonomousState.lastError}
+            </div>
+          )}
+
+          {autonomousState?.releaseCandidate && (
+            <div className="mt-4 rounded-2xl border border-primary/25 bg-primary/5 p-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">{tx('Release candidate elkészült','Release candidate ready')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {tx(
+                      'Jarvis idáig automatikus. A tényleges kiadás/publikálás csak a te külön jóváhagyásod után folytatható.',
+                      'Jarvis is automatic up to this point. Actual release/publishing may continue only after your explicit approval.'
+                    )}
+                  </div>
+                  {autonomousState.releaseCandidate?.installer && (
+                    <div className="text-[10px] text-muted-foreground mt-2 break-all">
+                      {tx('Tesztelt telepítő: ','Tested installer: ')}{autonomousState.releaseCandidate.installer}
+                    </div>
+                  )}
+                  {autonomousState.releaseCandidate?.sha256 && (
+                    <div className="text-[10px] text-muted-foreground mt-1 break-all">
+                      SHA-256: {autonomousState.releaseCandidate.sha256}
+                    </div>
+                  )}
+                  <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="jarvis-metric"><span>{tx('Kockázat','Risk')}</span><strong>{riskLabel(autonomousState.releaseCandidate?.riskSummary || 'low', hu)}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Módosított fájl','Changed files')}</span><strong>{autonomousState.releaseCandidate?.changedFiles?.length || 0}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Digitális aláírás','Code signing')}</span><strong>{autonomousState.releaseCandidate?.signed ? tx('ÉRVÉNYES','VALID') : tx('NINCS / NEM ÉRVÉNYES','UNSIGNED')}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Release manifest','Release manifest')}</span><strong>{autonomousState.releaseCandidate?.manifestPath ? 'OK' : '-'}</strong></div>
+                  </div>
+                  {autonomousState.releaseCandidate?.signature?.subject && (
+                    <div className="text-[10px] text-muted-foreground mt-2 break-all">
+                      {tx('Aláíró: ','Signer: ')}{autonomousState.releaseCandidate.signature.subject}
+                    </div>
+                  )}
+                  {autonomousState.releaseCandidate?.changedFiles?.length > 0 && (
+                    <div className="text-[10px] text-muted-foreground mt-2 break-all">
+                      {tx('Fájlok: ','Files: ')}{autonomousState.releaseCandidate.changedFiles.join(', ')}
+                    </div>
+                  )}
+                </div>
+                {autonomousState.releaseApproved ? (
+                  <button onClick={revokeReleaseApproval} className="rounded-xl border border-border bg-secondary px-4 py-2 text-xs font-semibold">
+                    {tx('Engedély visszavonása','Revoke approval')}
+                  </button>
+                ) : (
+                  <button onClick={approveReleaseCandidate} className="rounded-xl bg-primary text-primary-foreground px-4 py-2 text-xs font-semibold">
+                    {tx('Release engedélyezése','Approve release')}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="app-surface rounded-3xl p-5 md:p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center"><MessageSquare size={19} className="text-primary"/></div>
@@ -347,8 +626,8 @@ export default function SystemCenter() {
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">
             {tx(
-              'A Self-Repair olvassa és értelmezi a Jarvis forrását, de nem írja át magát automatikusan. A tényleges kódmódosítás továbbra is sandbox + teszt + tulajdonosi jóváhagyás után történhet.',
-              'Self-Repair reads and interprets Jarvis source, but does not rewrite itself automatically. Actual changes still require sandboxing, tests and owner approval.'
+              'Kézi módban továbbra is kérhetsz elemzést és javaslatot. Autopilot módban a javítások sandbox + teljes teszt + automatikus rollback mellett önállóan alkalmazhatók; a release kapu viszont kizárólag tulajdonosi jóváhagyással nyitható ki.',
+              'Manual mode still supports analysis and proposals. In Autopilot mode, repairs may be applied automatically after sandboxing and full validation with rollback; the release gate can only be unlocked by the owner.'
             )}
           </p>
         </section>

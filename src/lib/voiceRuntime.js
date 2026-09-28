@@ -25,6 +25,7 @@ import { useVoiceStore } from '@/lib/appStore';
 import { createRecordedVoiceIO, canUseRecordedVoiceIO, playLocalAckTone } from '@/lib/mobileVoiceIO';
 import { safeStorage } from '@/lib/safeStorage';
 import { sanitizeForSpeech, getVoicePreferences, chooseVoice } from '@/lib/speechPresentation';
+import { extractWakeWordCommand } from '@/lib/wakeWord';
 
 const MIN_RESTART_DELAY_MS = 750;
 const HANDS_FREE_RESTART_DELAY_MS = 180;
@@ -99,6 +100,9 @@ class VoiceRuntimeState {
     this.degradedMode = false;
     this.recognitionLang = 'hu-HU';
     this.autoSpeakReplies = safeStorage.getItem('autoSpeakReplies') !== 'false';
+    const storedActivationMode = safeStorage.getItem('voiceActivationMode');
+    this.activationMode = ['push-to-talk','hands-free','wake-word'].includes(storedActivationMode) ? storedActivationMode : 'hands-free';
+    this.wakeWord = String(safeStorage.getItem('wakeWord') || 'jarvis').trim() || 'jarvis';
     this.voiceInputMode = getVoiceInputMode();
     this.isSpeechInputSupported = this.voiceInputMode !== 'unsupported';
     this.isTtsSupported = canUseBrowserTTS() || this.voiceInputMode === 'recorded';
@@ -150,10 +154,16 @@ class VoiceRuntime {
             logger.warn(MODULE, 'Duplicate recorded transcript ignored', { phase: this.state.phase });
             return;
           }
-          useVoiceStore.getState().setLastTranscript(transcript);
+          const prepared = this._prepareTranscript(transcript);
+          if (!prepared) {
+            this._updateState({ machineState: VOICE_PHASE.LISTENING, isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
+            this.recordedVoiceRef?.resumeCapture?.();
+            return;
+          }
+          useVoiceStore.getState().setLastTranscript(prepared);
           this._updateState({ machineState: VOICE_PHASE.PROCESSING, isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
-          this._emit('transcript', transcript);
-          this.transcriptQueue.push(transcript);
+          this._emit('transcript', prepared);
+          this.transcriptQueue.push(prepared);
         },
         onError: (error) => {
           useVoiceStore.getState().setLastError(error);
@@ -171,6 +181,22 @@ class VoiceRuntime {
     this._buildRecognition();
 
     logger.info(MODULE, 'Voice runtime initialized');
+  }
+
+  _prepareTranscript(transcript) {
+    const clean = String(transcript || '').trim();
+    if (!clean) return '';
+    if (this.singleCycleActiveRef || !this.state.handsFree || this.state.activationMode !== 'wake-word') return clean;
+
+    const wake = extractWakeWordCommand(clean, this.state.wakeWord);
+    if (!wake.matched) {
+      logger.debug(MODULE, 'WAKE_WORD_IGNORED', { wakeWord:this.state.wakeWord });
+      this._emit('wakeWordIgnored', { transcript:clean, wakeWord:this.state.wakeWord });
+      return '';
+    }
+
+    this._emit('wakeWord', { transcript:clean, command:wake.command, wakeWord:wake.wakeWord });
+    return wake.command;
   }
 
   // ─── EVENT SYSTEM ─────────────────────────────────────────────────────────
@@ -391,15 +417,22 @@ class VoiceRuntime {
         return;
       }
 
+      const prepared = this._prepareTranscript(transcript);
+      if (!prepared) {
+        this.watchdogRef?.heartbeat();
+        this._updateState({ machineState: VOICE_PHASE.LISTENING, isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
+        return;
+      }
+
       this._cancelTTS();
       if (this.restartTimeoutRef) clearTimeout(this.restartTimeoutRef);
       this.networkErrorCountRef = 0;
       this.networkCooldownUntilRef = 0;
       this.watchdogRef?.heartbeat();
-      logger.debug(MODULE, 'Transcript received', { lang: this.languageLockRef });
-      useVoiceStore.getState().setLastTranscript(transcript);
-      this._emit('transcript', transcript);
-      this.transcriptQueue.push(transcript);
+      logger.debug(MODULE, 'Transcript received', { lang: this.languageLockRef, activationMode:this.state.activationMode });
+      useVoiceStore.getState().setLastTranscript(prepared);
+      this._emit('transcript', prepared);
+      this.transcriptQueue.push(prepared);
 
       // Browser SpeechRecognition is already configured with continuous=true.
       // In hands-free mode do not stop the microphone after every final phrase:
@@ -560,10 +593,16 @@ class VoiceRuntime {
           this.recordedVoiceRef = createRecordedVoiceIO({
             onTranscript: (transcript) => {
               if (this.state.machineState !== VOICE_PHASE.LISTENING) return;
-              useVoiceStore.getState().setLastTranscript(transcript);
+              const prepared = this._prepareTranscript(transcript);
+              if (!prepared) {
+                this._updateState({ machineState: VOICE_PHASE.LISTENING, isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
+                this.recordedVoiceRef?.resumeCapture?.();
+                return;
+              }
+              useVoiceStore.getState().setLastTranscript(prepared);
               this._updateState({ machineState: VOICE_PHASE.PROCESSING, isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
-              this._emit('transcript', transcript);
-              this.transcriptQueue.push(transcript);
+              this._emit('transcript', prepared);
+              this.transcriptQueue.push(prepared);
             },
             onError: (error) => {
               useVoiceStore.getState().setLastError(error);
@@ -728,6 +767,21 @@ class VoiceRuntime {
 
   toggleHandsFree() {
     this.setHandsFree(!this.state.handsFree);
+  }
+
+  setActivationMode(mode) {
+    const next = ['push-to-talk','hands-free','wake-word'].includes(mode) ? mode : 'hands-free';
+    safeStorage.setItem('voiceActivationMode', next);
+    this._updateState({ activationMode:next });
+    if (next === 'push-to-talk' && this.state.handsFree) this.setHandsFree(false);
+    return next;
+  }
+
+  setWakeWord(word='jarvis') {
+    const clean = String(word || 'jarvis').trim().slice(0,30) || 'jarvis';
+    safeStorage.setItem('wakeWord', clean);
+    this._updateState({ wakeWord:clean });
+    return clean;
   }
 
   toggleAutoSpeakReplies() {

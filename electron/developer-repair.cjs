@@ -9,7 +9,14 @@ const PROTECTED = [
   /^security[\\/]/i,
   /^electron[\\/]main\.cjs$/i,
   /^electron[\\/]developer-repair\.cjs$/i,
+  /^electron[\\/]admin-diagnostics\.cjs$/i,
   /^\.github[\\/]workflows[\\/]/i,
+  /^scripts[\\/]/i,
+  /^package\.json$/i,
+  /^package-lock\.json$/i,
+  /^eslint\.config\.js$/i,
+  /^tsconfig\.json$/i,
+  /^vite\.config\.js$/i,
 ];
 const ALLOWED_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
@@ -24,8 +31,8 @@ function proposalHash(plan) {
 function normalizeRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
   if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
-  if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   if (PROTECTED.some(rx => rx.test(rel))) throw new Error('DEV_REPAIR_PROTECTED_PATH');
+  if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
 }
 function resolveInside(root, rel) {
@@ -48,12 +55,35 @@ function validatePlan(root, input={}) {
   const base = validateWorkspace(root);
   const patches = Array.isArray(input.patches) ? input.patches : [];
   if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
-  const clean = patches.map(p => {
+  if (patches.length > 8) throw new Error('DEV_REPAIR_TOO_MANY_PATCHES');
+
+  const clean = patches.map((p) => {
     const file = normalizeRelative(p.file);
-    resolveInside(base,file);
-    if (typeof p.content !== 'string') throw new Error('DEV_REPAIR_CONTENT_REQUIRED');
-    return { file, content:p.content };
+    const target = resolveInside(base,file);
+    if (/^src[\\/]tests[\\/]/i.test(file) && fs.existsSync(target)) {
+      throw new Error('DEV_REPAIR_EXISTING_TEST_PROTECTED');
+    }
+    const hasFullContent = typeof p.content === 'string';
+    const replacements = Array.isArray(p.replacements) ? p.replacements : [];
+
+    if (!hasFullContent && !replacements.length) throw new Error('DEV_REPAIR_PATCH_REQUIRED');
+    if (hasFullContent && Buffer.byteLength(p.content,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
+    if (replacements.length > 12) throw new Error('DEV_REPAIR_TOO_MANY_REPLACEMENTS');
+
+    const cleanReplacements = replacements.map((edit) => {
+      const search = String(edit?.search || '');
+      const replace = String(edit?.replace ?? '');
+      if (!search) throw new Error('DEV_REPAIR_SEARCH_REQUIRED');
+      if (search.length > 50000 || replace.length > 100000) throw new Error('DEV_REPAIR_REPLACEMENT_TOO_LARGE');
+      return { search, replace, all:edit?.all === true };
+    });
+
+    if (cleanReplacements.length && !fs.existsSync(target)) throw new Error('DEV_REPAIR_REPLACEMENT_TARGET_MISSING');
+    return hasFullContent
+      ? { file, content:p.content }
+      : { file, replacements:cleanReplacements };
   });
+
   const plan = {
     goal:String(input.goal || '').slice(0,4000),
     rationale:String(input.rationale || '').slice(0,8000),
@@ -82,8 +112,23 @@ function apply(root,plan){
   for(const patch of plan.patches){
     const target=resolveInside(root,patch.file);
     fs.mkdirSync(path.dirname(target),{recursive:true});
+    let nextContent;
+
+    if (typeof patch.content === 'string') {
+      nextContent = patch.content;
+    } else {
+      let current = fs.readFileSync(target,'utf8');
+      for (const edit of patch.replacements || []) {
+        const occurrences = current.split(edit.search).length - 1;
+        if (occurrences < 1) throw new Error('DEV_REPAIR_SEARCH_NOT_FOUND:' + patch.file);
+        if (!edit.all && occurrences !== 1) throw new Error('DEV_REPAIR_SEARCH_AMBIGUOUS:' + patch.file);
+        current = edit.all ? current.split(edit.search).join(edit.replace) : current.replace(edit.search,edit.replace);
+      }
+      nextContent = current;
+    }
+
     const tmp=target+'.jarvis-tmp-'+process.pid;
-    fs.writeFileSync(tmp,patch.content,'utf8');
+    fs.writeFileSync(tmp,nextContent,'utf8');
     fs.renameSync(tmp,target);
   }
 }

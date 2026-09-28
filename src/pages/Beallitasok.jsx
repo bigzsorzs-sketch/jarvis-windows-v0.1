@@ -18,6 +18,7 @@ import NotificationsCard from '@/components/settings/NotificationsCard';
 import UpdateCard from '@/components/settings/UpdateCard';
 import { updateOwnedEntity } from '@/lib/ownedEntityHelpers';
 import { applyThemeMode, getThemeMode, subscribeTheme } from '@/lib/themeManager';
+import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
 
 const Toggle = ({ checked, onChange }) => (
   <button
@@ -29,8 +30,47 @@ const Toggle = ({ checked, onChange }) => (
 );
 const defaultInterests = ['technológia', 'napi segítség', 'tőzsde'];
 
+const GOOGLE_TTS_VOICE_GENDERS = {
+  Achernar:'female', Achird:'male', Algenib:'male', Algieba:'male', Alnilam:'male',
+  Aoede:'female', Autonoe:'female', Callirrhoe:'female', Charon:'male', Despina:'female',
+  Enceladus:'male', Erinome:'female', Fenrir:'male', Gacrux:'female', Iapetus:'male',
+  Kore:'female', Laomedeia:'female', Leda:'female', Orus:'male', Pulcherrima:'female',
+  Puck:'male', Rasalgethi:'male', Sadachbia:'male', Sadaltager:'male', Schedar:'male',
+  Sulafat:'female', Umbriel:'male', Vindemiatrix:'female', Zephyr:'female', Zubenelgenubi:'male'
+};
+
+const FALLBACK_GOOGLE_VOICES = Object.keys(GOOGLE_TTS_VOICE_GENDERS);
+const FALLBACK_SPEECH_MODELS = [
+  { id:'google/gemini-3.8-flash-tts', name:'Google: Gemini 3.8 Flash TTS', voices:FALLBACK_GOOGLE_VOICES },
+  { id:'google/gemini-3.8-flash-lite-tts', name:'Google: Gemini 3.8 Flash Lite TTS', voices:FALLBACK_GOOGLE_VOICES },
+  { id:'google/gemini-3.1-flash-tts-preview', name:'Google: Gemini 3.1 Flash TTS Preview', voices:FALLBACK_GOOGLE_VOICES },
+  { id:'x-ai/grok-voice-tts-1.0', name:'SpaceXAI: Grok Voice TTS 1.0', voices:['eve','ara','rex','sal','leo'] }
+];
+
+function inferVoiceGender(voice='') {
+  const clean = String(voice || '').trim();
+  if (GOOGLE_TTS_VOICE_GENDERS[clean]) return GOOGLE_TTS_VOICE_GENDERS[clean];
+  const lower = clean.toLowerCase();
+
+  if (/^(af|bf|ef|ff|hf|if|jf|pf|zf)_/.test(lower)) return 'female';
+  if (/^(am|bm|em|hm|im|jm|pm|zm)_/.test(lower)) return 'male';
+
+  if (/(girl|woman|lady|queen|female|jane|marie|valeria|soleil|alice|emma|isabella|lily)/i.test(clean)) return 'female';
+  if (/(man|boy|male|paul|oliver|klaus|daniel|george|lewis|bloke|gentleman)/i.test(clean)) return 'male';
+  return 'unknown';
+}
+
+function prettyVoiceName(voice='') {
+  return String(voice || '')
+    .replace(/^aura-2-/i, '')
+    .replace(/:MAI-Voice-2$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function Beallitasok() {
   const { t, lang } = useLang();
+  const voice = useVoiceRuntime();
 
   const personalities = [
     { key: 'kedves', label: lang === 'hu' ? 'Kedves' : lang === 'de' ? 'Freundlich' : lang === 'fr' ? 'Aimable' : lang === 'es' ? 'Amable' : 'Friendly' },
@@ -83,6 +123,7 @@ export default function Beallitasok() {
   });
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [aiModels, setAiModels] = useState([]);
+  const [speechModels, setSpeechModels] = useState(FALLBACK_SPEECH_MODELS);
   const [aiStatus, setAiStatus] = useState('');
 
   const [deleting, setDeleting] = useState(false);
@@ -133,6 +174,11 @@ export default function Beallitasok() {
       if (desktop?.hasOpenRouterKey) {
         window.jarvisDesktop?.listModels?.().then(setAiModels).catch(() => {});
       }
+      window.jarvisDesktop?.listSpeechModels?.()
+        .then((models) => {
+          if (Array.isArray(models) && models.length) setSpeechModels(models);
+        })
+        .catch(() => {});
     }).catch(() => {});
     return () => {
       unsubTheme?.();
@@ -158,16 +204,53 @@ export default function Beallitasok() {
     } catch (e) { setAiStatus(`Error: ${e?.message || e}`); }
   };
 
+  const selectedSpeechModel = speechModels.find((model) => model.id === desktopAi.ttsModel) || speechModels[0] || FALLBACK_SPEECH_MODELS[0];
+  const selectedModelVoices = Array.isArray(selectedSpeechModel?.voices) ? selectedSpeechModel.voices : [];
+  const selectedGender = desktopAi.ttsGender === 'female' ? 'female' : 'male';
+  const genderMatchedVoices = selectedModelVoices.filter((voice) => inferVoiceGender(voice) === selectedGender);
+  const visibleVoiceOptions = genderMatchedVoices.length ? genderMatchedVoices : selectedModelVoices;
+
+  const changeVoiceModel = (modelId) => {
+    const model = speechModels.find((item) => item.id === modelId);
+    const voices = Array.isArray(model?.voices) ? model.voices : [];
+    const currentVoice = desktopAi.ttsVoice || '';
+    const sameVoiceAvailable = voices.includes(currentVoice);
+    const genderVoice = voices.find((voice) => inferVoiceGender(voice) === selectedGender);
+    const nextVoice = sameVoiceAvailable ? currentVoice : (genderVoice || voices[0] || currentVoice || (selectedGender === 'female' ? 'Kore' : 'Charon'));
+    const inferredGender = inferVoiceGender(nextVoice);
+    setDesktopAi((current) => ({
+      ...current,
+      ttsModel:modelId,
+      ttsVoice:nextVoice,
+      ttsGender:inferredGender === 'unknown' ? current.ttsGender : inferredGender
+    }));
+  };
+
+  const changeVoiceGender = (gender) => {
+    const nextGender = gender === 'female' ? 'female' : 'male';
+    const nextVoice = selectedModelVoices.find((voice) => inferVoiceGender(voice) === nextGender)
+      || selectedModelVoices[0]
+      || (nextGender === 'female' ? 'Kore' : 'Charon');
+    setDesktopAi((current) => ({ ...current, ttsGender:nextGender, ttsVoice:nextVoice }));
+  };
+
+  const changeVoice = (voice) => {
+    const inferredGender = inferVoiceGender(voice);
+    setDesktopAi((current) => ({
+      ...current,
+      ttsVoice:voice,
+      ttsGender:inferredGender === 'unknown' ? current.ttsGender : inferredGender
+    }));
+  };
+
   const saveVoiceSettings = async () => {
     if (!window.jarvisDesktop?.saveSettings) return;
     setAiStatus(lang === 'hu' ? 'Hangbeállítás mentése...' : 'Saving voice settings...');
     try {
-      const gender = desktopAi.ttsGender === 'female' ? 'female' : 'male';
-      const voice = gender === 'female' ? 'Kore' : 'Charon';
       const next = await window.jarvisDesktop.saveSettings({
         ttsModel: desktopAi.ttsModel || 'google/gemini-3.8-flash-tts',
-        ttsGender: gender,
-        ttsVoice: voice
+        ttsGender: selectedGender,
+        ttsVoice: desktopAi.ttsVoice || visibleVoiceOptions[0] || (selectedGender === 'female' ? 'Kore' : 'Charon')
       });
       setDesktopAi(next);
       setAiStatus(lang === 'hu' ? '✓ Hangbeállítás mentve' : '✓ Voice settings saved');
@@ -315,39 +398,89 @@ export default function Beallitasok() {
           <h3 className="font-semibold text-foreground mb-1">{lang === 'hu' ? 'Beszédhang' : 'Voice'}</h3>
           <p className="text-xs text-muted-foreground mb-3">
             {lang === 'hu'
-              ? 'Modellgenerált hang. Válaszd ki a TTS modellt és a hang nemét; a Windows rendszerhang nincs használva.'
-              : 'Model-generated voice. Choose the TTS model and voice gender; Windows system speech is not used.'}
+              ? 'Modellgenerált hang. A TTS modell, a női/férfi hang és a konkrét hang külön választható; a Windows rendszerhang nincs használva.'
+              : 'Model-generated voice. Choose the TTS model, female/male presentation, and the exact voice separately; Windows system speech is not used.'}
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
             <label className="block">
               <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'TTS modell' : 'TTS model'}</span>
               <select
-                value={desktopAi.ttsModel || 'google/gemini-3.8-flash-tts'}
-                onChange={(e) => setDesktopAi(d => ({ ...d, ttsModel:e.target.value }))}
+                value={desktopAi.ttsModel || selectedSpeechModel?.id || 'google/gemini-3.8-flash-tts'}
+                onChange={(e) => changeVoiceModel(e.target.value)}
                 className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
               >
-                <option value="google/gemini-3.8-flash-tts">Gemini 3.8 Flash TTS</option>
-                <option value="google/gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS</option>
+                {speechModels.map((model) => (
+                  <option key={model.id} value={model.id}>{model.name || model.id}</option>
+                ))}
               </select>
             </label>
             <label className="block">
               <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'Hang neme' : 'Voice gender'}</span>
               <select
-                value={desktopAi.ttsGender || ((desktopAi.ttsVoice || 'Charon') === 'Kore' ? 'female' : 'male')}
-                onChange={(e) => {
-                  const gender = e.target.value;
-                  setDesktopAi(d => ({ ...d, ttsGender:gender, ttsVoice:gender === 'female' ? 'Kore' : 'Charon' }));
-                }}
+                value={selectedGender}
+                onChange={(e) => changeVoiceGender(e.target.value)}
                 className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
               >
-                <option value="male">{lang === 'hu' ? 'Férfi – Charon' : 'Male – Charon'}</option>
-                <option value="female">{lang === 'hu' ? 'Női – Kore' : 'Female – Kore'}</option>
+                <option value="male">{lang === 'hu' ? 'Férfi' : 'Male'}</option>
+                <option value="female">{lang === 'hu' ? 'Női' : 'Female'}</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'Konkrét hang' : 'Exact voice'}</span>
+              <select
+                value={visibleVoiceOptions.includes(desktopAi.ttsVoice) ? desktopAi.ttsVoice : (visibleVoiceOptions[0] || desktopAi.ttsVoice || '')}
+                onChange={(e) => changeVoice(e.target.value)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+                disabled={!visibleVoiceOptions.length}
+              >
+                {visibleVoiceOptions.length ? visibleVoiceOptions.map((voice) => (
+                  <option key={voice} value={voice}>
+                    {prettyVoiceName(voice)}{inferVoiceGender(voice) === 'female' ? ' ♀' : inferVoiceGender(voice) === 'male' ? ' ♂' : ''}
+                  </option>
+                )) : <option value="">{lang === 'hu' ? 'Nincs listázott hang' : 'No listed voices'}</option>}
               </select>
             </label>
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'Hangaktiválás' : 'Voice activation'}</span>
+              <select
+                value={voice.state.activationMode || 'hands-free'}
+                onChange={(e) => voice.setActivationMode(e.target.value)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+              >
+                <option value="push-to-talk">{lang === 'hu' ? 'Gombnyomásra beszél' : 'Push to talk'}</option>
+                <option value="hands-free">{lang === 'hu' ? 'Folyamatos hands-free' : 'Continuous hands-free'}</option>
+                <option value="wake-word">{lang === 'hu' ? 'Ébresztőszó – „Jarvis”' : 'Wake word – “Jarvis”'}</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{lang === 'hu' ? 'Ébresztőszó' : 'Wake word'}</span>
+              <input
+                value={voice.state.wakeWord || 'jarvis'}
+                onChange={(e) => voice.setWakeWord(e.target.value)}
+                disabled={voice.state.activationMode !== 'wake-word'}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
+                placeholder="Jarvis"
+              />
+            </label>
+          </div>
+          {voice.state.activationMode === 'wake-word' && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {lang === 'hu'
+                ? 'Wake-word módban a mikrofon hands-free marad, és csak a „Jarvis …” kezdetű parancs kerül végrehajtásra.'
+                : 'In wake-word mode the microphone stays hands-free and only commands beginning with “Jarvis …” are executed.'}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">
-              {lang === 'hu' ? 'Aktív hang:' : 'Active voice:'} <strong className="text-foreground">{desktopAi.ttsVoice || 'Charon'}</strong>
+              {lang === 'hu' ? 'Aktív:' : 'Active:'} <strong className="text-foreground">{selectedSpeechModel?.name || desktopAi.ttsModel}</strong>
+              {' · '}<strong className="text-foreground">{desktopAi.ttsVoice || visibleVoiceOptions[0] || '-'}</strong>
+              {genderMatchedVoices.length === 0 && selectedModelVoices.length > 0 && (
+                <span className="ml-2 text-amber-500">
+                  {lang === 'hu' ? 'Ennél a modellnél nincs megbízható nem-metaadat; minden listázott hang látható.' : 'Reliable gender metadata is unavailable for this model; all listed voices are shown.'}
+                </span>
+              )}
             </span>
             <button onClick={saveVoiceSettings} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold">
               {lang === 'hu' ? 'Hang mentése' : 'Save voice'}
