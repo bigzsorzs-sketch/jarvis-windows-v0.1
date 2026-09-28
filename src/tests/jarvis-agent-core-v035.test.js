@@ -86,32 +86,30 @@ test('agent actions and plans are persisted as local operational memory', () => 
   assert.match(assistantTools,/recordActionEpisode/);
 });
 
-test('Crash Watchdog records failures, bounds restart loops and feeds Self-Repair', () => {
+test('Crash Watchdog records failures, bounds restart loops and exposes manual Self-Repair analysis', () => {
   assert.match(electronMain,/registerCrashWatchdog/);
   assert.match(electronMain,/render-process-gone/);
   assert.match(electronMain,/renderer-load-failed/);
-  assert.match(electronMain,/crash-autopilot-failed/);
   assert.match(electronMain,/reloads\.length < 3/);
   assert.match(electronMain,/CRASH WATCHDOG HISTORY/);
   assert.match(preload,/getRecentCrashes/);
   assert.match(preload,/reportRendererIssue/);
   assert.match(rendererMain,/reportRendererIssue/);
-  assert.match(system,/Crash Watchdog \+ automatikus helyreállítás/);
+  assert.match(system,/Crash Watchdog \+ helyreállítás/);
+  assert.match(system,/Legutóbbi crash elemzése/);
 });
 
 test('Crash Watchdog history is removed by full local-data erasure', () => {
   assert.match(electronMain,/path\.join\(userData, 'crash-watchdog'\)/);
 });
 
-test('release candidate review includes checksum signing status risk and changed files', () => {
+test('release candidate metadata still includes checksum signing status risk and changed files', () => {
   assert.match(electronMain,/release-candidate-manifest\.json/);
   assert.match(electronMain,/getAuthenticodeSignature\(installer\)/);
   assert.match(electronMain,/changedFiles/);
   assert.match(electronMain,/riskSummary/);
-  assert.match(system,/Digitális aláírás/);
-  assert.match(system,/Módosított fájl/);
-  assert.match(system,/Release manifest/);
-  assert.match(system,/Release engedélyezése/);
+  assert.match(workflow,/Create release candidate manifest/);
+  assert.match(workflow,/Verify signer before publication/);
 });
 
 test('GitHub release publication remains explicit owner-controlled and signing-aware', () => {
