@@ -81,11 +81,12 @@ test('date-sensitive active modules use local calendar dates', () => {
   }
 });
 
-test('Self-Repair sandbox cleanup tolerates transient Windows file locks', () => {
-  const repair = read('electron/developer-repair.cjs');
-  assert.equal(repair.includes('maxRetries:8'), true);
-  assert.equal(repair.includes("['EPERM','EBUSY','ENOTEMPTY','EACCES']"), true);
-  assert.equal(repair.includes('.pending-delete-'), true);
+test('manual Self-Repair activates accepted source through a local build and restart', () => {
+  const main = read('electron/main.cjs');
+  assert.equal(main.includes('ensureManualRuntimeBuilt'), true);
+  assert.equal(main.includes("runToolchainNpm(['run','build']"), true);
+  assert.equal(main.includes('scheduleManualRuntimeRestart'), true);
+  assert.equal(main.includes("'--jarvis-manual-runtime'"), true);
 });
 
 test('desktop command center keeps centered alignment and app version stays synchronized', () => {

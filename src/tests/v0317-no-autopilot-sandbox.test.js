@@ -17,7 +17,7 @@ function workspace() {
   return root;
 }
 
-test('v0.3.17 removes legacy Self-Repair Autopilot runtime and IPC', () => {
+test('v0.3.18 removes legacy Self-Repair Autopilot runtime and IPC', () => {
   const main = read('electron/main.cjs');
   const preload = read('electron/preload.cjs');
   assert.equal(main.includes('runAutonomousSelfRepair'), false);
@@ -51,14 +51,18 @@ test('manual repair uses explicit owner plan, backup, direct apply and rollback'
   assert.equal(fs.readFileSync(path.join(root,'src','sample.js'),'utf8'),'const value = 1;\n');
 });
 
-test('manual conversation repair remains owner-controlled in the UI bridge', () => {
+test('manual conversation repair builds and restarts into the accepted source', () => {
   const main = read('electron/main.cjs');
   const system = read('src/pages/SystemCenter.jsx');
   const preload = read('electron/preload.cjs');
   assert.match(main,/jarvis:self-repair:manual:apply/);
   assert.match(main,/validateDirectOwnerRepair/);
+  assert.match(main,/ensureManualRuntimeBuilt/);
+  assert.match(main,/scheduleManualRuntimeRestart/);
+  assert.match(main,/handOffToManualRuntimeIfReady/);
+  assert.match(main,/APPLIED_AND_RESTARTING/);
   assert.match(system,/applyPendingRepair/);
-  assert.match(system,/Elfogadom/);
+  assert.match(system,/Build \+ újraindítás/);
   assert.match(preload,/applyPending/);
 });
 
@@ -67,12 +71,12 @@ test('Chromium renderer security sandbox remains enabled independently', () => {
   assert.match(main,/webPreferences:\{[\s\S]*sandbox:true/);
 });
 
-test('v0.3.17 version is synchronized', () => {
+test('v0.3.18 version is synchronized', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const versionSource = read('src/lib/appVersion.js');
-  assert.equal(pkg.version,'0.3.17');
+  assert.equal(pkg.version,'0.3.18');
   assert.equal(lock.version,pkg.version);
   assert.equal(lock.packages[''].version,pkg.version);
-  assert.equal(versionSource.includes("APP_VERSION = '0.3.17'"),true);
+  assert.equal(versionSource.includes("APP_VERSION = '0.3.18'"),true);
 });

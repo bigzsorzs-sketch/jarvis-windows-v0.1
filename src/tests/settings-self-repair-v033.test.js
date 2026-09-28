@@ -69,6 +69,8 @@ test('self repair maps architecture, retrieves relevant source and supports conv
 test('installed builds include readable source for whole-program Self-Repair mapping', () => {
   assert.equal(pkg.build.files.includes('src/**/*'), true);
   assert.equal(pkg.build.files.includes('electron/**/*'), true);
+  assert.match(main,/async function ensureManualRuntimeBuilt/);
+  assert.match(main,/if \(!fs\.existsSync\(electronPath\)\)[\s\S]*runToolchainNpm\(\['ci'/);
 });
 
 
@@ -81,7 +83,7 @@ test('settings persistence supports owned entity lookup before update', () => {
 });
 
 
-test('manual Self-Repair workspace stays local and never installs dependencies automatically', () => {
+test('manual Self-Repair workspace stays local and prepares runtime dependencies only for activation', () => {
   assert.match(main,/async function ensureManualRepairWorkspace/);
   assert.match(main,/manual-self-repair/);
   assert.equal(pkg.build.files.includes('src/**/*'), true);

@@ -77,6 +77,7 @@ test('System Center provides source-aware conversation with manual repair approv
   assert.match(system,/Hibák keresése/);
   assert.match(system,/Elfogadom/);
   assert.match(system,/applyPendingRepair/);
-  assert.match(system,/sandbox és automatikus npm telepítés nélkül/);
+  assert.match(system,/elkészíti a működő buildet/);
+  assert.match(system,/automatikusan újraindítja Jarvist/);
   assert.doesNotMatch(system,/Autopilot önfejlesztés/);
 });

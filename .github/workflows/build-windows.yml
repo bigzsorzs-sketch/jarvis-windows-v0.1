@@ -193,12 +193,12 @@ jobs:
         run: throw "Release publication is allowed only from main."
 
       - name: Verify signer before publication
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.17 combined approved'))
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.18 combined approved'))
         shell: pwsh
         run: |
           $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
           $signature = Get-AuthenticodeSignature -LiteralPath $exe.FullName
-          $oneTimeOwnerApproval = "$env:GITHUB_EVENT_NAME" -eq "push" -and "${{ github.event.head_commit.message }}".StartsWith("Publish v0.3.17 combined approved")
+          $oneTimeOwnerApproval = "$env:GITHUB_EVENT_NAME" -eq "push" -and "${{ github.event.head_commit.message }}".StartsWith("Publish v0.3.18 combined approved")
           $allowUnsigned = ("${{ inputs.allow_unsigned_release }}" -eq "true") -or $oneTimeOwnerApproval
           if ([string]$signature.Status -ne "Valid" -and -not $allowUnsigned) {
             throw "Installer Authenticode status is $($signature.Status). Configure WINDOWS_CSC_LINK / WINDOWS_CSC_KEY_PASSWORD or explicitly approve allow_unsigned_release."
@@ -240,14 +240,14 @@ jobs:
           }
 
       - name: Publish immutable GitHub release
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.17 combined approved'))
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.18 combined approved'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if ("$env:GITHUB_EVENT_NAME" -eq "push" -and [string]$pkg.version -ne "0.3.17") {
-            throw "One-time owner-approved push publication is restricted to v0.3.17."
+          if ("$env:GITHUB_EVENT_NAME" -eq "push" -and [string]$pkg.version -ne "0.3.18") {
+            throw "One-time owner-approved push publication is restricted to v0.3.18."
           }
           $tag = "v$($pkg.version)"
           $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
@@ -256,4 +256,4 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists and will not be overwritten" }
           $global:LASTEXITCODE = 0
-          gh release create $tag $exe.FullName $sha.FullName $manifest.FullName --target "$env:GITHUB_SHA" --title "Jarvis $tag" --notes "Jarvis v0.3.17 removes the legacy Self-Repair Autopilot and repair-sandbox execution paths completely. Self-Repair is conversation-driven: analysis is read-only, explicit repair requests create an owner-reviewed patch, and Accept performs a backed-up direct write with lightweight validation and rollback. The Chromium renderer security sandbox remains enabled. Includes CodeQL, source tests, packaged toolchain verification, SHA-256 checksum, and release manifest."
+          gh release create $tag $exe.FullName $sha.FullName $manifest.FullName --target "$env:GITHUB_SHA" --title "Jarvis $tag" --notes "Jarvis v0.3.18 keeps Autopilot and the repair sandbox removed, and completes the manual Self-Repair flow: Accept writes the approved patch to the versioned local source, prepares dependencies once when needed, builds the renderer, then restarts Jarvis from that repaired workspace so the accepted code is active immediately. Failed validation or build rolls the source back. The Chromium renderer security sandbox remains enabled. Includes CodeQL, source tests, packaged toolchain verification, SHA-256 checksum, and release manifest."

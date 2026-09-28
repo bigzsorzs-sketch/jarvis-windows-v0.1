@@ -24,7 +24,8 @@ const {
   analyzeProjectSpecialists,
 } = require('./analysis/file-analyzer.cjs');
 
-const isDev = !app.isPackaged;
+const isManualRepairRuntime = process.argv.includes('--jarvis-manual-runtime');
+const isDev = !app.isPackaged && !isManualRepairRuntime;
 let mainWindow;
 let policy;
 let obdBridge;
@@ -65,8 +66,12 @@ function selfRepairSourceRoot() {
 }
 
 function selfRepairToolchainPaths() {
-  if (!app.isPackaged) return null;
-  const root = path.join(process.resourcesPath, 'self-repair-toolchain');
+  let root = String(process.env.JARVIS_SELF_REPAIR_TOOLCHAIN || '').trim();
+  if (!root && app.isPackaged) root = path.join(process.resourcesPath, 'self-repair-toolchain');
+  if (!root) {
+    try { root = String(readJson(manualRuntimeStatePath(),{}).toolchainRoot || '').trim(); } catch {}
+  }
+  if (!root) return null;
   const node = path.join(root, process.platform === 'win32' ? 'node.exe' : 'node');
   const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
   if (!fs.existsSync(node) || !fs.existsSync(npmCli)) {
@@ -76,6 +81,7 @@ function selfRepairToolchainPaths() {
 }
 
 function withSelfRepairToolchainEnv(options={}, toolchain=selfRepairToolchainPaths()) {
+  if (!toolchain) return options;
   const env = { ...process.env, ...(options.env || {}) };
   const existingPath = env.PATH || env.Path || '';
   const toolchainPath = [toolchain.root, existingPath].filter(Boolean).join(path.delimiter);
@@ -86,20 +92,30 @@ function withSelfRepairToolchainEnv(options={}, toolchain=selfRepairToolchainPat
 }
 
 async function runToolchainNode(args, options={}) {
-  if (!app.isPackaged) {
+  const toolchain = selfRepairToolchainPaths();
+  if (!toolchain) {
     return execFileAsync(process.platform === 'win32' ? 'node.exe' : 'node', args, options);
   }
-  const toolchain = selfRepairToolchainPaths();
   return execFileAsync(toolchain.node, args, withSelfRepairToolchainEnv(options, toolchain));
+}
+
+async function runToolchainNpm(args, options={}) {
+  const toolchain = selfRepairToolchainPaths();
+  if (!toolchain) {
+    return execFileAsync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options);
+  }
+  return execFileAsync(toolchain.node, [toolchain.npmCli, ...args], withSelfRepairToolchainEnv(options, toolchain));
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
+function manualRepairRoot() { return path.join(app.getPath('userData'),'manual-self-repair'); }
+function manualRuntimeStatePath() { return path.join(manualRepairRoot(),'runtime.json'); }
 function manualRepairWorkspaceRoot() {
   const safeVersion = String(app.getVersion?.() || 'current')
     .replace(/^v/i,'')
     .replace(/[^0-9A-Za-z._-]/g,'_');
-  return path.join(app.getPath('userData'),'manual-self-repair',`v${safeVersion}`);
+  return path.join(manualRepairRoot(),`v${safeVersion}`);
 }
 async function ensureManualRepairWorkspace() {
   const target = manualRepairWorkspaceRoot();
@@ -150,6 +166,110 @@ async function ensureManualRepairWorkspace() {
   }
   return workspace;
 }
+
+function manualRuntimeElectronPath(workspace) {
+  return path.join(
+    workspace,
+    'node_modules',
+    'electron',
+    'dist',
+    process.platform === 'win32' ? 'electron.exe' : 'electron'
+  );
+}
+
+function readManualRuntimeState() {
+  return readJson(manualRuntimeStatePath(), {});
+}
+
+async function ensureManualRuntimeBuilt(workspace) {
+  const electronPath = manualRuntimeElectronPath(workspace);
+  const modulesPath = path.join(workspace,'node_modules');
+
+  if (!fs.existsSync(electronPath)) {
+    await runToolchainNpm(['ci','--no-audit','--no-fund'],{
+      cwd:workspace,
+      windowsHide:true,
+      timeout:900000,
+      shell:false,
+      maxBuffer:16 * 1024 * 1024
+    });
+  }
+
+  if (!fs.existsSync(modulesPath) || !fs.existsSync(electronPath)) {
+    throw new Error('MANUAL_REPAIR_RUNTIME_DEPENDENCIES_MISSING');
+  }
+
+  await runToolchainNpm(['run','build'],{
+    cwd:workspace,
+    windowsHide:true,
+    timeout:300000,
+    shell:false,
+    maxBuffer:16 * 1024 * 1024
+  });
+
+  const renderer = path.join(workspace,'dist','index.html');
+  if (!fs.existsSync(renderer)) throw new Error('MANUAL_REPAIR_RUNTIME_BUILD_MISSING');
+
+  const toolchain = selfRepairToolchainPaths();
+  const state = {
+    enabled:true,
+    version:String(app.getVersion?.() || ''),
+    workspace,
+    electronPath,
+    toolchainRoot:toolchain?.root || null,
+    builtAt:new Date().toISOString()
+  };
+  writeJson(manualRuntimeStatePath(),state);
+  return state;
+}
+
+function scheduleManualRuntimeRestart(workspace) {
+  const state = readManualRuntimeState();
+  const electronPath = state.electronPath || manualRuntimeElectronPath(workspace);
+  setTimeout(() => {
+    try {
+      app.relaunch({
+        execPath:electronPath,
+        args:[workspace,'--jarvis-manual-runtime']
+      });
+      app.exit(0);
+    } catch (error) {
+      recordCrash('manual-self-repair-restart-failed',{
+        message:String(error?.message || error),
+        workspace
+      });
+    }
+  },900);
+}
+
+function handOffToManualRuntimeIfReady() {
+  if (!app.isPackaged || isManualRepairRuntime || process.argv.includes('--jarvis-safe-start')) return false;
+  const state = readManualRuntimeState();
+  if (state.enabled !== true) return false;
+
+  const expectedWorkspace = path.resolve(manualRepairWorkspaceRoot());
+  const workspace = path.resolve(String(state.workspace || ''));
+  const version = String(app.getVersion?.() || '');
+  if (workspace !== expectedWorkspace || String(state.version || '') !== version) {
+    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+    return false;
+  }
+
+  const electronPath = manualRuntimeElectronPath(workspace);
+  const renderer = path.join(workspace,'dist','index.html');
+  if (!fs.existsSync(electronPath) || !fs.existsSync(renderer)) {
+    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+    return false;
+  }
+
+  app.relaunch({
+    execPath:electronPath,
+    args:[workspace,'--jarvis-manual-runtime']
+  });
+  app.exit(0);
+  return true;
+}
+
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
 function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
 
@@ -376,7 +496,7 @@ async function deleteAllLocalData() {
     developerBackupRoot(),
     path.join(userData, 'self-repair-learning.json'),
     path.join(userData, 'crash-watchdog'),
-    manualRepairWorkspaceRoot(),
+    manualRepairRoot(),
     settingsPath(),
     backupDirectory,
   ];
@@ -989,7 +1109,7 @@ Keep it concise unless the owner asks for deep detail.`;
     ).join('\n\n');
     const planPrompt = `You are preparing a MANUAL, owner-approved Jarvis repair plan.
 The owner explicitly asked to fix the issue. Create the smallest concrete patch from the exact current source below.
-The patch will NOT be applied until the owner presses Accept.
+The patch will NOT be applied until the owner presses Accept. After approval, Jarvis builds the repaired local workspace and restarts from that workspace so the accepted code becomes active immediately.
 Rules:
 - Return JSON only with goal, rationale, risk and patches.
 - Copy every search string exactly from CURRENT SOURCE. Do not invent or paraphrase search text.
@@ -1729,6 +1849,8 @@ app.whenReady().then(async () => {
     return;
   }
 
+  if (handOffToManualRuntimeIfReady()) return;
+
   seedInitialSettings();
   purgeInsecureLegacySecrets();
   obdBridge = new NativeObdBridge();
@@ -1934,24 +2056,31 @@ app.whenReady().then(async () => {
         manualRepairPlans.delete(hash);
         return {success:false,status:'ROLLED_BACK',hash,backup,validation};
       }
+      const runtime = await ensureManualRuntimeBuilt(entry.workspace);
       selfRepairLearning?.recordVerified?.({
         title:entry.plan.goal || 'Kézi Self-Repair',
         repairId:hash,
         files:entry.plan.patches.map((patch)=>patch.file),
         evidence:entry.plan.rationale || entry.plan.goal || '',
-        validation:(validation.results || []).map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+        validation:[...(validation.results || []),{cmd:'npm run build',ok:true}]
+          .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
         success:true
       });
       manualRepairPlans.delete(hash);
+      scheduleManualRuntimeRestart(entry.workspace);
       return {
         success:true,
-        status:'APPLIED_DIRECTLY',
+        status:'APPLIED_AND_RESTARTING',
         hash,
         backup,
         workspace:entry.workspace,
         files:entry.plan.patches.map((patch)=>patch.file),
         validation,
-        requiresBuild:true
+        runtime:{
+          version:runtime.version,
+          builtAt:runtime.builtAt,
+          restartScheduled:true
+        }
       };
     } catch (error) {
       try { developerRepair.rollbackOwner(entry.workspace,backup); } catch {}

@@ -192,7 +192,7 @@ export default function SystemCenter() {
     const hash = pendingRepair?.hash;
     if (!hash || manualApplyBusy) return;
     setManualApplyBusy(true);
-    setMessage('');
+    setMessage(tx('Javítás alkalmazása, helyi build készítése és Jarvis újraindítása...','Applying repair, building local runtime and restarting Jarvis...'));
     try {
       const result = await window.jarvisDesktop?.developerRepair?.applyPending?.(hash);
       if (!result?.success) {
@@ -202,6 +202,7 @@ export default function SystemCenter() {
         throw new Error(tx('A javítás nem fejeződött be.','Repair did not complete.'));
       }
       setPendingRepair(null);
+      setMessage(tx('✓ Javítás alkalmazva. Jarvis a javított kóddal újraindul...','✓ Repair applied. Jarvis is restarting with the repaired code...'));
       try {
         const mapped = await jarvis.functions.invoke('selfRepairMap', { query:'' });
         if (mapped?.data?.map) setProjectMap(mapped.data.map);
@@ -456,13 +457,13 @@ export default function SystemCenter() {
               disabled={manualApplyBusy || !pendingRepair?.hash}
               className="rounded-xl border border-green-500/30 bg-green-500/10 text-green-400 px-4 text-xs font-semibold disabled:opacity-40"
             >
-              {manualApplyBusy ? tx('Javítás...','Applying...') : tx('Elfogadom','Accept')}
+              {manualApplyBusy ? tx('Build + újraindítás...','Build + restart...') : tx('Elfogadom','Accept')}
             </button>
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">
             {tx(
-              'A „Hibák keresése” csak elemez és megmutatja a problémákat. Ha a párbeszédben kéred a javítást, Jarvis elkészíti a konkrét módosítást. Az „Elfogadom” gomb után mentést készít és közvetlenül alkalmazza a fejlesztési forrásra, külön tesztmásolat és automatikus npm telepítés nélkül.',
-              '“Find bugs” only analyzes and shows problems. If you ask for a fix in the conversation, Jarvis prepares the concrete change. After you press “Accept”, it creates a backup and applies the change directly to the development source without a separate test copy or automatic npm install.'
+              'A „Hibák keresése” csak elemez és megmutatja a problémákat. Ha a párbeszédben kéred a javítást, Jarvis elkészíti a konkrét módosítást. Az „Elfogadom” gomb után mentést készít, beírja a módosítást a helyi forráskódba, elkészíti a működő buildet, majd automatikusan újraindítja Jarvist a javított kóddal. Az első ilyen újraindítás tovább tarthat, mert a helyi futtatókörnyezetet egyszer elő kell készíteni.',
+              '“Find bugs” only analyzes and shows problems. If you ask for a fix in the conversation, Jarvis prepares the concrete change. After you press “Accept”, it creates a backup, writes the change to the local source, builds the working runtime, then automatically restarts Jarvis with the repaired code. The first such restart can take longer while the local runtime is prepared once.'
             )}
           </p>
         </section>
