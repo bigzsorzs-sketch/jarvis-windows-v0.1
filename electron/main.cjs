@@ -64,6 +64,33 @@ function autonomousSourceRoot() {
     : path.join(__dirname, '..');
 }
 
+function selfRepairToolchainPaths() {
+  if (!app.isPackaged) return null;
+  const root = path.join(process.resourcesPath, 'self-repair-toolchain');
+  const node = path.join(root, process.platform === 'win32' ? 'node.exe' : 'node');
+  const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
+  if (!fs.existsSync(node) || !fs.existsSync(npmCli)) {
+    throw new Error('AUTONOMOUS_REPAIR_TOOLCHAIN_MISSING');
+  }
+  return { root, node, npmCli };
+}
+
+async function runToolchainNode(args, options={}) {
+  if (!app.isPackaged) {
+    return execFileAsync(process.platform === 'win32' ? 'node.exe' : 'node', args, options);
+  }
+  const toolchain = selfRepairToolchainPaths();
+  return execFileAsync(toolchain.node, args, options);
+}
+
+async function runToolchainNpm(args, options={}) {
+  if (!app.isPackaged) {
+    return execFileAsync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options);
+  }
+  const toolchain = selfRepairToolchainPaths();
+  return execFileAsync(toolchain.node, [toolchain.npmCli, ...args], options);
+}
+
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
 function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
@@ -215,7 +242,7 @@ async function ensureAutonomousWorkspace() {
   const workspace = developerRepair.validateWorkspace(target);
   if (!fs.existsSync(path.join(workspace,'node_modules'))) {
     if (!fs.existsSync(path.join(workspace,'package-lock.json'))) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
-    await execFileAsync('npm',['ci'],{
+    await runToolchainNpm(['ci'],{
       cwd:workspace,
       windowsHide:true,
       timeout:600000,
@@ -229,20 +256,20 @@ async function runDeveloperValidation(workspace) {
   const testDir = path.join(workspace,'src','tests');
   const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
   const commands = [
-    ['node',['--check','electron/main.cjs']],
-    ['node',['--test',...testFiles]],
-    ['npm',['run','lint']],
-    ['npm',['run','typecheck']],
-    ['npm',['run','verify:jarvis']],
-    ['npm',['run','build']],
+    { label:'node --check electron/main.cjs', run:() => runToolchainNode(['--check','electron/main.cjs'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'node --test ' + testFiles.join(' '), run:() => runToolchainNode(['--test',...testFiles],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run lint', run:() => runToolchainNpm(['run','lint'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run typecheck', run:() => runToolchainNpm(['run','typecheck'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run verify:jarvis', run:() => runToolchainNpm(['run','verify:jarvis'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
+    { label:'npm run build', run:() => runToolchainNpm(['run','build'],{cwd:workspace,windowsHide:true,timeout:180000,shell:false}) },
   ];
   const results=[];
-  for (const [cmd,args] of commands) {
+  for (const command of commands) {
     try {
-      const { stdout, stderr } = await execFileAsync(cmd,args,{cwd:workspace,windowsHide:true,timeout:180000,shell:false});
-      results.push({cmd:[cmd,...args].join(' '),ok:true,output:(stdout||stderr||'').slice(-4000)});
+      const { stdout, stderr } = await command.run();
+      results.push({cmd:command.label,ok:true,output:(stdout||stderr||'').slice(-4000)});
     } catch (error) {
-      results.push({cmd:[cmd,...args].join(' '),ok:false,output:String(error?.stdout||error?.stderr||error?.message||error).slice(-4000)});
+      results.push({cmd:command.label,ok:false,output:String(error?.stdout||error?.stderr||error?.message||error).slice(-4000)});
       return {ok:false,results};
     }
   }
@@ -252,12 +279,10 @@ async function runReleaseCandidateValidation(workspace) {
   const sourceValidation = await runDeveloperValidation(workspace);
   if (!sourceValidation.ok) return sourceValidation;
 
-  const runner = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const packageResult = { cmd:'npx electron-builder --win nsis --x64 --publish never', ok:false, output:'' };
+  const packageResult = { cmd:'npm exec -- electron-builder --win nsis --x64 --publish never', ok:false, output:'' };
   try {
-    const { stdout, stderr } = await execFileAsync(
-      runner,
-      ['electron-builder','--win','nsis','--x64','--publish','never'],
+    const { stdout, stderr } = await runToolchainNpm(
+      ['exec','--','electron-builder','--win','nsis','--x64','--publish','never'],
       { cwd:workspace, windowsHide:true, timeout:900000, shell:false, maxBuffer:16 * 1024 * 1024 }
     );
     packageResult.ok = true;
