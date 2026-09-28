@@ -34,6 +34,7 @@ let adminDiagnosticsManager;
 const adminHelperConfig = parseHelperArgs(process.argv);
 const developerPlans = new Map();
 let latestSystemReport = null;
+let autonomousRepairStopRequested = false;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
@@ -53,6 +54,68 @@ function resourcePath(...parts) {
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
 function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
+function autonomousRepairStatePath() { return path.join(app.getPath('userData'),'autonomous-self-repair-state.json'); }
+function autonomousWorkspaceRoot() { return path.join(app.getPath('documents'),'Jarvis Self-Development'); }
+
+function readAutonomousRepairState() {
+  return readJson(autonomousRepairStatePath(), {
+    status:'IDLE',
+    workspace:null,
+    goal:null,
+    iteration:0,
+    applied:[],
+    releaseCandidate:null,
+    releaseApproved:false,
+    updatedAt:null
+  });
+}
+
+function writeAutonomousRepairState(patch={}) {
+  const current = readAutonomousRepairState();
+  const next = { ...current, ...patch, updatedAt:new Date().toISOString() };
+  writeJson(autonomousRepairStatePath(), next);
+  return next;
+}
+
+async function ensureAutonomousWorkspace() {
+  const target = autonomousWorkspaceRoot();
+  const packagePath = path.join(target,'package.json');
+
+  if (!fs.existsSync(packagePath)) {
+    fs.mkdirSync(target,{recursive:true});
+    const sourceRoot = resourcePath();
+    const entries = [
+      'src','electron','security','build',
+      'package.json','package-lock.json','index.html','eslint.config.js',
+      'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
+      'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
+    ];
+    for (const entry of entries) {
+      const source = path.join(sourceRoot,entry);
+      if (!fs.existsSync(source)) continue;
+      const destination = path.join(target,entry);
+      if (fs.statSync(source).isDirectory()) {
+        fs.cpSync(source,destination,{recursive:true});
+      } else {
+        fs.mkdirSync(path.dirname(destination),{recursive:true});
+        fs.copyFileSync(source,destination);
+      }
+    }
+  }
+
+  const workspace = developerRepair.validateWorkspace(target);
+  if (!fs.existsSync(path.join(workspace,'node_modules'))) {
+    if (!fs.existsSync(path.join(workspace,'package-lock.json'))) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
+    await execFileAsync('npm',['ci'],{
+      cwd:workspace,
+      windowsHide:true,
+      timeout:600000,
+      shell:false,
+      maxBuffer:12 * 1024 * 1024
+    });
+  }
+  return workspace;
+}
 async function runDeveloperValidation(workspace) {
   const testDir = path.join(workspace,'src','tests');
   const testFiles = fs.readdirSync(testDir).filter((name) => name.endsWith('.test.js')).map((name) => path.join('src','tests',name));
