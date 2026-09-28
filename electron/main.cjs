@@ -509,6 +509,16 @@ async function deleteAllLocalData() {
 }
 
 async function openRouterRequest(payload={}) {
+  if (payloadContainsSensitiveContext(payload)) {
+    await enforcePolicy({
+      type:'external_ai_sensitive_context',
+      target:'openrouter.ai',
+      authorised:localOwnerAuthorised(),
+      transmitsSensitiveData:true
+    }, {
+      message:'Jarvis érzékeny helyi adatokat készül elküldeni az OpenRouter AI szolgáltatásnak.'
+    });
+  }
   const raw = readJson(settingsPath(), {});
   const apiKey = unprotectSecret(raw.openRouterKey);
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
@@ -965,7 +975,7 @@ Keep it concise unless the owner asks for deep detail.`;
   const response = await openRouterRequest({
     prompt,
     task_type:'repair',
-    contains_sensitive_context:false
+    contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
   });
   return {
     data:{
