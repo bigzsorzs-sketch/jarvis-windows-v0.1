@@ -13,6 +13,19 @@ export async function requestMicrophonePermission() {
   }
 
   try {
+    try {
+      const permissionStatus = await navigator.permissions?.query?.({ name:'microphone' });
+      if (permissionStatus?.state === 'denied') {
+        return { ok:false, code:'NotAllowedError', message:microphoneErrorMessage({ name:'NotAllowedError' }) };
+      }
+      if (permissionStatus?.state === 'granted') {
+        return { ok:true, permission:'granted' };
+      }
+    } catch {
+      // Some Chromium/Electron versions do not expose microphone through
+      // Permissions API. Fall back to a real getUserMedia permission prompt.
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
     const track = stream.getAudioTracks?.()[0];
     const settings = track?.getSettings?.() || {};
