@@ -104,3 +104,20 @@ test('Self-Repair does not diagnose stale crashes from older app versions', () =
   assert.match(system,/latestCurrentCrash/);
   assert.match(system,/nem elemzem aktuális hibaként/);
 });
+
+
+test('Self-Repair filters historical crashes inside the model prompt', () => {
+  assert.match(main,/currentAppVersion = String\(app\.getVersion/);
+  assert.match(main,/readRecentCrashes\(20\)[\s\S]*?filter\(\(item\) => String\(item\?\.appVersion/);
+  assert.match(main,/Do not diagnose a historical crash from an older version as a current defect/);
+});
+
+test('Autopilot stale active state is recovered and stop cannot remain stuck forever', () => {
+  assert.match(main,/let autonomousRepairRunning = false/);
+  assert.match(main,/function recoverInterruptedAutonomousRepairState/);
+  assert.match(main,/status:'INTERRUPTED'/);
+  assert.match(main,/recoverInterruptedAutonomousRepairState\(\)/);
+  assert.match(main,/if \(!autonomousRepairRunning\)[\s\S]*?status:'STOPPED'/);
+  assert.match(main,/AUTONOMOUS_REPAIR_ALREADY_RUNNING/);
+  assert.match(main,/finally \{[\s\S]*?autonomousRepairRunning = false/);
+});
