@@ -44,7 +44,7 @@ export function findFastChatReply(text, lang = 'hu') {
     };
   }
 
-  if (/(hallasz|hallod|mukodsz|működsz|itt vagy|figyelsz)/.test(input)) {
+  if (/^(?:hallasz|hallod|mukodsz|működsz|itt vagy|figyelsz)$/.test(input)) {
     return {
       handled: true,
       intent: 'fast_status',
