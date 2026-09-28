@@ -15,7 +15,6 @@ import PushNotificationManager from './components/jarvis/PushNotificationManager
 import NativeDialogBridge from './components/common/NativeDialogBridge';
 import Layout from './components/Layout';
 import Chat from './pages/Chat';
-import Home from './pages/Home';
 const Muszerfal = lazy(() => import('./pages/Muszerfal'));
 const Memoria = lazy(() => import('./pages/Memoria'));
 const Eszkozok = lazy(() => import('./pages/Eszkozok'));
