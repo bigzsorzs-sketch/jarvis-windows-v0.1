@@ -139,7 +139,8 @@
       "postcss.config.js",
       "jsconfig.json",
       "components.json",
-      "build/installer.nsh"
+      "build/installer.nsh",
+      "scripts/**/*"
     ],
     "directories": {
       "output": "release",
