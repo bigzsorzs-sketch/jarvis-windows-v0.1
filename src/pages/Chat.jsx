@@ -638,14 +638,22 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
             busyLabel={loadingStep}
             actions={<CommandCenterActions onNavigate={navigate} />}
             conversation={(
-              <CommandCenterChatPanel
-                messages={messages}
-                input={input}
-                setInput={setInput}
-                onSend={sendMessage}
-                loading={loading}
-                loadingStep={loadingStep}
-              />
+              <>
+                <CommandCenterChatPanel
+                  messages={messages}
+                  input={input}
+                  setInput={setInput}
+                  onSend={sendMessage}
+                  loading={loading}
+                  loadingStep={loadingStep}
+                />
+                <ChatConfirmBar
+                  pendingConfirm={pendingConfirm}
+                  onConfirm={confirmAndExecute}
+                  onCancel={() => setPendingConfirm(null)}
+                  t={t}
+                />
+              </>
             )}
           />
         </div>
