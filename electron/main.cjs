@@ -246,13 +246,33 @@ async function ensureAutonomousWorkspace() {
     'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
   ];
 
-  // Repair partially-created or stale workspaces as well. Older builds could
-  // leave package.json behind without package-lock.json; checking only for
-  // package.json made every later Autopilot start fail permanently.
+  // A packaged upgrade must refresh the development workspace. Previously the
+  // workspace was only filled when files were missing, so a v0.3.10 workspace
+  // could survive inside v0.3.11 and the planner would patch stale source.
+  const workspacePackagePath = path.join(target,'package.json');
+  let workspaceVersion = '';
+  try {
+    workspaceVersion = String(JSON.parse(fs.readFileSync(workspacePackagePath,'utf8'))?.version || '');
+  } catch {}
+  const installedVersion = String(app.getVersion?.() || '');
+  const refreshForVersion = Boolean(installedVersion && workspaceVersion && workspaceVersion !== installedVersion);
+
+  if (refreshForVersion) {
+    const archive = path.join(developerBackupRoot(),`workspace-upgrade-${workspaceVersion || 'unknown'}-to-${installedVersion}-${Date.now()}`);
+    fs.mkdirSync(archive,{recursive:true});
+    for (const entry of entries) {
+      const existing = path.join(target,entry);
+      if (!fs.existsSync(existing)) continue;
+      const backup = path.join(archive,entry);
+      fs.mkdirSync(path.dirname(backup),{recursive:true});
+      const stat = fs.statSync(existing);
+      if (stat.isDirectory()) fs.cpSync(existing,backup,{recursive:true});
+      else fs.copyFileSync(existing,backup);
+    }
+  }
+
   for (const entry of entries) {
     const destination = path.join(target,entry);
-    if (fs.existsSync(destination)) continue;
-
     const externalSource = path.join(sourceRoot,entry);
     const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
 
@@ -263,8 +283,13 @@ async function ensureAutonomousWorkspace() {
       continue;
     }
 
+    if (!refreshForVersion && fs.existsSync(destination)) continue;
+
     const stat = fs.statSync(source);
     if (stat.isDirectory()) {
+      if (fs.existsSync(destination)) {
+        fs.rmSync(destination,{recursive:true,force:true,maxRetries:5,retryDelay:120});
+      }
       fs.cpSync(source,destination,{recursive:true});
     } else {
       fs.mkdirSync(path.dirname(destination),{recursive:true});
@@ -282,7 +307,12 @@ async function ensureAutonomousWorkspace() {
     throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_INVALID');
   }
 
-  if (!fs.existsSync(path.join(workspace,'node_modules'))) {
+  const modulesPath = path.join(workspace,'node_modules');
+  if (refreshForVersion && fs.existsSync(modulesPath)) {
+    fs.rmSync(modulesPath,{recursive:true,force:true,maxRetries:8,retryDelay:180});
+  }
+
+  if (!fs.existsSync(modulesPath)) {
     await runToolchainNpm(['ci'],{
       cwd:workspace,
       windowsHide:true,
@@ -1169,7 +1199,9 @@ Hard rules:
 - Never publish, tag, push a release, or change GitHub workflow files.
 - Prefer the smallest exact change that solves the current problem.
 - Return JSON only.
-- Use exact text replacements when possible. Each replacement search string must match source text exactly and uniquely.
+- Use exact text replacements when possible. Copy every search string verbatim from RELEVANT SOURCE; do not reconstruct it from memory.
+- The runtime treats CRLF and LF as equivalent, but all other characters and whitespace must still match uniquely.
+- If a safe exact replacement cannot be formed from the supplied excerpt, either use a full-file "content" patch for that supplied file or return done=true with an explanation instead of inventing a search block.
 - If the goal is already satisfied and no source change is needed, return {"done":true,"reason":"...","patches":[]}.
 - Otherwise return:
 {
@@ -1402,6 +1434,18 @@ async function runAutonomousSelfRepair(payload={}) {
         feedback = `Application failed and was rolled back: ${error?.message || error}`;
         writeAutonomousRepairState({ status:'ROLLED_BACK_RETRY', iteration, applied, lastError:feedback });
       }
+    } catch (error) {
+      if (autonomousRepairStopRequested || error?.message === 'OPENROUTER_ABORTED') {
+        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false, lastError:null });
+      }
+      feedback = [
+        'Sandbox preparation failed before validation.',
+        String(error?.message || error),
+        'Re-scan the current workspace and return a new plan using search text copied verbatim from the supplied source.',
+        'Do not reuse a stale replacement from a previous iteration.'
+      ].join(' ');
+      writeAutonomousRepairState({ status:'SANDBOX_RETRY', iteration, applied, lastError:feedback });
+      continue;
     } finally {
       if (sandbox) {
         try { developerRepair.destroySandbox(sandbox,developerSandboxRoot()); } catch {}

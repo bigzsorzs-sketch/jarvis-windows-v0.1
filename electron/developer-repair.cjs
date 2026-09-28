@@ -28,6 +28,35 @@ function stable(value) {
 function proposalHash(plan) {
   return crypto.createHash('sha256').update(stable(plan)).digest('hex');
 }
+
+function normalizeLineEndings(value='') {
+  return String(value).replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+}
+
+function restoreLineEndings(value='', eol='\n') {
+  return eol === '\r\n' ? String(value).replace(/\n/g,'\r\n') : String(value);
+}
+
+function replacementCount(content, search) {
+  if (!search) return 0;
+  return content.split(search).length - 1;
+}
+
+function applyReplacementEdits(currentContent, replacements=[], file='unknown') {
+  const preferredEol = String(currentContent).includes('\r\n') ? '\r\n' : '\n';
+  let current = normalizeLineEndings(currentContent);
+
+  for (const edit of replacements) {
+    const search = normalizeLineEndings(edit.search);
+    const replace = normalizeLineEndings(edit.replace);
+    const occurrences = replacementCount(current, search);
+    if (occurrences < 1) throw new Error('DEV_REPAIR_SEARCH_NOT_FOUND:' + file);
+    if (!edit.all && occurrences !== 1) throw new Error('DEV_REPAIR_SEARCH_AMBIGUOUS:' + file);
+    current = edit.all ? current.split(search).join(replace) : current.replace(search,replace);
+  }
+
+  return restoreLineEndings(current, preferredEol);
+}
 function normalizeRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
   if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
@@ -79,6 +108,12 @@ function validatePlan(root, input={}) {
     });
 
     if (cleanReplacements.length && !fs.existsSync(target)) throw new Error('DEV_REPAIR_REPLACEMENT_TARGET_MISSING');
+    if (cleanReplacements.length) {
+      // Preflight against the exact current file before any sandbox work begins.
+      // Matching is newline-normalized so Windows CRLF files and model LF JSON
+      // cannot fail solely because of platform line endings.
+      applyReplacementEdits(fs.readFileSync(target,'utf8'), cleanReplacements, file);
+    }
     return hasFullContent
       ? { file, content:p.content }
       : { file, replacements:cleanReplacements };
@@ -117,14 +152,11 @@ function apply(root,plan){
     if (typeof patch.content === 'string') {
       nextContent = patch.content;
     } else {
-      let current = fs.readFileSync(target,'utf8');
-      for (const edit of patch.replacements || []) {
-        const occurrences = current.split(edit.search).length - 1;
-        if (occurrences < 1) throw new Error('DEV_REPAIR_SEARCH_NOT_FOUND:' + patch.file);
-        if (!edit.all && occurrences !== 1) throw new Error('DEV_REPAIR_SEARCH_AMBIGUOUS:' + patch.file);
-        current = edit.all ? current.split(edit.search).join(edit.replace) : current.replace(edit.search,edit.replace);
-      }
-      nextContent = current;
+      nextContent = applyReplacementEdits(
+        fs.readFileSync(target,'utf8'),
+        patch.replacements || [],
+        patch.file
+      );
     }
 
     const tmp=target+'.jarvis-tmp-'+process.pid;
@@ -523,5 +555,5 @@ function buildDiagnosticContext(root, query='', options={}) {
 
 module.exports={
   validateWorkspace,validatePlan,proposalHash,snapshot,apply,createSandbox,destroySandbox,rollback,
-  inspectWorkspace,buildDiagnosticContext,PROTECTED
+  inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,PROTECTED
 };

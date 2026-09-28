@@ -150,3 +150,116 @@
   .jarvis-command-chat{margin-top:6px}
   .jarvis-command-chat-log{max-height:92px}
 }
+
+
+/* v0.3.12 — reference fidelity: orb-centered energy field + compact luminous voice wave */
+.jarvis-orb-scene{
+  position:relative;
+  width:100%;
+  min-height:180px;
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  isolation:isolate;
+}
+.jarvis-orb-scene .jarvis-energy-field{
+  position:absolute;
+  inset:auto;
+  left:50%;
+  top:50%;
+  width:118%;
+  height:190px;
+  transform:translate(-50%,-50%);
+  z-index:0;
+  opacity:.96;
+  pointer-events:none;
+}
+.jarvis-orb-scene .jarvis-energy-field svg{width:100%;height:100%;overflow:visible}
+.jarvis-orb-scene .energy-wave{
+  stroke:#27b8ff;
+  stroke-width:1.35;
+  opacity:.52;
+  filter:drop-shadow(0 0 6px rgba(51,194,255,.95)) drop-shadow(0 0 13px rgba(0,103,255,.48));
+}
+.jarvis-orb-scene .wave-two{stroke:#64d9ff;opacity:.43}
+.jarvis-orb-scene .wave-three{stroke:#188cff;opacity:.37}
+.jarvis-orb-scene .wave-four{stroke:#3fc7ff;opacity:.34}
+.jarvis-orb-scene .wave-five{stroke:#71e3ff;opacity:.29}
+.jarvis-orb-scene .wave-six{stroke:#208dff;opacity:.27}
+.jarvis-orb-scene .jarvis-hero-orb{
+  position:relative;
+  z-index:2;
+  margin:0;
+}
+
+.jarvis-waveform{
+  position:relative;
+  overflow:visible;
+}
+.jarvis-waveform::before{
+  content:"";
+  position:absolute;
+  left:1%;
+  right:1%;
+  top:50%;
+  height:1px;
+  transform:translateY(-50%);
+  background:linear-gradient(90deg,transparent,rgba(41,181,255,.34) 18%,rgba(93,221,255,.58) 50%,rgba(41,181,255,.34) 82%,transparent);
+  box-shadow:0 0 8px rgba(39,174,255,.45);
+}
+.jarvis-waveform svg{position:relative;z-index:1}
+.voice-wave-main{
+  stroke:#45cfff;
+  stroke-width:1.8;
+  opacity:.96;
+  filter:drop-shadow(0 0 4px rgba(76,217,255,1)) drop-shadow(0 0 9px rgba(0,116,255,.75));
+}
+.voice-wave-soft{
+  stroke:#148dff;
+  stroke-width:1.15;
+  opacity:.48;
+  filter:drop-shadow(0 0 8px rgba(0,116,255,.62));
+}
+.jarvis-waveform.is-active .voice-wave-main{animation:jarvis-reference-wave 1.05s ease-in-out infinite;transform-origin:center}
+.jarvis-waveform.is-active .voice-wave-soft{animation:jarvis-reference-wave 1.55s ease-in-out infinite reverse;transform-origin:center}
+@keyframes jarvis-reference-wave{
+  0%,100%{transform:scaleY(.74);opacity:.72}
+  50%{transform:scaleY(1.18);opacity:1}
+}
+
+@media(min-width:901px){
+  .jarvis-command-center-hero{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    padding:14px 3.2% 18px;
+  }
+  .jarvis-command-stage{
+    width:100%;
+    max-width:1180px;
+    height:auto;
+    max-height:100%;
+    min-height:0;
+    justify-content:center;
+    padding:0;
+    overflow:hidden;
+  }
+  .jarvis-orb-scene{min-height:176px}
+  .jarvis-hero-orb{width:132px;height:132px}
+  .jarvis-command-copy{margin-top:2px}
+  .jarvis-command-actions{margin:14px auto 10px}
+  .jarvis-wave-console{margin:0 auto}
+  .jarvis-command-chat{margin:8px auto 0}
+}
+@media(min-width:901px) and (max-height:760px){
+  .jarvis-orb-scene{min-height:138px}
+  .jarvis-orb-scene .jarvis-energy-field{height:150px}
+  .jarvis-hero-orb{width:104px;height:104px}
+  .jarvis-command-copy{margin-top:0}
+  .jarvis-command-copy h2{font-size:28px}
+  .jarvis-command-actions{margin:8px auto 7px}
+  .jarvis-wave-console{min-height:58px}
+  .jarvis-command-chat{margin-top:6px}
+  .jarvis-command-chat-log{max-height:90px}
+}
