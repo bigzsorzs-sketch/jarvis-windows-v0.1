@@ -1941,6 +1941,10 @@ app.whenReady().then(async () => {
     return buildRepairPlan(latestSystemReport);
   });
   ipcMain.handle('jarvis:self-repair:auto:status', () => readAutonomousRepairState());
+  ipcMain.handle('jarvis:self-repair:auto:crash-mode', (_e, enabled=false) => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    return writeAutonomousRepairState({ autoCrashRepair:enabled === true });
+  });
   ipcMain.handle('jarvis:self-repair:auto:workspace', async () => {
     if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
     const workspace = await ensureAutonomousWorkspace();
