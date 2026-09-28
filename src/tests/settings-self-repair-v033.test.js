@@ -19,12 +19,19 @@ test('selected OpenRouter model is actually used instead of being forced back to
   assert.match(main,/const model = requestedModel\.includes\('\/'\)[\s\S]*?: configuredModel/);
 });
 
-test('voice settings expose TTS model and male or female voice choice', () => {
-  assert.match(settings,/Gemini 3\.8 Flash TTS/);
-  assert.match(settings,/Férfi – Charon/);
-  assert.match(settings,/Női – Kore/);
+test('voice settings expose selectable TTS model, gender and exact voice', () => {
+  assert.match(settings,/speechModels\.map/);
+  assert.match(settings,/Hang neme/);
+  assert.match(settings,/Konkrét hang/);
+  assert.match(settings,/changeVoiceModel/);
+  assert.match(settings,/changeVoiceGender/);
+  assert.match(settings,/changeVoice/);
+  assert.match(settings,/Kore:'female'/);
+  assert.match(settings,/Charon:'male'/);
   assert.match(main,/ttsGender/);
-  assert.match(main,/patch\.ttsGender === 'female' \? 'Kore' : 'Charon'/);
+  assert.match(main,/ttsVoice/);
+  assert.match(main,/supported_voices/);
+  assert.match(main,/openrouter\.ai\/api\/v1\/models\?output_modalities=speech/);
 });
 
 test('light theme has a real independent palette and synchronizes native title bar', () => {
