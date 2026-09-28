@@ -86,3 +86,14 @@ test('owner override token is action-bound and consumed exactly once', () => {
     fs.rmSync(dir, { recursive:true, force:true });
   }
 });
+
+
+test('desktop media permission policy allows trusted microphone but rejects camera', () => {
+  const main = fs.readFileSync('electron/main.cjs', 'utf8');
+  assert.match(main,/function configureMediaPermissions/);
+  assert.match(main,/setPermissionCheckHandler/);
+  assert.match(main,/setPermissionRequestHandler/);
+  assert.match(main,/requestsVideo/);
+  assert.match(main,/requestsAudio/);
+  assert.match(main,/configureMediaPermissions\(mainWindow\)/);
+});
