@@ -30,6 +30,7 @@ import { requestMicrophonePermission } from '@/lib/microphonePermission';
 import { useSystemStore } from '@/lib/appStore';
 import JarvisVoiceStage from '@/components/command-center/JarvisVoiceStage';
 import CommandCenterActions from '@/components/command-center/CommandCenterActions';
+import CommandCenterChatPanel from '@/components/command-center/CommandCenterChatPanel';
 
 import SetupWizard from '@/components/setup/SetupWizard';
 import ChatHeader from '@/components/chat/ChatHeader';
@@ -586,6 +587,16 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
             busy={loading}
             busyLabel={loadingStep}
             actions={<CommandCenterActions onNavigate={navigate} />}
+            conversation={(
+              <CommandCenterChatPanel
+                messages={messages}
+                input={input}
+                setInput={setInput}
+                onSend={sendMessage}
+                loading={loading}
+                loadingStep={loadingStep}
+              />
+            )}
           />
         </div>
       )}
