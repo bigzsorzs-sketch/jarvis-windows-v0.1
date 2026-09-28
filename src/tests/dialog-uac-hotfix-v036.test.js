@@ -27,3 +27,14 @@ test('elevated helper uses an isolated Electron profile and reports UAC launch f
   assert.match(adminSource, /ADMIN_UAC_CANCELLED/);
   assert.match(adminSource, /ADMIN_UAC_LAUNCH_FAILED/);
 });
+
+
+test('elevated diagnostics uses parent-owned named pipe to avoid UAC integrity deadlock', () => {
+  const source = fs.readFileSync(path.join(root, 'electron/admin-diagnostics.cjs'), 'utf8');
+  assert.match(source, /async _preparePipeServer\(\)[\s\S]*net\.createServer/);
+  assert.match(source, /startAdminHelper[\s\S]*net\.connect\(pipePath\(config\.pipeName\)/);
+  assert.match(source, /type:'hello',token:config\.token/);
+  const prepare = source.indexOf('await this._preparePipeServer();');
+  const launch = source.indexOf('Start-Process -FilePath');
+  assert.ok(prepare >= 0 && launch >= 0 && prepare < launch, 'parent pipe must listen before UAC helper launch');
+});
