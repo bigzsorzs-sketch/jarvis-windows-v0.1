@@ -222,37 +222,56 @@ function writeAutonomousRepairState(patch={}) {
 
 async function ensureAutonomousWorkspace() {
   const target = autonomousWorkspaceRoot();
-  const packagePath = path.join(target,'package.json');
+  fs.mkdirSync(target,{recursive:true});
 
-  if (!fs.existsSync(packagePath)) {
-    fs.mkdirSync(target,{recursive:true});
-    const sourceRoot = autonomousSourceRoot();
-    const entries = [
-      'src','electron','security','build','scripts',
-      'package.json','package-lock.json','index.html','eslint.config.js',
-      'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
-      'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
-    ];
-    for (const entry of entries) {
-      const externalSource = path.join(sourceRoot,entry);
-      const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
-      if (!fs.existsSync(source)) continue;
-      const destination = path.join(target,entry);
-      const stat = fs.statSync(source);
-      if (stat.isDirectory()) {
-        fs.cpSync(source,destination,{recursive:true});
-      } else {
-        fs.mkdirSync(path.dirname(destination),{recursive:true});
-        // Reading individual files from app.asar is supported by Electron's fs
-        // patch, while recursive directory copying from app.asar is not.
-        fs.writeFileSync(destination,fs.readFileSync(source));
+  const sourceRoot = autonomousSourceRoot();
+  const entries = [
+    'src','electron','security','build','scripts',
+    'package.json','package-lock.json','index.html','eslint.config.js',
+    'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
+    'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
+  ];
+
+  // Repair partially-created or stale workspaces as well. Older builds could
+  // leave package.json behind without package-lock.json; checking only for
+  // package.json made every later Autopilot start fail permanently.
+  for (const entry of entries) {
+    const destination = path.join(target,entry);
+    if (fs.existsSync(destination)) continue;
+
+    const externalSource = path.join(sourceRoot,entry);
+    const packagedSource = resourcePath(entry);
+    const source = fs.existsSync(externalSource)
+      ? externalSource
+      : (fs.existsSync(packagedSource) ? packagedSource : null);
+
+    if (!source) {
+      if (entry === 'package.json' || entry === 'package-lock.json') {
+        throw new Error('AUTONOMOUS_REPAIR_SOURCE_MISSING:' + entry);
       }
+      continue;
+    }
+
+    const stat = fs.statSync(source);
+    if (stat.isDirectory()) {
+      fs.cpSync(source,destination,{recursive:true});
+    } else {
+      fs.mkdirSync(path.dirname(destination),{recursive:true});
+      fs.writeFileSync(destination,fs.readFileSync(source));
     }
   }
 
   const workspace = developerRepair.validateWorkspace(target);
+  const lockPath = path.join(workspace,'package-lock.json');
+  if (!fs.existsSync(lockPath)) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
+
+  try {
+    JSON.parse(fs.readFileSync(lockPath,'utf8'));
+  } catch {
+    throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_INVALID');
+  }
+
   if (!fs.existsSync(path.join(workspace,'node_modules'))) {
-    if (!fs.existsSync(path.join(workspace,'package-lock.json'))) throw new Error('AUTONOMOUS_REPAIR_LOCKFILE_REQUIRED');
     await runToolchainNpm(['ci'],{
       cwd:workspace,
       windowsHide:true,
