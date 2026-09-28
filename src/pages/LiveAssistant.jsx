@@ -12,6 +12,7 @@ import { routeUserCommand } from '@/lib/CommandRouter';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
 import { jarvis } from '@/api/jarvisClient';
+import { useLang } from '@/lib/i18n';
 
 const LIVE_ASSISTANT_CONVERSATION_TITLE = 'Live Assistant';
 const DEFAULT_LIVE_ASSISTANT_AVATAR_URL = 'https://skfb.ly/oKCn6';
@@ -39,7 +40,7 @@ function getInstantAssistantReply(message) {
     return 'Szia, hallak. Miben segítsek?';
   }
 
-  if (/(hallasz|hallod|itt vagy|mukodsz|figyelsz)/i.test(normalized)) {
+  if (/^(?:hallasz|hallod|itt vagy|mukodsz|figyelsz)[!.]?$/i.test(normalized)) {
     return 'Igen, hallak és figyelek.';
   }
 
@@ -53,6 +54,7 @@ function getInstantAssistantReply(message) {
 export default function LiveAssistant() {
   const navigate = useNavigate();
   const voice = useVoiceRuntime();
+  const { lang } = useLang();
   const [ctx, setCtx] = useState(null);
   const [messages, setMessages] = useState([
     { role: 'assistant', content: 'Szia, itt vagyok. Miben segíthetek ma neked?' }
@@ -63,7 +65,15 @@ export default function LiveAssistant() {
   const [permissionError, setPermissionError] = useState('');
   const conversationIdRef = useRef(null);
   const historyReadyRef = useRef(false);
-  const lastHandledTranscriptRef = useRef('');
+  const historyReadyResolveRef = useRef(null);
+  const historyReadyPromiseRef = useRef(null);
+  if (!historyReadyPromiseRef.current) {
+    historyReadyPromiseRef.current = new Promise((resolve) => { historyReadyResolveRef.current = resolve; });
+  }
+  const persistChainRef = useRef(Promise.resolve());
+  const pendingVoiceRef = useRef([]);
+  const voicePumpRunningRef = useRef(false);
+  const handledVoiceEventsRef = useRef(new Set());
 
   const latestUserEmotion = useMemo(() => {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user');
@@ -78,24 +88,30 @@ export default function LiveAssistant() {
   }, [busy, latestUserEmotion, voice.state, voice.lastError, permissionError]);
   const statusLabel = getStatusLabel(expression);
 
-  const persistMessages = async (nextMessages) => {
-    if (!historyReadyRef.current) return;
+  const persistMessages = (nextMessages) => {
     const savedMessages = nextMessages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      timestamp: message.timestamp || new Date().toISOString(),
+      role:message.role,
+      content:message.content,
+      timestamp:message.timestamp || new Date().toISOString(),
     }));
 
-    if (conversationIdRef.current) {
-      await jarvis.entities.Conversation.update(conversationIdRef.current, { messages: savedMessages });
-      return;
-    }
-
-    const created = await jarvis.entities.Conversation.create({
-      title: LIVE_ASSISTANT_CONVERSATION_TITLE,
-      messages: savedMessages,
-    });
-    conversationIdRef.current = created.id;
+    persistChainRef.current = persistChainRef.current
+      .then(async () => {
+        await historyReadyPromiseRef.current;
+        if (conversationIdRef.current) {
+          await jarvis.entities.Conversation.update(conversationIdRef.current, { messages:savedMessages });
+          return;
+        }
+        const created = await jarvis.entities.Conversation.create({
+          title:LIVE_ASSISTANT_CONVERSATION_TITLE,
+          messages:savedMessages,
+        });
+        conversationIdRef.current = created.id;
+      })
+      .catch((error) => {
+        console.warn('LiveAssistant conversation persistence failed:', error);
+      });
+    return persistChainRef.current;
   };
 
   useEffect(() => {
@@ -109,9 +125,11 @@ export default function LiveAssistant() {
         if (latest?.id) conversationIdRef.current = latest.id;
         if (latest?.messages?.length) setMessages(latest.messages.slice(-20));
         historyReadyRef.current = true;
+        historyReadyResolveRef.current?.();
       })
       .catch(() => {
         historyReadyRef.current = true;
+        historyReadyResolveRef.current?.();
       });
   }, []);
 
@@ -125,22 +143,10 @@ export default function LiveAssistant() {
     setPermissionError(voice.lastError.message || 'A mikrofon most nem indult el.');
   }, [voice.lastError]);
 
-  useEffect(() => {
-    const transcript = voice.lastTranscript?.trim();
-    if (!transcript || busy || transcript === lastHandledTranscriptRef.current) return;
-    lastHandledTranscriptRef.current = transcript;
-    voice.clearTranscript?.();
-
-    const handleTranscript = async () => {
-      await sendToAssistant(transcript, 'voice');
-      voice.completeVoiceCycle?.(0, 'live_assistant_reply_done');
-    };
-
-    handleTranscript();
-  }, [voice.lastTranscript]);
-
   const sendToAssistant = async (message, source = 'chat') => {
-    if (!message || busy) return;
+    if (!message) return;
+    await historyReadyPromiseRef.current;
+    if (busy) return;
     setBusy(true);
     setPermissionError('');
 
@@ -160,7 +166,7 @@ export default function LiveAssistant() {
       setMessages(assistantMessages);
       void persistMessages(assistantMessages);
       setBusy(false);
-      void voice.speakText(instantReply, 'hu');
+      void voice.speakText(instantReply, lang);
       return;
     }
 
@@ -170,9 +176,9 @@ export default function LiveAssistant() {
         source,
         history: userMessages,
         ctx,
-        lang: 'hu',
+        lang,
       });
-      const reply = sanitizeAssistantText(normalizeAssistantReply(routed.reply || routed.turn?.reply || 'Rendben.')).slice(0, 420);
+      const reply = sanitizeAssistantText(normalizeAssistantReply(routed.reply || routed.turn?.reply || (lang === 'hu' ? 'Rendben.' : 'Okay.')));
       const assistantMessages = [
         ...userMessages,
         { role: 'assistant', content: reply, timestamp: new Date().toISOString() },
@@ -180,7 +186,7 @@ export default function LiveAssistant() {
       setMessages(assistantMessages);
       void persistMessages(assistantMessages);
       setBusy(false);
-      void voice.speakText(reply, 'hu');
+      void voice.speakText(reply, lang);
     } catch {
       const fallback = 'Most nem sikerült válaszolnom. Kérlek próbáld újra egy rövidebb üzenettel.';
       const fallbackMessages = [
@@ -193,6 +199,31 @@ export default function LiveAssistant() {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    const event = voice.lastTranscriptEvent;
+    if (!event?.id || !event.text || handledVoiceEventsRef.current.has(event.id)) return;
+    handledVoiceEventsRef.current.add(event.id);
+    if (handledVoiceEventsRef.current.size > 200) handledVoiceEventsRef.current = new Set([event.id]);
+    pendingVoiceRef.current.push(event.text.trim());
+    voice.clearTranscript?.();
+
+    const pump = async () => {
+      if (voicePumpRunningRef.current) return;
+      voicePumpRunningRef.current = true;
+      try {
+        while (pendingVoiceRef.current.length) {
+          const transcript = pendingVoiceRef.current.shift();
+          if (!transcript) continue;
+          await sendToAssistant(transcript, 'voice');
+          voice.completeVoiceCycle?.(0, 'live_assistant_reply_done');
+        }
+      } finally {
+        voicePumpRunningRef.current = false;
+      }
+    };
+    void pump();
+  }, [voice.lastTranscriptEvent?.id, busy, lang]);
 
   const handleTextSend = async (event) => {
     event?.preventDefault?.();
