@@ -10,6 +10,7 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
+const UAC_CONNECT_TIMEOUT_MS = 90 * 1000;
 const MAX_TEXT_BYTES = 1024 * 1024;
 
 function parseHelperArgs(argv=[]) {
@@ -214,7 +215,7 @@ class AdminDiagnosticsManager {
     ];
     const argsPs='@('+args.map(psQuote).join(',')+')';
     const command=`Start-Process -FilePath ${psQuote(this.execPath)} -ArgumentList ${argsPs} -Verb RunAs -WindowStyle Hidden`;
-    await execFileAsync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',command],{windowsHide:true,timeout:20000});
+    await execFileAsync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',command],{windowsHide:true,timeout:UAC_CONNECT_TIMEOUT_MS});
     await this._connectWithRetry();
     this.expiresAt=Date.now()+SESSION_TTL_MS;
     const ping=await this.request('ping',{},8000);
@@ -226,7 +227,7 @@ class AdminDiagnosticsManager {
   }
 
   async _connectWithRetry(){
-    const deadline=Date.now()+20000;
+    const deadline=Date.now()+UAC_CONNECT_TIMEOUT_MS;
     while(Date.now()<deadline){
       try{
         await new Promise((resolve,reject)=>{
@@ -246,6 +247,7 @@ class AdminDiagnosticsManager {
         await new Promise((resolve)=>setTimeout(resolve,300));
       }
     }
+    await this.stop().catch(()=>{});
     throw new Error('ADMIN_UAC_SESSION_TIMEOUT');
   }
 
@@ -310,5 +312,6 @@ module.exports={
   parseHelperArgs,
   startAdminHelper,
   AdminDiagnosticsManager,
-  SESSION_TTL_MS
+  SESSION_TTL_MS,
+  UAC_CONNECT_TIMEOUT_MS
 };
