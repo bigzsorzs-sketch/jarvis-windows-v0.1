@@ -169,8 +169,11 @@ async function saveSettingsInternal(patch={}) {
 async function deleteAllLocalData() {
   const userData = app.getPath('userData');
   const backupDirectory = path.join(app.getPath('documents'), 'Jarvis Backups');
+  const failures = [];
 
-  try { database?.close?.(); } catch {}
+  try { database?.close?.(); } catch (error) {
+    failures.push({ target:'database-close', error:String(error?.message || error) });
+  }
   database = null;
 
   const targets = [
@@ -181,18 +184,32 @@ async function deleteAllLocalData() {
     backupDirectory,
   ];
   for (const target of targets) {
-    try { fs.rmSync(target, { recursive:true, force:true }); } catch {}
+    try {
+      fs.rmSync(target, { recursive:true, force:true });
+      if (fs.existsSync(target)) failures.push({ target, error:'DELETE_VERIFICATION_FAILED' });
+    } catch (error) {
+      failures.push({ target, error:String(error?.message || error) });
+    }
   }
 
-  try { await session.defaultSession.clearStorageData(); } catch {}
-  try { await session.defaultSession.clearCache(); } catch {}
+  try { await session.defaultSession.clearStorageData(); } catch (error) {
+    failures.push({ target:'electron-storage', error:String(error?.message || error) });
+  }
+  try { await session.defaultSession.clearCache(); } catch (error) {
+    failures.push({ target:'electron-cache', error:String(error?.message || error) });
+  }
+
+  if (failures.length) {
+    try { database = new LocalDatabase(path.join(userData, 'data', 'jarvis.sqlite3')); } catch {}
+    return { data:{ success:false, localOnly:true, restartRequired:false, erased:false, failures } };
+  }
 
   setTimeout(() => {
     try { app.relaunch(); } catch {}
     app.exit(0);
   }, 700);
 
-  return { data:{ success:true, localOnly:true, restartRequired:true, erased:true } };
+  return { data:{ success:true, localOnly:true, restartRequired:true, erased:true, failures:[] } };
 }
 
 async function openRouterRequest(payload={}) {
