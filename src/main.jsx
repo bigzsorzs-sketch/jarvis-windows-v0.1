@@ -25,6 +25,12 @@ function showBootError(message) {
 window.addEventListener('error', (event) => {
   const detail = event.error?.stack || event.message || event.error || event;
   console.error('[runtime:error]', detail);
+  window.jarvisDesktop?.reportRendererIssue?.({
+    kind:'error',
+    message:String(event.message || event.error?.message || detail || ''),
+    stack:String(event.error?.stack || ''),
+    href:window.location.href
+  }).catch?.(() => {});
   showBootError(runtimeMessage('runtime'));
 });
 
@@ -32,6 +38,12 @@ window.addEventListener('unhandledrejection', (event) => {
   if (!isDev) event.preventDefault();
   const detail = event.reason?.stack || event.reason || event;
   console.error('[runtime:unhandledrejection]', detail);
+  window.jarvisDesktop?.reportRendererIssue?.({
+    kind:'unhandledrejection',
+    message:String(event.reason?.message || detail || ''),
+    stack:String(event.reason?.stack || ''),
+    href:window.location.href
+  }).catch?.(() => {});
   showBootError(runtimeMessage('runtime'));
 });
 
