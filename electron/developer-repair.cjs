@@ -177,41 +177,161 @@ function sourceMeta(file) {
   return { ...file, lines, imports:[...new Set(imports)], todoCount, hardcodedUi, content };
 }
 
+function resolveModulePath(fromPath, spec, known) {
+  if (!spec || (!spec.startsWith('.') && !spec.startsWith('@/'))) return null;
+  const base = spec.startsWith('@/')
+    ? 'src/' + spec.slice(2)
+    : path.posix.normalize(path.posix.join(path.posix.dirname(fromPath), spec));
+  const candidates = [
+    base,
+    base + '.js', base + '.jsx', base + '.cjs', base + '.mjs', base + '.ts', base + '.tsx',
+    base + '/index.js', base + '/index.jsx', base + '/index.ts', base + '/index.tsx'
+  ];
+  return candidates.find((candidate) => known.has(candidate)) || null;
+}
+
+function buildArchitecture(metas) {
+  const known = new Set(metas.map((file) => file.path));
+  const byPath = new Map(metas.map((file) => [file.path, file]));
+  const dependencies = {};
+  const dependents = {};
+  for (const file of metas) {
+    const resolved = file.imports.map((spec) => resolveModulePath(file.path, spec, known)).filter(Boolean);
+    dependencies[file.path] = [...new Set(resolved)];
+    for (const target of dependencies[file.path]) {
+      if (!dependents[target]) dependents[target] = [];
+      dependents[target].push(file.path);
+    }
+  }
+
+  const walk = (roots) => {
+    const visited = new Set();
+    const queue = roots.filter((root) => known.has(root));
+    while (queue.length) {
+      const current = queue.shift();
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const next of dependencies[current] || []) if (!visited.has(next)) queue.push(next);
+    }
+    return visited;
+  };
+
+  const rendererReachable = walk(['src/App.jsx']);
+  const mainReachable = walk(['electron/main.cjs']);
+  const routes = [];
+  const appSource = byPath.get('src/App.jsx')?.content || '';
+  const componentImports = new Map();
+  const staticImportRx = /import\s+([A-Za-z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]/g;
+  const lazyImportRx = /const\s+([A-Za-z_$][\w$]*)\s*=\s*lazy\s*\(\s*\(\s*\)\s*=>\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\)/g;
+  let match;
+  while ((match = staticImportRx.exec(appSource))) componentImports.set(match[1], match[2]);
+  while ((match = lazyImportRx.exec(appSource))) componentImports.set(match[1], match[2]);
+  const routeRx = /<Route\s+path=["']([^"']+)["']\s+element=\{<([A-Za-z_$][\w$]*)/g;
+  while ((match = routeRx.exec(appSource))) {
+    const spec = componentImports.get(match[2]) || null;
+    routes.push({
+      route:match[1],
+      component:match[2],
+      file:spec ? resolveModulePath('src/App.jsx', spec, known) : null
+    });
+  }
+
+  const rendererChannels = new Map();
+  const mainChannels = new Map();
+  for (const file of metas) {
+    if (!file.content) continue;
+    const invokeRx = /ipcRenderer\.invoke\(\s*['"]([^'"]+)['"]/g;
+    const handleRx = /ipcMain\.handle\(\s*['"]([^'"]+)['"]/g;
+    while ((match = invokeRx.exec(file.content))) {
+      if (!rendererChannels.has(match[1])) rendererChannels.set(match[1], []);
+      rendererChannels.get(match[1]).push(file.path);
+    }
+    while ((match = handleRx.exec(file.content))) {
+      if (!mainChannels.has(match[1])) mainChannels.set(match[1], []);
+      mainChannels.get(match[1]).push(file.path);
+    }
+  }
+  const channelNames = [...new Set([...rendererChannels.keys(), ...mainChannels.keys()])].sort();
+  const ipc = channelNames.map((channel) => ({
+    channel,
+    renderer:rendererChannels.get(channel) || [],
+    main:mainChannels.get(channel) || [],
+    connected:rendererChannels.has(channel) && mainChannels.has(channel)
+  }));
+
+  const reachability = {};
+  for (const file of metas) {
+    const test = /(^|\/)(?:test|tests|__tests__)(\/|$)|\.(?:test|spec)\./i.test(file.path);
+    const renderer = rendererReachable.has(file.path);
+    const main = mainReachable.has(file.path);
+    reachability[file.path] = test ? 'test'
+      : renderer && main ? 'renderer+main'
+      : renderer ? 'renderer-active'
+      : main ? 'main-active'
+      : 'inactive-or-unreferenced';
+  }
+
+  return {
+    dependencies,
+    dependents,
+    routes,
+    ipc,
+    reachability,
+    rendererReachableCount:rendererReachable.size,
+    mainReachableCount:mainReachable.size
+  };
+}
+
 function inspectWorkspace(root) {
   const { base, pkg } = inspectRoot(root);
   const metas = listProjectFiles(base).map(sourceMeta);
-  const source = metas.filter(f => /\.(?:js|jsx|cjs|mjs|ts|tsx)$/.test(f.ext));
-  const tests = metas.filter(f => /(^|\/)(?:test|tests|__tests__)(\/|$)|\.(?:test|spec)\./i.test(f.path));
+  const source = metas.filter((file) => /\.(?:js|jsx|cjs|mjs|ts|tsx)$/.test(file.ext));
+  const tests = metas.filter((file) => /(^|\/)(?:test|tests|__tests__)(\/|$)|\.(?:test|spec)\./i.test(file.path));
+  const architecture = buildArchitecture(metas);
   const directories = {};
   for (const file of metas) {
     const top = file.path.split('/')[0] || '.';
     directories[top] = (directories[top] || 0) + 1;
   }
+
   const findings = [];
-  const huge = source.filter(f => f.lines > 1200).sort((a,b)=>b.lines-a.lines).slice(0,12);
+  const huge = source.filter((file) => file.lines > 1200).sort((a,b) => b.lines - a.lines).slice(0,12);
   if (huge.length) findings.push({
     severity:'medium',
     type:'maintainability',
     title:'Nagy forrásfájlok',
-    detail:huge.map(f=>`${f.path} (${f.lines} sor)`).join(', ')
+    detail:huge.map((file) => `${file.path} (${file.lines} sor)`).join(', ')
   });
-  const todoFiles = source.filter(f => f.todoCount > 0).sort((a,b)=>b.todoCount-a.todoCount).slice(0,12);
+  const todoFiles = source.filter((file) => file.todoCount > 0).sort((a,b) => b.todoCount - a.todoCount).slice(0,12);
   if (todoFiles.length) findings.push({
     severity:'info',
     type:'maintenance',
     title:'Karbantartási jelölések',
-    detail:todoFiles.map(f=>`${f.path}: ${f.todoCount}`).join(', ')
+    detail:todoFiles.map((file) => `${file.path}: ${file.todoCount}`).join(', ')
   });
-  const uiHardcoded = source.filter(f => f.hardcodedUi > 6).sort((a,b)=>b.hardcodedUi-a.hardcodedUi).slice(0,10);
+  const uiHardcoded = source.filter((file) => file.hardcodedUi > 6).sort((a,b) => b.hardcodedUi - a.hardcodedUi).slice(0,10);
   if (uiHardcoded.length) findings.push({
     severity:'medium',
     type:'localization',
     title:'Valószínű hard-coded UI szövegek',
-    detail:uiHardcoded.map(f=>`${f.path}: ${f.hardcodedUi}`).join(', ')
+    detail:uiHardcoded.map((file) => `${file.path}: ${file.hardcodedUi}`).join(', ')
+  });
+  const disconnectedIpc = architecture.ipc.filter((item) => !item.connected).slice(0,20);
+  if (disconnectedIpc.length) findings.push({
+    severity:'medium',
+    type:'ipc',
+    title:'Egyoldalú IPC csatornák',
+    detail:disconnectedIpc.map((item) => item.channel).join(', ')
   });
   if (!tests.length) findings.push({ severity:'high', type:'reliability', title:'Nincsenek tesztek', detail:'A projektben nem található automatikus teszt.' });
 
-  const imports = source.reduce((sum,f)=>sum+f.imports.length,0);
+  const imports = source.reduce((sum,file) => sum + file.imports.length, 0);
+  const decoratedFiles = metas.map(({content,full,...file}) => ({
+    ...file,
+    reachability:architecture.reachability[file.path] || 'unknown',
+    dependencies:architecture.dependencies[file.path] || [],
+    dependents:architecture.dependents[file.path] || []
+  }));
   return {
     root:base,
     package:{ name:pkg.name, version:pkg.version, main:pkg.main || null },
@@ -220,57 +340,105 @@ function inspectWorkspace(root) {
       sourceFiles:source.length,
       tests:tests.length,
       imports,
+      rendererReachable:architecture.rendererReachableCount,
+      mainReachable:architecture.mainReachableCount,
+      routes:architecture.routes.length,
+      ipcChannels:architecture.ipc.length,
       directories
     },
     findings,
-    files:metas.map(({content,full,...file})=>file)
+    architecture:{
+      routes:architecture.routes,
+      ipc:architecture.ipc,
+      reachability:architecture.reachability
+    },
+    files:decoratedFiles
   };
 }
 
 function queryTokens(query='') {
-  return [...new Set(String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9_/-]+/).filter(t=>t.length>=3))].slice(0,24);
+  return [...new Set(String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9_/-]+/).filter((token) => token.length >= 3))].slice(0,24);
 }
 
 function buildDiagnosticContext(root, query='', options={}) {
   const inspection = inspectWorkspace(root);
   const tokens = queryTokens(query);
-  const maxFiles = Math.max(3,Math.min(14,Number(options.maxFiles)||10));
-  const candidates = listProjectFiles(root).map(sourceMeta).filter(f => f.content);
-  const scored = candidates.map(file => {
-    const hay = (file.path+'\n'+file.content.slice(0,100000)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const maxFiles = Math.max(5,Math.min(24,Number(options.maxFiles)||14));
+  const candidates = listProjectFiles(root).map(sourceMeta).filter((file) => file.content);
+  const known = new Map(candidates.map((file) => [file.path,file]));
+  const architecture = buildArchitecture(candidates);
+
+  const scored = candidates.map((file) => {
+    const hay = (file.path + '\n' + file.content.slice(0,120000)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
     let score = /src\/pages|src\/components|src\/lib|electron\//.test(file.path) ? 2 : 0;
+    const reach = architecture.reachability[file.path];
+    if (reach === 'renderer-active' || reach === 'main-active' || reach === 'renderer+main') score += 4;
     for (const token of tokens) {
-      if (file.path.toLowerCase().includes(token)) score += 10;
-      const occurrences = hay.split(token).length - 1;
-      score += Math.min(occurrences,8);
+      if (file.path.toLowerCase().includes(token)) score += 12;
+      score += Math.min(hay.split(token).length - 1, 10);
     }
-    if (/package\.json$|src\/App\.jsx$|src\/components\/Layout\.jsx$|electron\/main\.cjs$/.test(file.path)) score += 3;
+    if (/package\.json$|src\/App\.jsx$|src\/components\/Layout\.jsx$|electron\/main\.cjs$|electron\/preload\.cjs$/.test(file.path)) score += 3;
     return { file, score };
-  }).sort((a,b)=>b.score-a.score);
+  }).sort((a,b) => b.score - a.score);
 
-  const selected = scored.filter(item=>item.score>0).slice(0,maxFiles);
-  if (!selected.length) selected.push(...scored.slice(0,Math.min(6,maxFiles)));
+  const selectedPaths = [];
+  const addPath = (filePath) => {
+    if (filePath && known.has(filePath) && !selectedPaths.includes(filePath) && selectedPaths.length < maxFiles) selectedPaths.push(filePath);
+  };
 
-  let budget = Number(options.maxChars)||36000;
-  const excerpts=[];
-  for (const {file,score} of selected) {
+  for (const item of scored) {
+    if (item.score <= 0 && selectedPaths.length >= 6) break;
+    addPath(item.file.path);
+    if (selectedPaths.length >= Math.min(8,maxFiles)) break;
+  }
+
+  const seedPaths = [...selectedPaths];
+  for (const filePath of seedPaths) {
+    for (const dep of architecture.dependencies[filePath] || []) addPath(dep);
+    for (const parent of architecture.dependents[filePath] || []) addPath(parent);
+  }
+
+  const queryLower = String(query).toLowerCase();
+  if (/ipc|electron|preload|bridge|háttér|hatter|jogosults|rendszer/.test(queryLower)) {
+    addPath('electron/main.cjs');
+    addPath('electron/preload.cjs');
+  }
+  if (/route|útvonal|utvonal|menü|menu|oldal|page/.test(queryLower)) {
+    addPath('src/App.jsx');
+    addPath('src/components/Layout.jsx');
+  }
+
+  let budget = Number(options.maxChars) || 52000;
+  const excerpts = [];
+  for (const filePath of selectedPaths) {
     if (budget <= 0) break;
-    const excerpt = file.content.slice(0,Math.min(9000,budget));
+    const file = known.get(filePath);
+    const excerpt = file.content.slice(0,Math.min(10000,budget));
     budget -= excerpt.length;
     excerpts.push({
       path:file.path,
-      score,
+      score:scored.find((item) => item.file.path === file.path)?.score || 0,
       lines:file.lines,
-      imports:file.imports.slice(0,20),
+      imports:file.imports.slice(0,24),
+      dependencies:architecture.dependencies[file.path] || [],
+      dependents:architecture.dependents[file.path] || [],
+      reachability:architecture.reachability[file.path] || 'unknown',
+      routes:inspection.architecture.routes.filter((route) => route.file === file.path),
+      ipc:inspection.architecture.ipc.filter((item) => item.renderer.includes(file.path) || item.main.includes(file.path)),
       excerpt
     });
   }
+
   return {
     map:{
       package:inspection.package,
       summary:inspection.summary,
       findings:inspection.findings,
-      topFiles:inspection.files.sort((a,b)=>b.lines-a.lines).slice(0,20)
+      architecture:{
+        routes:inspection.architecture.routes,
+        ipc:inspection.architecture.ipc.slice(0,120)
+      },
+      topFiles:inspection.files.sort((a,b) => b.lines - a.lines).slice(0,24)
     },
     excerpts
   };
