@@ -72,6 +72,19 @@ export default function SystemCenter() {
     };
   }, []);
 
+  const toggleCrashAutoRepair = async () => {
+    try {
+      const next = !autonomousState?.autoCrashRepair;
+      const state = await window.jarvisDesktop?.developerRepair?.setCrashAutoRepair?.(next);
+      if (state) setAutonomousState(state);
+      setMessage(next
+        ? tx('✓ Crash esetén az Autopilot automatikusan megpróbál biztonságos javítást készíteni.', '✓ Autopilot will automatically prepare a safe repair after crashes.')
+        : tx('Automatikus crash-javítás kikapcsolva.', 'Automatic crash repair disabled.'));
+    } catch (error) {
+      setMessage(tx('Crash-javítás beállítási hiba: ', 'Crash repair setting error: ') + (error?.message || error));
+    }
+  };
+
   const analyzeLatestCrash = () => {
     const latest = crashes[0];
     if (!latest) {
@@ -432,9 +445,16 @@ export default function SystemCenter() {
                 </p>
               </div>
             </div>
-            <button onClick={analyzeLatestCrash} disabled={!crashes.length || chatBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
-              {tx('Legutóbbi crash elemzése','Analyze latest crash')}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={toggleCrashAutoRepair} className={autonomousState?.autoCrashRepair
+                ? 'rounded-xl border border-green-500/30 bg-green-500/10 text-green-400 px-4 py-2.5 text-xs font-semibold'
+                : 'rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold'}>
+                {autonomousState?.autoCrashRepair ? tx('Auto crash-javítás: BE','Auto crash repair: ON') : tx('Auto crash-javítás: KI','Auto crash repair: OFF')}
+              </button>
+              <button onClick={analyzeLatestCrash} disabled={!crashes.length || chatBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
+                {tx('Legutóbbi crash elemzése','Analyze latest crash')}
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
             <div className="jarvis-metric"><span>{tx('Naplózott crash','Recorded crashes')}</span><strong>{crashes.length}</strong></div>
