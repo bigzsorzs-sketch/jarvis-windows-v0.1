@@ -42,10 +42,11 @@ export function sanitizeAssistantText(value, fallback = SAFE_ASSISTANT_FALLBACK)
   return text;
 }
 
-export function summarizeActionResults(results = []) {
-  if (!Array.isArray(results) || results.length === 0) return 'Done.';
+export function summarizeActionResults(results = [], lang = 'en') {
+  const hu = String(lang || '').toLowerCase().startsWith('hu');
+  if (!Array.isArray(results) || results.length === 0) return hu ? 'Kész.' : 'Done.';
   const failed = results.filter((item) => item?.result?.success === false).length;
-  if (failed === results.length) return 'Something went wrong. Please try again.';
-  if (failed > 0) return 'Done, but some parts could not be completed.';
-  return 'Done.';
+  if (failed === results.length) return hu ? 'A művelet nem sikerült. Próbáld újra.' : 'Something went wrong. Please try again.';
+  if (failed > 0) return hu ? 'Kész, de néhány rész nem sikerült.' : 'Done, but some parts could not be completed.';
+  return hu ? 'Kész.' : 'Done.';
 }
