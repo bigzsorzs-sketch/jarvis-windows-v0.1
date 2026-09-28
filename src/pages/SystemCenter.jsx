@@ -45,10 +45,14 @@ export default function SystemCenter() {
     'Térképezd fel a Jarvist, keresd meg a bizonyítható hibákat és regressziókat, javítsd őket a legkisebb biztonságos módosítással, majd futtasd végig az összes ellenőrzést.'
   );
   const [autonomousBusy, setAutonomousBusy] = useState(false);
+  const [crashes, setCrashes] = useState([]);
 
   useEffect(() => {
     window.jarvisDesktop?.elevatedDiagnostics?.status?.()
       .then((status) => setAdminStatus(status || { active:false, expiresAt:null }))
+      .catch(() => {});
+    window.jarvisDesktop?.getRecentCrashes?.(12)
+      .then((items) => setCrashes(Array.isArray(items) ? items : []))
       .catch(() => {});
   }, []);
 
@@ -67,6 +71,19 @@ export default function SystemCenter() {
       window.clearInterval(timer);
     };
   }, []);
+
+  const analyzeLatestCrash = () => {
+    const latest = crashes[0];
+    if (!latest) {
+      setMessage(tx('Nincs friss crash napló.', 'No recent crash record.'));
+      return;
+    }
+    const evidence = JSON.stringify(latest);
+    sendSelfRepairMessage(tx(
+      `Elemezd a legutóbbi Crash Watchdog eseményt. Azonosítsd a valószínű okot és javasolj vagy készíts biztonságos javítást. Crash: ${evidence}`,
+      `Analyze the latest Crash Watchdog event. Identify the likely cause and propose or prepare a safe repair. Crash: ${evidence}`
+    ));
+  };
 
   const startAutonomousRepair = async () => {
     if (!window.jarvisDesktop?.developerRepair?.runAutonomous) {
@@ -401,6 +418,32 @@ export default function SystemCenter() {
           </div>
         </section>
 
+        <section className="app-surface rounded-3xl p-5 md:p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0"><AlertTriangle size={19} className="text-red-400"/></div>
+              <div>
+                <h2 className="font-semibold">{tx('Crash Watchdog + automatikus helyreállítás','Crash Watchdog + automatic recovery')}</h2>
+                <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                  {tx(
+                    'Renderer- vagy folyamatösszeomlásnál naplót készít, korlátozottan újraindítja a felületet, crash-loop esetén leáll, és aktív Autopilot mellett a crash bizonyítékot automatikusan átadja a Self-Repairnek.',
+                    'On renderer or process failure it records evidence, performs bounded UI recovery, stops on crash loops, and with Autopilot active feeds crash evidence into Self-Repair automatically.'
+                  )}
+                </p>
+              </div>
+            </div>
+            <button onClick={analyzeLatestCrash} disabled={!crashes.length || chatBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
+              {tx('Legutóbbi crash elemzése','Analyze latest crash')}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+            <div className="jarvis-metric"><span>{tx('Naplózott crash','Recorded crashes')}</span><strong>{crashes.length}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Auto crash-javítás','Auto crash repair')}</span><strong>{autonomousState?.autoCrashRepair ? tx('AKTÍV','ACTIVE') : tx('KIKAPCSOLVA','OFF')}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Utolsó típus','Latest type')}</span><strong className="text-[10px]">{crashes[0]?.kind || '-'}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Utolsó időpont','Latest time')}</span><strong className="text-[10px]">{crashes[0]?.at ? new Date(crashes[0].at).toLocaleString() : '-'}</strong></div>
+          </div>
+        </section>
+
         <section className="app-surface rounded-3xl p-5 md:p-6 border border-primary/20">
           <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
             <div className="flex items-start gap-3 min-w-0">
@@ -475,6 +518,22 @@ export default function SystemCenter() {
                   {autonomousState.releaseCandidate?.sha256 && (
                     <div className="text-[10px] text-muted-foreground mt-1 break-all">
                       SHA-256: {autonomousState.releaseCandidate.sha256}
+                    </div>
+                  )}
+                  <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="jarvis-metric"><span>{tx('Kockázat','Risk')}</span><strong>{riskLabel(autonomousState.releaseCandidate?.riskSummary || 'low', hu)}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Módosított fájl','Changed files')}</span><strong>{autonomousState.releaseCandidate?.changedFiles?.length || 0}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Digitális aláírás','Code signing')}</span><strong>{autonomousState.releaseCandidate?.signed ? tx('ÉRVÉNYES','VALID') : tx('NINCS / NEM ÉRVÉNYES','UNSIGNED')}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Release manifest','Release manifest')}</span><strong>{autonomousState.releaseCandidate?.manifestPath ? 'OK' : '-'}</strong></div>
+                  </div>
+                  {autonomousState.releaseCandidate?.signature?.subject && (
+                    <div className="text-[10px] text-muted-foreground mt-2 break-all">
+                      {tx('Aláíró: ','Signer: ')}{autonomousState.releaseCandidate.signature.subject}
+                    </div>
+                  )}
+                  {autonomousState.releaseCandidate?.changedFiles?.length > 0 && (
+                    <div className="text-[10px] text-muted-foreground mt-2 break-all">
+                      {tx('Fájlok: ','Files: ')}{autonomousState.releaseCandidate.changedFiles.join(', ')}
                     </div>
                   )}
                 </div>
