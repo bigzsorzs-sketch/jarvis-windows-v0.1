@@ -108,3 +108,45 @@
 .jarvis-command-chat-input button:disabled{opacity:.45;box-shadow:none}
 @media(max-width:560px){.jarvis-command-chat{width:96%}.jarvis-command-chat-log{max-height:130px}}
 @media(min-width:901px){.jarvis-command-stage{justify-content:flex-start;padding-top:34px}.jarvis-command-chat{margin-top:8px}.jarvis-command-chat-log{max-height:128px}}
+
+
+/* v0.3.11 — desktop command-center alignment and compact-height fit */
+@media(min-width:901px){
+  .jarvis-command-center-hero{
+    height:100%;
+    min-height:0;
+    padding:clamp(14px,2.5vh,26px) 3.2%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+  }
+  .jarvis-command-stage{
+    width:100%;
+    height:100%;
+    min-height:0;
+    max-height:760px;
+    justify-content:center;
+    padding:0;
+    overflow:hidden;
+  }
+  .jarvis-hero-orb{margin-top:0}
+  .jarvis-command-copy{margin-top:16px}
+  .jarvis-command-actions{margin:14px auto 10px}
+  .jarvis-wave-console{margin:0 auto}
+  .jarvis-command-chat{margin:8px auto 0}
+  .jarvis-command-chat-log{max-height:clamp(96px,18vh,170px)}
+}
+@media(min-width:901px) and (max-height:760px){
+  .jarvis-command-center-hero{padding-top:10px;padding-bottom:10px}
+  .jarvis-command-stage{max-height:none}
+  .jarvis-hero-orb{width:104px;height:104px}
+  .jarvis-command-copy{margin-top:10px}
+  .jarvis-command-copy h2{font-size:29px}
+  .jarvis-command-copy p{margin-top:4px;font-size:11px}
+  .jarvis-command-actions{margin:10px auto 8px}
+  .jarvis-command-action{min-height:42px}
+  .jarvis-wave-console{min-height:58px}
+  .jarvis-command-chat{margin-top:6px}
+  .jarvis-command-chat-log{max-height:92px}
+}

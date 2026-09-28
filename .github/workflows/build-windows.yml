@@ -193,12 +193,12 @@ jobs:
         run: throw "Release publication is allowed only from main."
 
       - name: Verify signer before publication
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.10 combined approved'))
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.11 combined approved'))
         shell: pwsh
         run: |
           $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
           $signature = Get-AuthenticodeSignature -LiteralPath $exe.FullName
-          $oneTimeOwnerApproval = "$env:GITHUB_EVENT_NAME" -eq "push" -and "${{ github.event.head_commit.message }}".StartsWith("Publish v0.3.10 combined approved")
+          $oneTimeOwnerApproval = "$env:GITHUB_EVENT_NAME" -eq "push" -and "${{ github.event.head_commit.message }}".StartsWith("Publish v0.3.11 combined approved")
           $allowUnsigned = ("${{ inputs.allow_unsigned_release }}" -eq "true") -or $oneTimeOwnerApproval
           if ([string]$signature.Status -ne "Valid" -and -not $allowUnsigned) {
             throw "Installer Authenticode status is $($signature.Status). Configure WINDOWS_CSC_LINK / WINDOWS_CSC_KEY_PASSWORD or explicitly approve allow_unsigned_release."
@@ -240,14 +240,14 @@ jobs:
           }
 
       - name: Publish immutable GitHub release
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.10 combined approved'))
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.11 combined approved'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if ("$env:GITHUB_EVENT_NAME" -eq "push" -and [string]$pkg.version -ne "0.3.10") {
-            throw "One-time owner-approved push publication is restricted to v0.3.10."
+          if ("$env:GITHUB_EVENT_NAME" -eq "push" -and [string]$pkg.version -ne "0.3.11") {
+            throw "One-time owner-approved push publication is restricted to v0.3.11."
           }
           $tag = "v$($pkg.version)"
           $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
@@ -256,4 +256,4 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists and will not be overwritten" }
           $global:LASTEXITCODE = 0
-          gh release create $tag $exe.FullName $sha.FullName $manifest.FullName --target "$env:GITHUB_SHA" --title "Jarvis $tag" --notes "Jarvis v0.3.10 integrates the conversation directly under the home waveform, removes redundant Chat navigation, and hardens Self-Repair/Autopilot against stale crash evidence, interrupted runs, unbounded waits, and stuck stop states. Includes CodeQL, regression tests, packaged Self-Repair verification, SHA-256 checksum, and release manifest."
+          gh release create $tag $exe.FullName $sha.FullName $manifest.FullName --target "$env:GITHUB_SHA" --title "Jarvis $tag" --notes "Jarvis v0.3.11 fixes approval consistency, Windows tel/mailto/sms launching, invoice PDF export, local notifications, voice-runtime cleanup, route sync reliability, long low-power trips, OBD scan concurrency, local-date handling, Self-Repair sandbox cleanup on Windows, and desktop home-screen alignment. Includes CodeQL, regression tests, packaged Self-Repair verification, SHA-256 checksum, and release manifest."

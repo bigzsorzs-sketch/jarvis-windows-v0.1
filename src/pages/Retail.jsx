@@ -15,8 +15,9 @@ import RetailInsightsTab from '@/components/retail/RetailInsightsTab';
 import RetailStockMovementPanel from '@/components/retail/RetailStockMovementPanel';
 import RetailRestockTab from '@/components/retail/RetailRestockTab';
 import RetailStocktakeTab from '@/components/retail/RetailStocktakeTab';
+import { localDateKey } from '@/lib/localDate';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => localDateKey();
 
 export default function Retail() {
   const { t } = useLang();

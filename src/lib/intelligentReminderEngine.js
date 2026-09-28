@@ -1,7 +1,8 @@
 import { jarvis } from '@/api/jarvisClient';
+import { localDateKey } from '@/lib/localDate';
 
 function getTodayKey() {
-  return new Date().toISOString().split('T')[0];
+  return localDateKey();
 }
 
 function normalize(value = '') {

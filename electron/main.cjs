@@ -1999,8 +1999,15 @@ function isTrustedRendererNavigation(targetUrl='') {
 function openExternalUrl(targetUrl='') {
   try {
     const parsed = new URL(String(targetUrl || ''));
-    if (!['http:','https:'].includes(parsed.protocol)) return;
-    void shell.openExternal(parsed.toString()).catch(()=>{});
+    const allowedProtocols = new Set(['http:','https:','mailto:','tel:','sms:']);
+    if (!allowedProtocols.has(parsed.protocol)) return;
+    void shell.openExternal(parsed.toString()).catch((error)=>{
+      recordCrash('external-url-open-failed', {
+        kind:'external-url',
+        message:String(error?.message || error),
+        href:parsed.protocol
+      });
+    });
   } catch {}
 }
 

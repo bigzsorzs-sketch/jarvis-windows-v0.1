@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLang } from '@/lib/i18n';
 import { deleteOwnedEntity } from '@/lib/ownedEntityHelpers';
 import PullToRefresh from '@/components/common/PullToRefresh';
+import { localDateKey } from '@/lib/localDate';
 
 const ConfirmDialog = ({ title, message, onConfirm, onCancel, isOpen }) => {
   if (!isOpen) return null;
@@ -59,6 +60,13 @@ export default function Contacts() {
   const callRecognitionRef = useRef(null);
 
   useEffect(() => {
+    return () => {
+      callRecognitionRef.current?.abort?.();
+      callRecognitionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     jarvis.auth.me()
       .then((currentUser) => {
         if (!currentUser?.email) throw new Error('auth_required');
@@ -72,7 +80,7 @@ export default function Contacts() {
     if (!form.name.trim()) return;
     const currentUser = await jarvis.auth.me().catch(() => null);
     if (!currentUser?.email) return;
-    const created = await jarvis.entities.Contact.create({ ...form, created_by: currentUser.email, last_contacted: new Date().toISOString().split('T')[0] });
+    const created = await jarvis.entities.Contact.create({ ...form, created_by: currentUser.email, last_contacted: localDateKey() });
     setContacts(prev => [created, ...prev]);
     setForm({ name: '', phone: '', email: '', relationship: '', address: '', notes: '' });
     setShowAdd(false);
@@ -118,7 +126,7 @@ export default function Contacts() {
                 relationship: '',
                 notes: '',
                 created_by: currentUser.email,
-                last_contacted: new Date().toISOString().split('T')[0]
+                last_contacted: localDateKey()
               });
               setContacts(prev => [created, ...prev]);
             }

@@ -4,9 +4,11 @@ import { ArrowLeft, FileText, Plus, X, Trash2, Bot, Loader2, ChevronDown, Chevro
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
+import { localDateKey } from '@/lib/localDate';
+import { jsPDF } from 'jspdf';
 
 const genNumber = () => 'INV-' + Math.random().toString(36).substring(2, 10).toUpperCase();
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => localDateKey();
 
 const statusColors = {
   piszkozat: 'bg-secondary text-muted-foreground',
@@ -84,28 +86,47 @@ export default function InvoiceTool() {
 
   const generateWithAI = async () => {
     setAiLoading(true);
-    const response = await jarvis.functions.invoke('runAiTask', {
-      prompt: 'Generálj egy minta számlát JSON formátumban: {"client_name": "...", "client_email": "...", "notes": "...", "items": [{"description": "...", "quantity": 1, "unit_price": 100, "total": 100}]}. Csak a JSON-t add vissza.'
-    });
-    const result = response.data?.result || '';
     try {
+      const response = await jarvis.functions.invoke('runAiTask', {
+        prompt: 'Generálj egy minta számlát JSON formátumban: {"client_name": "...", "client_email": "...", "notes": "...", "items": [{"description": "...", "quantity": 1, "unit_price": 100, "total": 100}]}. Csak a JSON-t add vissza.'
+      });
+      const result = response.data?.result || '';
       const parsed = JSON.parse(result.replace(/```json|```/g, '').trim());
       setForm(f => ({ ...f, ...parsed, total_amount: parsed.items?.reduce((s, it) => s + (it.total || 0), 0) || 0 }));
-    } catch {}
-    setAiLoading(false);
+    } catch (error) {
+      console.error('Invoice AI generation error:', error);
+      setErrorMessage('A minta számlát most nem tudtuk elkészíteni.');
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const exportPDF = async (inv) => {
     setPdfLoading(inv.id);
-    const response = await jarvis.functions.invoke('exportInvoicePdf', inv);
-    const blob = new Blob([response.data], { type: 'application/pdf' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${inv.invoice_number}.pdf`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-    setPdfLoading(null);
+    setErrorMessage('');
+    try {
+      const doc = new jsPDF();
+      doc.setFontSize(20);
+      doc.text('SZÁMLA / INVOICE', 20, 25);
+      doc.setFontSize(11);
+      doc.text(`Számlaszám: ${inv.invoice_number || ''}`, 20, 45);
+      doc.text(`Dátum: ${inv.issue_date || today()}`, 20, 55);
+      doc.text(`Vevő: ${inv.client_name || 'N/A'}`, 20, 70);
+      let y = 90;
+      for (const item of inv.items || []) {
+        if (y > 260) { doc.addPage(); y = 20; }
+        doc.text(`${item.description || ''} – ${item.quantity || 1} × £${item.unit_price || 0} = £${item.total || 0}`, 20, y);
+        y += 10;
+      }
+      doc.setFontSize(14);
+      doc.text(`ÖSSZESEN: £${Number(inv.total_amount || 0).toFixed(2)}`, 20, y + 10);
+      doc.save(`${inv.invoice_number || 'invoice'}.pdf`);
+    } catch (error) {
+      console.error('Invoice PDF export error:', error);
+      setErrorMessage('A PDF exportálása nem sikerült.');
+    } finally {
+      setPdfLoading(null);
+    }
   };
 
   return (

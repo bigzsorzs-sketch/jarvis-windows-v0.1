@@ -6,6 +6,7 @@ import { saveRouteSnapshot } from '@/lib/indexedDbOfflineStore';
 import { setRouteTrackingState } from '@/lib/routeTrackingStore';
 
 const ROUTE_QUEUE_PREFIX = 'route_';
+let routeSyncing = false;
 
 function getRouteItems() {
   return getOfflineQueue().filter((item) => item.type?.startsWith(ROUTE_QUEUE_PREFIX));
@@ -76,34 +77,40 @@ async function syncRouteItem(item) {
 }
 
 export async function syncRouteQueue() {
-  if (!networkMonitor.isOnline()) return;
+  if (!networkMonitor.isOnline() || routeSyncing) return;
   const items = getRouteItems();
   if (items.length === 0) {
     mapStats();
     return;
   }
 
+  routeSyncing = true;
   setRouteTrackingState({ syncStatus: 'syncing' });
 
-  for (const item of items) {
-    if ((item.retry_count || 0) >= CONFIG.ROUTE_QUEUE_MAX_RETRIES) continue;
+  try {
+    for (const item of items) {
+      if ((item.retry_count || 0) >= CONFIG.ROUTE_QUEUE_MAX_RETRIES) continue;
 
-    updateOfflineAction(item.id, (current) => ({ ...current, status: 'syncing' }));
-    try {
-      await syncRouteItem(item);
-      removeOfflineAction(item.id);
-    } catch {
-      updateOfflineAction(item.id, (current) => ({
-        ...current,
-        retry_count: (current.retry_count || 0) + 1,
-        status: (current.retry_count || 0) + 1 >= CONFIG.ROUTE_QUEUE_MAX_RETRIES ? 'failed' : 'pending',
-      }));
-      await new Promise((resolve) => setTimeout(resolve, CONFIG.ROUTE_QUEUE_BACKOFF_MS * (2 ** Math.min(item.retry_count || 0, 4))));
+      updateOfflineAction(item.id, (current) => ({ ...current, status: 'syncing' }));
+      try {
+        await syncRouteItem(item);
+        removeOfflineAction(item.id);
+      } catch {
+        updateOfflineAction(item.id, (current) => ({
+          ...current,
+          retry_count: (current.retry_count || 0) + 1,
+          status: (current.retry_count || 0) + 1 >= CONFIG.ROUTE_QUEUE_MAX_RETRIES ? 'failed' : 'pending',
+        }));
+        if (networkMonitor.isOnline()) {
+          await new Promise((resolve) => setTimeout(resolve, CONFIG.ROUTE_QUEUE_BACKOFF_MS * (2 ** Math.min(item.retry_count || 0, 4))));
+        }
+      }
     }
+  } finally {
+    routeSyncing = false;
+    mapStats();
+    setRouteTrackingState({ syncStatus: 'idle' });
   }
-
-  mapStats();
-  setRouteTrackingState({ syncStatus: 'idle' });
 }
 
 export function retryFailedRouteSync() {

@@ -156,11 +156,43 @@ function createSandbox(root, plan, sandboxRoot) {
   return dir;
 }
 function destroySandbox(dir, sandboxRoot) {
-  if(!dir || !sandboxRoot) return;
+  if(!dir || !sandboxRoot) return { removed:false, skipped:true };
   const base=path.resolve(sandboxRoot);
   const target=path.resolve(dir);
   if(target===base || !target.startsWith(base+path.sep)) throw new Error('DEV_REPAIR_SANDBOX_PATH_INVALID');
-  fs.rmSync(target,{recursive:true,force:true});
+  if(!fs.existsSync(target)) return { removed:true, alreadyMissing:true };
+
+  // Windows can keep a sandbox directory locked briefly after npm/node exits,
+  // especially when node_modules is a junction. Remove the junction first and
+  // use bounded retries so a successful repair is not reported as failed only
+  // because cleanup raced a released file handle.
+  const sandboxModules=path.join(target,'node_modules');
+  try {
+    if(fs.existsSync(sandboxModules)) fs.rmSync(sandboxModules,{recursive:true,force:true,maxRetries:4,retryDelay:120});
+  } catch {}
+
+  try {
+    fs.rmSync(target,{recursive:true,force:true,maxRetries:8,retryDelay:180});
+    return { removed:true };
+  } catch(error) {
+    if(!['EPERM','EBUSY','ENOTEMPTY','EACCES'].includes(error?.code)) throw error;
+    try { fs.chmodSync(target,0o700); } catch {}
+    try {
+      fs.rmSync(target,{recursive:true,force:true,maxRetries:8,retryDelay:220});
+      return { removed:true, retried:true };
+    } catch(secondError) {
+      if(!['EPERM','EBUSY','ENOTEMPTY','EACCES'].includes(secondError?.code)) throw secondError;
+      const quarantine=target+`.pending-delete-${Date.now()}`;
+      try {
+        fs.renameSync(target,quarantine);
+        return { removed:false, deferred:true, quarantine };
+      } catch {
+        // Cleanup failure must not invalidate an otherwise verified repair.
+        // The next run uses a unique sandbox path and can retry stale cleanup.
+        return { removed:false, deferred:true, quarantine:null };
+      }
+    }
+  }
 }
 function rollback(root,dir){
   const manifest=JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'),'utf8'));

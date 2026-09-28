@@ -89,7 +89,11 @@ export function getLastDestinations() {
 export function getActiveRoute() {
   const parsed = loadJson(ACTIVE_ROUTE_KEY, null);
   if (!parsed) return null;
-  if (Date.now() - new Date(parsed.last_update_at || parsed.start_time).getTime() > CONFIG.ROUTE_SESSION_TIMEOUT_MS) {
+  const timeoutMs = parsed.tracking_mode === 'LOW_POWER'
+    ? CONFIG.ROUTE_LOW_POWER_SESSION_TIMEOUT_MS
+    : CONFIG.ROUTE_SESSION_TIMEOUT_MS;
+  const anchor = new Date(parsed.last_update_at || parsed.start_time).getTime();
+  if (!Number.isFinite(anchor) || Date.now() - anchor > timeoutMs) {
     clearActiveRoute();
     return null;
   }

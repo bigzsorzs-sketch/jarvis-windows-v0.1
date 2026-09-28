@@ -1,4 +1,6 @@
-const today = () => new Date().toISOString().split('T')[0];
+import { localDateKey } from '@/lib/localDate';
+
+const today = () => localDateKey();
 
 export function buildAssistantBrainSummary(ctx) {
   if (!ctx) return '';

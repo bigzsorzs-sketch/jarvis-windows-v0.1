@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
 import SensitiveValue from '@/components/common/SensitiveValue';
 import { maskCurrency } from '@/lib/dataMasker';
+import { localDateKey } from '@/lib/localDate';
 
 const SkeletonBar = () => (
   <div className="h-24 bg-gradient-to-r from-secondary via-secondary to-secondary bg-[length:200%_100%] animate-pulse rounded-xl" />
@@ -94,7 +95,7 @@ export default function Muszerfal() {
 
   const completedTodos = todos.filter(t => t.is_completed).length;
   const activeMeds = medications.filter(m => m.is_active).length;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateKey();
   const todayCalories = meals.filter(m => m.date === todayStr).reduce((s, m) => s + (m.calories || 0), 0);
   const totalIncome = finances.filter(f => f.type === 'income').reduce((s, f) => s + (f.amount || 0), 0);
   const totalExpense = finances.filter(f => f.type === 'expense').reduce((s, f) => s + (f.amount || 0), 0);
@@ -104,7 +105,7 @@ export default function Muszerfal() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().split('T')[0];
+      const key = localDateKey(d);
       const dayName = ['V','H','K','Sz','Cs','P','Szo'][d.getDay()];
       const dayFinances = finances.filter(f => f.date === key);
       days.push({

@@ -4,6 +4,7 @@ import { useLang } from '@/lib/i18n';
 import { FileBarChart, Loader2, RefreshCw, Droplets, UtensilsCrossed, CheckSquare, Sparkles, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
+import { localDateKey } from '@/lib/localDate';
 
 
 
@@ -45,7 +46,7 @@ export default function Jelentesek() {
   const weekAgo = (() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);
-    return d.toISOString().split('T')[0];
+    return localDateKey(d);
   })();
 
   useEffect(() => {
@@ -82,7 +83,7 @@ export default function Jelentesek() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().split('T')[0];
+      const key = localDateKey(d);
       const dayName = ['V', 'H', 'K', 'Sz', 'Cs', 'P', 'Szo'][d.getDay()];
       const dayBS = bloodSugars.filter(b => b.date === key);
       const dayMeals = meals.filter(m => m.date === key);

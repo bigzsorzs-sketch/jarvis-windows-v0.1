@@ -21,8 +21,9 @@ import PullToRefresh from '@/components/common/PullToRefresh';
 import MobileSelect from '@/components/common/MobileSelect';
 import SensitiveValue from '@/components/common/SensitiveValue';
 import { maskBloodSugar } from '@/lib/dataMasker';
+import { localDateKey } from '@/lib/localDate';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => localDateKey();
 
 async function getCurrentUserOrThrow() {
   const currentUser = await jarvis.auth.me().catch(() => null);

@@ -55,8 +55,12 @@ export default function OBD2Scanner() {
       const rpmReadings = [];
       const tempReadings = [];
       let dtcCodes = [];
+      let tickRunning = false;
+      let finalized = false;
 
       const collectInterval = setInterval(async () => {
+        if (tickRunning || finalized) return;
+        tickRunning = true;
         try {
           const rpmReading = await manager.readPID('ENGINE_RPM');
           const tempReading = await manager.readPID('COOLANT_TEMP');
@@ -67,7 +71,8 @@ export default function OBD2Scanner() {
           const elapsedMs = Date.now() - startTime;
           setScanProgress(Math.min(99, Math.round((elapsedMs / 30000) * 100)));
 
-          if (elapsedMs > 30000) {
+          if (elapsedMs > 30000 && !finalized) {
+            finalized = true;
             clearInterval(collectInterval);
             setScanProgress(100);
             
@@ -106,6 +111,8 @@ export default function OBD2Scanner() {
           }
         } catch (err) {
           console.error('Scan hiba:', err);
+        } finally {
+          tickRunning = false;
         }
       }, 2000);
     } catch (err) {

@@ -1,4 +1,5 @@
 import { jarvis } from '@/api/jarvisClient';
+import { localDateKey } from '@/lib/localDate';
 
 async function getCurrentUserOwnerFilter() {
   const currentUser = await jarvis.auth.me().catch(() => null);
@@ -57,7 +58,7 @@ export async function getAdaptiveTone(settings) {
 
 // Generate end-of-day routine summary
 export async function generateDailySummary() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateKey();
   const { ownerFilter } = await getCurrentUserOwnerFilter();
   const [todos, finance, bs, meals, actions] = await Promise.all([
     jarvis.entities.TodoItem.filter(ownerFilter, '-created_date', 20).catch(() => []),

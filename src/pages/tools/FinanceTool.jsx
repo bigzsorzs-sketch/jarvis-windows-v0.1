@@ -7,8 +7,9 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import SensitiveValue from '@/components/common/SensitiveValue';
 import { maskCurrency } from '@/lib/dataMasker';
+import { localDateKey } from '@/lib/localDate';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => localDateKey();
 
 export default function FinanceTool() {
   const navigate = useNavigate();

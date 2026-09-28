@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
+import { localDateKey } from '@/lib/localDate';
 
 export default function FuelLogForm({ vehicles, onSubmit, saving }) {
   const [form, setForm] = useState({
     vehicle_id: vehicles?.[0]?.id || '',
-    date: new Date().toISOString().slice(0, 10),
+    date: localDateKey(),
     liters: '',
     total_cost: '',
     distance_km: '',

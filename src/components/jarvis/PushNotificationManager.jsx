@@ -2,119 +2,135 @@ import { useEffect, useRef } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import { CONFIG } from '@/lib/appConfig';
 import { logger } from '@/lib/logger';
+import { localDateKey } from '@/lib/localDate';
 
 const MODULE = 'PushNotificationManager';
 
-/**
- * Push Notification Manager — NO polling.
- *
- * Strategy:
- *  - Check once on mount (if permission already granted).
- *  - Re-check when the tab becomes visible again (visibilitychange).
- *  - Exponential backoff on repeated checks within a session to reduce traffic.
- *  - auth.me() is called ONCE at mount and cached — never called per-check.
- *  - All deduplication is scoped to the user's ID.
- */
 export default function PushNotificationManager() {
-  const userRef        = useRef(null);   // cached user object — avoid repeated auth calls
-  const nextAllowedRef = useRef(0);      // timestamp: earliest time the next check is allowed
-  const intervalRef    = useRef(CONFIG.NOTIF_MIN_INTERVAL); // current backoff interval
+  const userRef = useRef(null);
+  const nextAllowedRef = useRef(0);
+  const intervalRef = useRef(CONFIG.NOTIF_MIN_INTERVAL);
 
-  // ── Helper: show notifications via Service Worker ──────────────────────────
+  function notificationStoreKey() {
+    const userId = userRef.current?.id;
+    return userId ? `shownNotifications_${userId}` : 'shownNotifications';
+  }
+
+  function loadShown() {
+    try {
+      const now = Date.now();
+      const stored = JSON.parse(localStorage.getItem(notificationStoreKey()) || '[]');
+      return Array.isArray(stored)
+        ? stored.filter((entry) => now - Number(entry?.ts || 0) < CONFIG.NOTIF_TTL).slice(-CONFIG.NOTIF_MAX_STORED)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
   async function showNotifications(notifications) {
-    if (!notifications?.length) return;
+    if (!notifications?.length || !('Notification' in window) || Notification.permission !== 'granted') return;
 
-    const userId    = userRef.current?.id;
-    const storageKey = userId ? `shownNotifications_${userId}` : 'shownNotifications';
-    const now       = Date.now();
+    const shown = loadShown();
+    const shownTags = new Set(shown.map((entry) => entry.tag));
+    const now = Date.now();
 
-    const stored   = (() => { try { return JSON.parse(localStorage.getItem(storageKey) || '[]'); } catch { return []; } })();
-    const shownMap = stored.filter(e => (now - e.ts) < CONFIG.NOTIF_TTL).slice(-CONFIG.NOTIF_MAX_STORED);
-    const shownTags = new Set(shownMap.map(e => e.tag));
-
-    const fresh = notifications.filter(n => n?.tag && !shownTags.has(n.tag));
-    if (!fresh.length) return;
-
-    const reg = await navigator.serviceWorker.ready.catch(err => {
-      logger.warn(MODULE, 'SW not ready', { err: err?.message });
-      return null;
-    });
-    if (!reg) return;
-
-    for (const notif of fresh) {
+    for (const notif of notifications) {
+      if (!notif?.tag || shownTags.has(notif.tag)) continue;
       try {
-        await reg.showNotification(notif.title, {
-          body: notif.body,
-          tag:  notif.tag,
-          icon: '/icon-192x192.svg',
-          badge: '/icon-192x192.svg',
+        new Notification(notif.title || 'Jarvis', {
+          body: notif.body || '',
+          tag: notif.tag,
           requireInteraction: notif.requireInteraction ?? false,
-          data: notif.data,
         });
-        shownMap.push({ tag: notif.tag, ts: now });
-      } catch (err) {
-        logger.warn(MODULE, 'showNotification failed', { tag: notif.tag, err: err?.message });
+        shown.push({ tag:notif.tag, ts:now });
+        shownTags.add(notif.tag);
+      } catch (error) {
+        logger.warn(MODULE, 'Native notification failed', { tag:notif.tag, err:error?.message });
       }
     }
 
-    localStorage.setItem(storageKey, JSON.stringify(shownMap.slice(-CONFIG.NOTIF_MAX_STORED)));
-    logger.info(MODULE, `Showed ${fresh.length} new notification(s)`);
+    localStorage.setItem(notificationStoreKey(), JSON.stringify(shown.slice(-CONFIG.NOTIF_MAX_STORED)));
   }
 
-  // ── Core check function (runs at most once per backoff interval) ───────────
+  async function buildLocalNotifications() {
+    const user = userRef.current;
+    if (!user?.email) return [];
+    const owner = { created_by:user.email };
+    const today = localDateKey();
+
+    const [reminders, todos] = await Promise.all([
+      jarvis.entities.Reminder.filter({ ...owner, is_done:false }, '-due_date', 30).catch(() => []),
+      jarvis.entities.TodoItem.filter({ ...owner, is_completed:false }, '-created_date', 30).catch(() => []),
+    ]);
+
+    const dueReminders = reminders
+      .filter((item) => item?.due_date && item.due_date <= today)
+      .slice(0, 4)
+      .map((item) => ({
+        tag:`reminder:${item.id}`,
+        title:item.due_date < today ? 'Lejárt emlékeztető' : 'Mai emlékeztető',
+        body:item.title || item.description || 'Van egy esedékes emlékeztetőd.',
+        requireInteraction:item.due_date < today,
+      }));
+
+    const importantTodos = todos
+      .filter((item) => ['magas','surgos','high','urgent'].includes(String(item?.priority || '').toLowerCase()))
+      .slice(0, 2)
+      .map((item) => ({
+        tag:`todo:${item.id}`,
+        title:'Fontos teendő',
+        body:item.title || item.description || 'Van egy fontos nyitott teendőd.',
+        requireInteraction:false,
+      }));
+
+    return [...dueReminders, ...importantTodos];
+  }
+
   async function checkNotifications() {
     const now = Date.now();
-    if (now < nextAllowedRef.current) return; // backoff guard
+    if (now < nextAllowedRef.current) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
-    const permission = 'Notification' in window ? Notification.permission : 'default';
-    if (permission !== 'granted' || !('serviceWorker' in navigator)) return;
-
-    // Mark next allowed time BEFORE the async call (prevents concurrent runs)
     nextAllowedRef.current = now + intervalRef.current;
 
     try {
-      const response = await jarvis.functions.invoke('sendPushNotifications', {});
-      const { notifications } = response?.data ?? {};
+      const notifications = await buildLocalNotifications();
       await showNotifications(notifications);
-
-      // Success: reset to minimum interval
       intervalRef.current = CONFIG.NOTIF_MIN_INTERVAL;
-
-    } catch (err) {
-      // Failure: back off exponentially up to max
+    } catch (error) {
       intervalRef.current = Math.min(
         intervalRef.current * CONFIG.NOTIF_BACKOFF_FACTOR,
         CONFIG.NOTIF_MAX_INTERVAL
       );
       logger.warn(MODULE, 'Notification check failed, backing off', {
-        nextInterval: intervalRef.current,
-        err: err?.message,
+        nextInterval:intervalRef.current,
+        err:error?.message,
       });
     }
   }
 
   useEffect(() => {
-    // ── One-time auth: cache the user so we never call auth.me() repeatedly ──
-    jarvis.auth.me().then(u => {
-      userRef.current = u ?? null;
-      // Initial check on mount
-      checkNotifications();
-    }).catch(err => {
-      logger.warn(MODULE, 'Could not resolve user', { err: err?.message });
+    let cancelled = false;
+
+    jarvis.auth.me().then((user) => {
+      if (cancelled) return;
+      userRef.current = user ?? null;
+      void checkNotifications();
+    }).catch((error) => {
+      logger.warn(MODULE, 'Could not resolve user', { err:error?.message });
     });
 
-    // ── Visibility-based trigger: re-check when user returns to the tab ───────
-    function onVisibilityChange() {
-      if (document.visibilityState === 'visible') {
-        checkNotifications();
-      }
-    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void checkNotifications();
+    };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
+      cancelled = true;
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, []); // mount-only — all live state is in refs
+  }, []);
 
   return null;
 }

@@ -143,6 +143,8 @@ class VoiceRuntime {
     this.networkErrorCountRef = 0;
     this.networkCooldownUntilRef = 0;
     this.transcriptQueue = createTranscriptQueue();
+    this.networkUnsubscribeRef = null;
+    this.visibilityHandlerRef = null;
 
     // Event subscribers
     this.subscribers = new Map(); // event -> Set(callbacks)
@@ -269,7 +271,8 @@ class VoiceRuntime {
 
   // ─── INITIALIZATION ───────────────────────────────────────────────────────
   _initNetworkMonitoring() {
-    networkMonitor.subscribe((online) => {
+    this.networkUnsubscribeRef?.();
+    this.networkUnsubscribeRef = networkMonitor.subscribe((online) => {
       this._updateState({ isOnline: online });
       if (!online) {
         this.transcriptQueue.pause();
@@ -285,7 +288,8 @@ class VoiceRuntime {
 
   _initVisibilityHandling() {
     if (typeof document === 'undefined') return;
-    document.addEventListener('visibilitychange', () => {
+    if (this.visibilityHandlerRef) document.removeEventListener('visibilitychange', this.visibilityHandlerRef);
+    this.visibilityHandlerRef = () => {
       if (document.hidden) {
         this.restartAllowedRef = false;
         this._stopRecognition(false);
@@ -303,7 +307,8 @@ class VoiceRuntime {
           this._scheduleRestart(MIN_RESTART_DELAY_MS, 'app-visible');
         }
       }
-    });
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandlerRef);
   }
 
   _initSelfHealing() {
@@ -1002,6 +1007,14 @@ class VoiceRuntime {
     this._stopRecognition();
     if (this.restartTimeoutRef) clearTimeout(this.restartTimeoutRef);
     if (this.ttsTimeoutRef) clearTimeout(this.ttsTimeoutRef);
+    if (this.cycleTimeoutRef) clearTimeout(this.cycleTimeoutRef);
+    this.networkUnsubscribeRef?.();
+    this.networkUnsubscribeRef = null;
+    if (typeof document !== 'undefined' && this.visibilityHandlerRef) {
+      document.removeEventListener('visibilitychange', this.visibilityHandlerRef);
+    }
+    this.visibilityHandlerRef = null;
+    selfHealingMonitor.setHealCallback(null);
     this._cancelTTS();
     this.transcriptQueue.clear();
     logger.info(MODULE, 'Voice runtime destroyed');
