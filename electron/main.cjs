@@ -240,12 +240,9 @@ async function ensureAutonomousWorkspace() {
     if (fs.existsSync(destination)) continue;
 
     const externalSource = path.join(sourceRoot,entry);
-    const packagedSource = resourcePath(entry);
-    const source = fs.existsSync(externalSource)
-      ? externalSource
-      : (fs.existsSync(packagedSource) ? packagedSource : null);
+    const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
 
-    if (!source) {
+    if (!fs.existsSync(source)) {
       if (entry === 'package.json' || entry === 'package-lock.json') {
         throw new Error('AUTONOMOUS_REPAIR_SOURCE_MISSING:' + entry);
       }
