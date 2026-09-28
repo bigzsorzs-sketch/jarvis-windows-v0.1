@@ -87,6 +87,11 @@ export default function GlobalVoiceControl() {
   }, [voice.lastTranscriptEvent?.id, location.pathname, navigate, voice]);
 
   const toggleListening = useCallback(async () => {
+    if (voice.state.activationMode !== 'push-to-talk' && voice.state.handsFree) {
+      voice.setHandsFree(false);
+      return;
+    }
+
     const permission = await requestMicrophonePermission();
     if (!permission.ok) {
       alert(permission.message);
@@ -98,7 +103,7 @@ export default function GlobalVoiceControl() {
       return;
     }
 
-    voice.setHandsFree(!voice.state.handsFree);
+    voice.setHandsFree(true);
   }, [voice]);
 
   return (
