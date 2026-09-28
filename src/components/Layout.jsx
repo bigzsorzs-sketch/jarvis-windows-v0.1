@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Home, MessageCircle, BarChart3, Brain, Wrench, Settings, MoreHorizontal, X,
+  Home, BarChart3, Brain, Wrench, Settings, MoreHorizontal, X,
   Car, Activity, Cpu, Database, CalendarDays, Folder, Grid3X3, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import LocationSensor from './jarvis/LocationSensor';
@@ -59,7 +59,6 @@ export default function Layout() {
 
   const mobileMainNav = [
     { path: '/', label: t('home'), icon: Home },
-    { path: '/chat', label: t('assistant'), icon: MessageCircle },
     { path: '/eszkozok', label: t('tools'), icon: Wrench },
   ];
 
@@ -70,7 +69,6 @@ export default function Layout() {
 
   const desktopNav = [
     { path: '/', label: t('home'), icon: Home },
-    { path: '/chat', label: t('chat'), icon: MessageCircle },
     { path: '/reminders', label: t('tasks'), icon: Activity },
     { path: '/memoria', label: t('memories'), icon: Brain },
     { path: '/eszkozok', label: t('tools'), icon: Folder },
@@ -88,7 +86,7 @@ export default function Layout() {
   const activeMobileTab = (() => {
     const p = location.pathname;
     if (p === '/') return '/';
-    if (p === '/chat') return '/chat';
+    if (p === '/chat') return '/';
     if (p.startsWith('/beallitasok')) return '/beallitasok';
     if (
       p.startsWith('/eszkozok') ||

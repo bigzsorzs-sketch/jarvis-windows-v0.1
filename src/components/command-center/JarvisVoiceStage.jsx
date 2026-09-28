@@ -9,6 +9,7 @@ export default function JarvisVoiceStage({
   busy = false,
   busyLabel = '',
   actions = null,
+  conversation = null,
   title = null,
   subtitle = null
 }) {
@@ -122,6 +123,8 @@ export default function JarvisVoiceStage({
         </button>
         <div className={micError ? 'jarvis-wave-status is-error' : 'jarvis-wave-status'}>{status}</div>
       </div>
+
+      {conversation}
     </section>
   );
 }
