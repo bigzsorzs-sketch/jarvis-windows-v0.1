@@ -109,3 +109,25 @@ test('packaged app includes the files needed to prepare a self-development works
     assert.equal(pkg.build.files.includes(file),true,file);
   }
 });
+
+
+test('packaged Autopilot copies its editable workspace from real resources, not app.asar', () => {
+  assert.match(main,/function autonomousSourceRoot\(\)[\s\S]*process\.resourcesPath[\s\S]*self-development-source/);
+  assert.match(main,/const sourceRoot = autonomousSourceRoot\(\);/);
+  assert.doesNotMatch(main,/const sourceRoot = resourcePath\(\);/);
+  const resources = pkg.build.extraResources || [];
+  const required = new Map([
+    ['src','self-development-source/src'],
+    ['electron','self-development-source/electron'],
+    ['security','self-development-source/security'],
+    ['build','self-development-source/build'],
+    ['scripts','self-development-source/scripts']
+  ]);
+  for (const [from,to] of required) {
+    assert.ok(resources.some((item) => item?.from === from && item?.to === to), from + ' -> ' + to);
+  }
+  assert.equal(resources.some((item) => item?.from === 'package.json'),false,'package.json must remain inside app.asar');
+  assert.equal(resources.some((item) => item?.from === '.' && String(item?.to || '').startsWith('self-development-source')),false,'project root must not be used as an extraResources source');
+  assert.match(main,/const source = fs\.existsSync\(externalSource\) \? externalSource : resourcePath\(entry\)/);
+  assert.match(main,/fs\.writeFileSync\(destination,fs\.readFileSync\(source\)\)/);
+});

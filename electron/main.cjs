@@ -32,6 +32,13 @@ let backupManager;
 let selfRepairLearning;
 let adminDiagnosticsManager;
 const adminHelperConfig = parseHelperArgs(process.argv);
+if (adminHelperConfig) {
+  // The elevated helper is a second Electron process. Give it a separate
+  // profile so it cannot collide with locks held by the already-running Jarvis.
+  const helperUserData = path.join(os.tmpdir(),'JarvisAdminHelper',adminHelperConfig.pipeName);
+  fs.mkdirSync(helperUserData,{recursive:true});
+  app.setPath('userData',helperUserData);
+}
 const developerPlans = new Map();
 let latestSystemReport = null;
 let autonomousRepairStopRequested = false;
@@ -49,6 +56,12 @@ const GOOGLE_TTS_VOICES = new Set([
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
+}
+
+function autonomousSourceRoot() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'self-development-source')
+    : path.join(__dirname, '..');
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -175,7 +188,7 @@ async function ensureAutonomousWorkspace() {
 
   if (!fs.existsSync(packagePath)) {
     fs.mkdirSync(target,{recursive:true});
-    const sourceRoot = resourcePath();
+    const sourceRoot = autonomousSourceRoot();
     const entries = [
       'src','electron','security','build','scripts',
       'package.json','package-lock.json','index.html','eslint.config.js',
@@ -183,14 +196,18 @@ async function ensureAutonomousWorkspace() {
       'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
     ];
     for (const entry of entries) {
-      const source = path.join(sourceRoot,entry);
+      const externalSource = path.join(sourceRoot,entry);
+      const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
       if (!fs.existsSync(source)) continue;
       const destination = path.join(target,entry);
-      if (fs.statSync(source).isDirectory()) {
+      const stat = fs.statSync(source);
+      if (stat.isDirectory()) {
         fs.cpSync(source,destination,{recursive:true});
       } else {
         fs.mkdirSync(path.dirname(destination),{recursive:true});
-        fs.copyFileSync(source,destination);
+        // Reading individual files from app.asar is supported by Electron's fs
+        // patch, while recursive directory copying from app.asar is not.
+        fs.writeFileSync(destination,fs.readFileSync(source));
       }
     }
   }

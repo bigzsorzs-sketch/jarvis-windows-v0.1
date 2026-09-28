@@ -142,41 +142,62 @@ async function handleOperation(operation,payload={}) {
 }
 
 async function startAdminHelper(config,{onClose}={}) {
-  const server=net.createServer((socket)=>{
-    let buffer='';
-    socket.setEncoding('utf8');
-    socket.on('data',(chunk)=>{
-      buffer+=chunk;
-      let index;
-      while((index=buffer.indexOf('\n'))>=0){
-        const line=buffer.slice(0,index).trim();
-        buffer=buffer.slice(index+1);
-        if(!line) continue;
-        void (async()=>{
-          let request;
-          try{
-            request=JSON.parse(line);
-            if(request.token!==config.token) throw new Error('ADMIN_SESSION_AUTH_FAILED');
-            const result=await handleOperation(request.operation,request.payload||{});
-            socket.write(JSON.stringify({id:request.id,ok:true,result})+'\n');
-            if(request.operation==='close'){
-              setTimeout(()=>server.close(()=>onClose?.()),50);
-            }
-          }catch(error){
-            socket.write(JSON.stringify({id:request?.id||null,ok:false,error:String(error?.message||error)})+'\n');
+  // The non-elevated parent owns the named-pipe server. The elevated helper
+  // connects back to it after UAC so Windows integrity levels do not block a
+  // medium-integrity Jarvis process from connecting "up" to a high-integrity
+  // pipe server.
+  const deadline=Date.now()+UAC_CONNECT_TIMEOUT_MS;
+  let socket=null;
+  while(Date.now()<deadline && !socket){
+    try{
+      socket=await new Promise((resolve,reject)=>{
+        const candidate=net.connect(pipePath(config.pipeName),()=>resolve(candidate));
+        candidate.once('error',reject);
+      });
+    }catch{
+      socket=null;
+      await new Promise((resolve)=>setTimeout(resolve,250));
+    }
+  }
+  if(!socket) throw new Error('ADMIN_PARENT_PIPE_TIMEOUT');
+
+  let closed=false;
+  const finish=()=>{
+    if(closed) return;
+    closed=true;
+    onClose?.();
+  };
+  let buffer='';
+  socket.setEncoding('utf8');
+  socket.write(JSON.stringify({type:'hello',token:config.token})+'\n');
+  socket.on('data',(chunk)=>{
+    buffer+=chunk;
+    let index;
+    while((index=buffer.indexOf('\n'))>=0){
+      const line=buffer.slice(0,index).trim();
+      buffer=buffer.slice(index+1);
+      if(!line) continue;
+      void (async()=>{
+        let request;
+        try{
+          request=JSON.parse(line);
+          if(request.token!==config.token) throw new Error('ADMIN_SESSION_AUTH_FAILED');
+          const result=await handleOperation(request.operation,request.payload||{});
+          socket.write(JSON.stringify({id:request.id,ok:true,result})+'\n');
+          if(request.operation==='close'){
+            setTimeout(()=>socket.end(),50);
           }
-        })();
-      }
-    });
+        }catch(error){
+          socket.write(JSON.stringify({id:request?.id||null,ok:false,error:String(error?.message||error)})+'\n');
+        }
+      })();
+    }
   });
-  const timer=setTimeout(()=>server.close(()=>onClose?.()),SESSION_TTL_MS);
+  const timer=setTimeout(()=>socket.destroy(),SESSION_TTL_MS);
   timer.unref?.();
-  server.on('close',()=>clearTimeout(timer));
-  await new Promise((resolve,reject)=>{
-    server.once('error',reject);
-    server.listen(pipePath(config.pipeName),resolve);
-  });
-  return server;
+  socket.on('close',()=>{ clearTimeout(timer); finish(); });
+  socket.on('error',()=>{});
+  return socket;
 }
 
 class AdminDiagnosticsManager {
@@ -185,6 +206,8 @@ class AdminDiagnosticsManager {
     this.appPath=appPath;
     this.isPackaged=Boolean(isPackaged);
     this.socket=null;
+    this.server=null;
+    this.acceptPromise=null;
     this.buffer='';
     this.pending=new Map();
     this.seq=0;
@@ -207,6 +230,7 @@ class AdminDiagnosticsManager {
     await this.stop().catch(()=>{});
     this.token=crypto.randomBytes(32).toString('hex');
     this.pipeName='jarvis-admin-'+crypto.randomBytes(18).toString('hex');
+    await this._preparePipeServer();
     const args=[
       ...(this.isPackaged?[]:[this.appPath]),
       '--jarvis-admin-helper',
@@ -215,7 +239,16 @@ class AdminDiagnosticsManager {
     ];
     const argsPs='@('+args.map(psQuote).join(',')+')';
     const command=`Start-Process -FilePath ${psQuote(this.execPath)} -ArgumentList ${argsPs} -Verb RunAs -WindowStyle Hidden`;
-    await execFileAsync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',command],{windowsHide:true,timeout:UAC_CONNECT_TIMEOUT_MS});
+    try {
+      await execFileAsync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',command],{windowsHide:true,timeout:UAC_CONNECT_TIMEOUT_MS});
+    } catch (error) {
+      const detail=String(error?.stderr || error?.message || error || '');
+      await this.stop().catch(()=>{});
+      if (/cancel|canceled|cancelled|1223|operation was canceled/i.test(detail)) {
+        throw new Error('ADMIN_UAC_CANCELLED');
+      }
+      throw new Error('ADMIN_UAC_LAUNCH_FAILED: '+detail.slice(0,600));
+    }
     await this._connectWithRetry();
     this.expiresAt=Date.now()+SESSION_TTL_MS;
     const ping=await this.request('ping',{},8000);
@@ -226,29 +259,78 @@ class AdminDiagnosticsManager {
     return { ...this.status(), identity:ping.identity };
   }
 
+  async _preparePipeServer(){
+    let acceptResolve;
+    let acceptReject;
+    this.acceptPromise=new Promise((resolve,reject)=>{
+      acceptResolve=resolve;
+      acceptReject=reject;
+    });
+
+    const server=net.createServer((socket)=>{
+      let handshake='';
+      socket.setEncoding('utf8');
+      const onHandshake=(chunk)=>{
+        handshake+=chunk;
+        const index=handshake.indexOf('\n');
+        if(index<0) return;
+        const line=handshake.slice(0,index).trim();
+        const remaining=handshake.slice(index+1);
+        let hello=null;
+        try{ hello=JSON.parse(line); }catch{}
+        if(hello?.type!=='hello' || hello?.token!==this.token){
+          socket.destroy();
+          return;
+        }
+        socket.off('data',onHandshake);
+        this.socket=socket;
+        this.buffer='';
+        socket.on('data',(data)=>this._onData(data));
+        socket.on('close',()=>this._failAll('ADMIN_SESSION_CLOSED'));
+        socket.on('error',()=>{});
+        if(remaining) this._onData(remaining);
+        try{server.close();}catch{}
+        this.server=null;
+        acceptResolve();
+      };
+      socket.on('data',onHandshake);
+    });
+    this.server=server;
+    server.on('error',(error)=>{
+      if(this.server===server) this.server=null;
+      acceptReject(error);
+    });
+    await new Promise((resolve,reject)=>{
+      const onError=(error)=>{
+        server.off('listening',onListening);
+        reject(error);
+      };
+      const onListening=()=>{
+        server.off('error',onError);
+        resolve();
+      };
+      server.once('error',onError);
+      server.once('listening',onListening);
+      server.listen(pipePath(this.pipeName));
+    });
+  }
+
   async _connectWithRetry(){
     const deadline=Date.now()+UAC_CONNECT_TIMEOUT_MS;
-    while(Date.now()<deadline){
-      try{
-        await new Promise((resolve,reject)=>{
-          const socket=net.connect(pipePath(this.pipeName),()=>{
-            this.socket=socket;
-            this.buffer='';
-            socket.setEncoding('utf8');
-            socket.on('data',(chunk)=>this._onData(chunk));
-            socket.on('close',()=>this._failAll('ADMIN_SESSION_CLOSED'));
-            socket.on('error',()=>{});
-            resolve();
-          });
-          socket.once('error',reject);
-        });
-        return;
-      }catch{
-        await new Promise((resolve)=>setTimeout(resolve,300));
-      }
+    try{
+      await Promise.race([
+        this.acceptPromise,
+        new Promise((_,reject)=>{
+          const delay=Math.max(1,deadline-Date.now());
+          const timer=setTimeout(()=>reject(new Error('ADMIN_UAC_SESSION_TIMEOUT')),delay);
+          timer.unref?.();
+        })
+      ]);
+    }catch(error){
+      await this.stop().catch(()=>{});
+      if(String(error?.message||error).includes('ADMIN_UAC_SESSION_TIMEOUT')) throw error;
+      throw new Error('ADMIN_PIPE_LISTEN_FAILED: '+String(error?.message||error).slice(0,600));
     }
-    await this.stop().catch(()=>{});
-    throw new Error('ADMIN_UAC_SESSION_TIMEOUT');
   }
 
   _onData(chunk){
@@ -301,6 +383,9 @@ class AdminDiagnosticsManager {
       try{await this.request('close',{},3000);}catch{}
     }
     try{this.socket?.destroy();}catch{}
+    try{this.server?.close();}catch{}
+    this.server=null;
+    this.acceptPromise=null;
     this._failAll('ADMIN_SESSION_STOPPED');
     this.token='';
     this.pipeName='';
