@@ -18,6 +18,14 @@ const PROTECTED = [
   /^tsconfig\.json$/i,
   /^vite\.config\.js$/i,
 ];
+const OWNER_BLOCKED = [
+  /^electron[\\/]security[\\/]/i,
+  /^security[\\/]/i,
+  /^\.github[\\/]workflows[\\/]/i,
+  /^scripts[\\/]/i,
+  /^package\.json$/i,
+  /^package-lock\.json$/i,
+];
 const ALLOWED_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
 function stable(value) {
@@ -94,6 +102,23 @@ function resolveInside(root, rel) {
   if (realParent !== base && !realParent.startsWith(base + path.sep)) throw new Error('DEV_REPAIR_SYMLINK_ESCAPE');
   return target;
 }
+function normalizeOwnerRelative(input) {
+  const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
+  if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
+  if (OWNER_BLOCKED.some((rx) => rx.test(rel))) throw new Error('DEV_REPAIR_OWNER_BLOCKED_PATH:' + rel);
+  if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
+  return rel;
+}
+function resolveOwnerInside(root, rel) {
+  const base = fs.realpathSync(root);
+  const target = path.resolve(base, normalizeOwnerRelative(rel));
+  if (target !== base && !target.startsWith(base + path.sep)) throw new Error('DEV_REPAIR_PATH_ESCAPE');
+  let parent = path.dirname(target);
+  while (!fs.existsSync(parent)) parent = path.dirname(parent);
+  const realParent = fs.realpathSync(parent);
+  if (realParent !== base && !realParent.startsWith(base + path.sep)) throw new Error('DEV_REPAIR_SYMLINK_ESCAPE');
+  return target;
+}
 function validateWorkspace(root) {
   const base = fs.realpathSync(root);
   const pkg = JSON.parse(fs.readFileSync(path.join(base,'package.json'),'utf8'));
@@ -148,6 +173,49 @@ function validatePlan(root, input={}) {
   };
   return { ...plan, hash:proposalHash(plan) };
 }
+function validateOwnerPlan(root, input={}) {
+  const base = validateWorkspace(root);
+  const patches = Array.isArray(input.patches) ? input.patches : [];
+  if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
+  if (patches.length > 8) throw new Error('DEV_REPAIR_TOO_MANY_PATCHES');
+
+  const clean = patches.map((p) => {
+    const file = normalizeOwnerRelative(p.file);
+    const target = resolveOwnerInside(base,file);
+    if (/^src[\\/]tests[\\/]/i.test(file) && fs.existsSync(target)) {
+      throw new Error('DEV_REPAIR_EXISTING_TEST_PROTECTED');
+    }
+    const hasFullContent = typeof p.content === 'string';
+    const replacements = Array.isArray(p.replacements) ? p.replacements : [];
+    if (!hasFullContent && !replacements.length) throw new Error('DEV_REPAIR_PATCH_REQUIRED');
+    if (hasFullContent && Buffer.byteLength(p.content,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
+    if (replacements.length > 12) throw new Error('DEV_REPAIR_TOO_MANY_REPLACEMENTS');
+
+    const cleanReplacements = replacements.map((edit) => {
+      const search = String(edit?.search || '');
+      const replace = String(edit?.replace ?? '');
+      if (!search) throw new Error('DEV_REPAIR_SEARCH_REQUIRED');
+      if (search.length > 50000 || replace.length > 100000) throw new Error('DEV_REPAIR_REPLACEMENT_TOO_LARGE');
+      return { search, replace, all:edit?.all === true };
+    });
+    if (cleanReplacements.length && !fs.existsSync(target)) throw new Error('DEV_REPAIR_REPLACEMENT_TARGET_MISSING');
+    if (cleanReplacements.length) {
+      preflightReplacementSearches(fs.readFileSync(target,'utf8'), cleanReplacements, file);
+    }
+    return hasFullContent
+      ? { file, content:p.content }
+      : { file, replacements:cleanReplacements };
+  });
+
+  const plan = {
+    goal:String(input.goal || '').slice(0,4000),
+    rationale:String(input.rationale || '').slice(0,8000),
+    risk:['low','medium','high'].includes(input.risk) ? input.risk : 'medium',
+    patches:clean,
+    validation:['owner-approved-direct']
+  };
+  return { ...plan, hash:proposalHash(plan) };
+}
 function snapshot(root, plan, backupRoot) {
   const dir = path.join(backupRoot, Date.now()+'-'+plan.hash.slice(0,12));
   fs.mkdirSync(dir,{recursive:true});
@@ -182,6 +250,49 @@ function apply(root,plan){
     const tmp=target+'.jarvis-tmp-'+process.pid;
     fs.writeFileSync(tmp,nextContent,'utf8');
     fs.renameSync(tmp,target);
+  }
+}
+function snapshotOwner(root, plan, backupRoot) {
+  const dir = path.join(backupRoot, Date.now()+'-'+plan.hash.slice(0,12));
+  fs.mkdirSync(dir,{recursive:true});
+  const manifest=[];
+  for (const patch of plan.patches) {
+    const target=resolveOwnerInside(root,patch.file);
+    const existed=fs.existsSync(target);
+    const content=existed?fs.readFileSync(target):null;
+    const backup=path.join(dir,patch.file);
+    if (existed) {
+      fs.mkdirSync(path.dirname(backup),{recursive:true});
+      fs.writeFileSync(backup,content);
+    }
+    manifest.push({file:patch.file,existed});
+  }
+  fs.writeFileSync(path.join(dir,'manifest.json'),JSON.stringify(manifest,null,2));
+  return dir;
+}
+function applyOwner(root, plan) {
+  for (const patch of plan.patches) {
+    const target=resolveOwnerInside(root,patch.file);
+    fs.mkdirSync(path.dirname(target),{recursive:true});
+    const nextContent = typeof patch.content === 'string'
+      ? patch.content
+      : applyReplacementEdits(fs.readFileSync(target,'utf8'), patch.replacements || [], patch.file);
+    const tmp=target+'.jarvis-owner-tmp-'+process.pid;
+    fs.writeFileSync(tmp,nextContent,'utf8');
+    fs.renameSync(tmp,target);
+  }
+}
+function rollbackOwner(root, dir) {
+  const manifest=JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'),'utf8'));
+  for (const item of manifest) {
+    const target=resolveOwnerInside(root,item.file);
+    const backup=path.join(dir,item.file);
+    if (item.existed) {
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      fs.copyFileSync(backup,target);
+    } else if (fs.existsSync(target)) {
+      fs.rmSync(target,{force:true});
+    }
   }
 }
 function createSandbox(root, plan, sandboxRoot) {
@@ -576,6 +687,6 @@ function buildDiagnosticContext(root, query='', options={}) {
 }
 
 module.exports={
-  validateWorkspace,validatePlan,proposalHash,snapshot,apply,createSandbox,destroySandbox,rollback,
-  inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED
+  validateWorkspace,validatePlan,validateOwnerPlan,proposalHash,snapshot,snapshotOwner,apply,applyOwner,createSandbox,destroySandbox,rollback,rollbackOwner,
+  inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED,OWNER_BLOCKED
 };

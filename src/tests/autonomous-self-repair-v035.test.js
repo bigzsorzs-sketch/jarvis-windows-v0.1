@@ -89,13 +89,16 @@ test('Autopilot runs analyze sandbox validate apply revalidate and stops before 
   assert.match(main,/Never publish, tag, push a release/);
 });
 
-test('release approval is exposed as a separate owner-only gate', () => {
-  assert.match(main,/jarvis:self-repair:release:approve/);
-  assert.match(main,/localOwnerAuthorised\(\)/);
-  assert.match(main,/RELEASE_APPROVED_BY_OWNER/);
-  assert.match(preload,/approveReleaseCandidate/);
-  assert.match(system,/Release engedélyezése/);
-  assert.match(system,/Autopilot indítása/);
+test('manual Self-Repair exposes an explicit owner Accept gate and hides Autopilot controls', () => {
+  assert.match(main,/jarvis:self-repair:manual:apply/);
+  assert.match(main,/manualRepairPlans/);
+  assert.match(preload,/applyPending/);
+  assert.match(system,/Elfogadom/);
+  assert.match(system,/applyPendingRepair/);
+  assert.doesNotMatch(preload,/runAutonomous/);
+  assert.doesNotMatch(preload,/prepareAutonomousWorkspace/);
+  assert.doesNotMatch(system,/Autopilot önfejlesztés/);
+  assert.doesNotMatch(system,/Release engedélyezése/);
 });
 
 test('GitHub release publication requires explicit manual workflow approval', () => {
@@ -167,9 +170,10 @@ test('main-process owner presence gates protect privileged self-repair actions',
 });
 
 
-test('crash Autopilot enablement is owner-presence gated', () => {
-  assert.match(main,/jarvis:self-repair:auto:crash-mode[\s\S]*enabled === true[\s\S]*requireOwnerPresence/);
-  assert.match(main,/Automatikus crash-javítás/);
+test('manual Self-Repair disables automatic crash repair in the product surface', () => {
+  assert.match(main,/writeAutonomousRepairState\(\{ status:'DISABLED', autoCrashRepair:false/);
+  assert.doesNotMatch(system,/Auto crash-javítás/);
+  assert.match(system,/Legutóbbi crash elemzése/);
 });
 
 

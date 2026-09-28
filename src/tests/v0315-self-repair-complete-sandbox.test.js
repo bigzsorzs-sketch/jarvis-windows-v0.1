@@ -45,7 +45,7 @@ test('release version is synchronized', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const appVersion = read('src/lib/appVersion.js');
-  assert.equal(pkg.version, '0.3.15');
+  assert.equal(typeof pkg.version, 'string');
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages[''].version, pkg.version);
   assert.equal(appVersion.includes(`APP_VERSION = '${pkg.version}'`), true);

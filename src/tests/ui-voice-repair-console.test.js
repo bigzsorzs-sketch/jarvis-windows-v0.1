@@ -71,11 +71,12 @@ test('voice prompt knows voice conversation is active', () => {
   assert.match(chat,/Never claim that voice conversation is unavailable or text-only/);
 });
 
-test('System Center provides source-aware conversation and owner-gated Autopilot', () => {
+test('System Center provides source-aware conversation with manual repair approval', () => {
   assert.match(system,/Self-Repair párbeszéd/);
   assert.match(system,/Program feltérképezése/);
   assert.match(system,/Hibák keresése/);
-  assert.match(system,/Autopilot önfejlesztés/);
-  assert.match(system,/sandbox \+ teljes teszt \+ automatikus rollback/);
-  assert.match(system,/Release engedélyezése/);
+  assert.match(system,/Elfogadom/);
+  assert.match(system,/applyPendingRepair/);
+  assert.match(system,/sandbox és automatikus npm telepítés nélkül/);
+  assert.doesNotMatch(system,/Autopilot önfejlesztés/);
 });

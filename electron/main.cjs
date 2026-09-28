@@ -41,6 +41,7 @@ if (adminHelperConfig) {
   app.setPath('userData',helperUserData);
 }
 const developerPlans = new Map();
+const manualRepairPlans = new Map();
 let latestSystemReport = null;
 let autonomousRepairStopRequested = false;
 let autonomousRepairRunning = false;
@@ -117,6 +118,54 @@ function autonomousWorkspaceRoot() {
     .replace(/^v/i,'')
     .replace(/[^0-9A-Za-z._-]/g,'_');
   return path.join(app.getPath('userData'),'self-development-workspaces',`v${safeVersion}`);
+}
+function manualRepairWorkspaceRoot() {
+  const safeVersion = String(app.getVersion?.() || 'current')
+    .replace(/^v/i,'')
+    .replace(/[^0-9A-Za-z._-]/g,'_');
+  return path.join(app.getPath('userData'),'manual-self-repair',`v${safeVersion}`);
+}
+async function ensureManualRepairWorkspace() {
+  const target = manualRepairWorkspaceRoot();
+  const sourceRoot = autonomousSourceRoot();
+  const entries = [
+    'src','electron','security','build','scripts','.github',
+    'package.json','package-lock.json','index.html','eslint.config.js',
+    'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
+    'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
+  ];
+
+  fs.mkdirSync(target,{recursive:true});
+  const installedVersion = String(app.getVersion?.() || '');
+  let currentVersion = '';
+  try {
+    currentVersion = String(JSON.parse(fs.readFileSync(path.join(target,'package.json'),'utf8'))?.version || '');
+  } catch {}
+
+  const mustRefresh = !currentVersion || (installedVersion && currentVersion !== installedVersion);
+  if (mustRefresh) {
+    for (const entry of entries) {
+      const destination = path.join(target,entry);
+      if (fs.existsSync(destination)) {
+        fs.rmSync(destination,{recursive:true,force:true,maxRetries:6,retryDelay:120});
+      }
+      const externalSource = path.join(sourceRoot,entry);
+      const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
+      if (!fs.existsSync(source)) continue;
+      const stat = fs.statSync(source);
+      fs.mkdirSync(path.dirname(destination),{recursive:true});
+      if (stat.isDirectory()) fs.cpSync(source,destination,{recursive:true});
+      else fs.copyFileSync(source,destination);
+    }
+  }
+
+  const workspace = developerRepair.validateWorkspace(target);
+  const packagePath = path.join(workspace,'package.json');
+  const pkg = JSON.parse(fs.readFileSync(packagePath,'utf8'));
+  if (installedVersion && String(pkg.version || '') !== installedVersion) {
+    throw new Error('MANUAL_REPAIR_PACKAGE_VERSION_MISMATCH');
+  }
+  return workspace;
 }
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
 function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
@@ -371,6 +420,34 @@ async function ensureAutonomousWorkspace() {
   }
   return workspace;
 }
+async function validateDirectOwnerRepair(workspace, plan) {
+  const results=[];
+  for (const patch of plan?.patches || []) {
+    const file = String(patch.file || '');
+    const full = path.join(workspace,file);
+    try {
+      if (/\.(?:js|cjs|mjs)$/i.test(file)) {
+        await runToolchainNode(['--check',file],{
+          cwd:workspace,
+          windowsHide:true,
+          timeout:120000,
+          shell:false
+        });
+        results.push({cmd:'node --check ' + file,ok:true,output:''});
+      } else if (/\.json$/i.test(file)) {
+        JSON.parse(fs.readFileSync(full,'utf8'));
+        results.push({cmd:'json parse ' + file,ok:true,output:''});
+      } else {
+        results.push({cmd:'direct write ' + file,ok:true,output:'Owner-approved direct patch; no sandbox or dependency install was run.'});
+      }
+    } catch (error) {
+      results.push({cmd:'validate ' + file,ok:false,output:String(error?.stdout || error?.stderr || error?.message || error).slice(-3000)});
+      return {ok:false,results};
+    }
+  }
+  return {ok:true,results};
+}
+
 async function runDeveloperValidation(workspace) {
   const requiredFiles = [
     'electron/main.cjs',
@@ -1115,12 +1192,13 @@ async function openRouterSynthesizeVoice(payload={}) {
   throw new Error(lastError);
 }
 
-function getSelfRepairRoot() {
-  return resourcePath();
+async function getSelfRepairRoot() {
+  return ensureManualRepairWorkspace();
 }
 
 async function selfRepairMap(payload={}) {
-  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), String(payload?.query || ''), { maxFiles:12, maxChars:26000 });
+  const workspace = await getSelfRepairRoot();
+  const context = developerRepair.buildDiagnosticContext(workspace, String(payload?.query || ''), { maxFiles:12, maxChars:26000 });
   return {
     data:{
       map:context.map,
@@ -1136,7 +1214,8 @@ async function selfRepairChat(payload={}) {
   if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
   const language = String(payload?.language || 'hu').toLowerCase();
   const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
-  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), message, { maxFiles:20, maxChars:62000 });
+  const workspace = await getSelfRepairRoot();
+  const context = developerRepair.buildDiagnosticContext(workspace, message, { maxFiles:20, maxChars:62000 });
   const learned = selfRepairLearning?.relevant?.(message, 8) || [];
   const learnedText = learned.length
     ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | evidence=${item.evidence || '-'} | validation=${item.validation || '-'}`).join('\n')
@@ -1169,7 +1248,7 @@ async function selfRepairChat(payload={}) {
   const prompt = `You are Jarvis Self-Repair, a source-aware software diagnostic engineer embedded in the Jarvis Windows app.
 You are NOT limited to reading filenames: reason about architecture, imports, state flow, IPC boundaries, UI behavior, tests and likely failure modes.
 Use only evidence from the project map and source excerpts below. Clearly separate confirmed code facts from hypotheses.
-You may propose concrete file-level repairs and validation steps. Manual repair mode remains approval-gated. In Autopilot mode, Jarvis may apply only sandbox-verified, fully validated, unprotected source changes automatically. Never claim or attempt to publish a release without the owner's separate release approval.
+You may propose concrete file-level repairs and validation steps. Repairs are manual and owner-approved: never apply a change until the owner presses the explicit Accept button. Do not use or suggest Autopilot or sandbox execution. Never claim that a proposed change has already been applied.
 When asked to find bugs, inspect interactions across files, not just isolated syntax.
 Follow dependency edges, route reachability and IPC channels before claiming that code is active.
 Treat files marked inactive-or-unreferenced as dormant unless another runtime path proves otherwise.
@@ -1214,13 +1293,75 @@ Keep it concise unless the owner asks for deep detail.`;
     timeout_ms:90000,
     contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
   });
+
+  let pendingRepair = null;
+  const explicitRepairRequest = /(jav[ií]tsd|jav[ií]ts|kijav[ií]t|old meg|csin[aá]ld meg|m[oó]dos[ií]tsd|fix it|fix this|repair it|apply the fix|make the change)/i.test(message);
+  if (explicitRepairRequest) {
+    const source = context.excerpts.map((item) =>
+      `--- ${item.path} [${item.protected ? 'OWNER-BLOCKED-OR-CORE' : 'EDITABLE'}] ---\n${item.excerpt}`
+    ).join('\n\n');
+    const planPrompt = `You are preparing a MANUAL, owner-approved Jarvis repair plan.
+The owner explicitly asked to fix the issue. Create the smallest concrete patch from the exact current source below.
+The patch will NOT run in a sandbox and will NOT be applied until the owner presses Accept.
+Rules:
+- Return JSON only with goal, rationale, risk and patches.
+- Copy every search string exactly from CURRENT SOURCE. Do not invent or paraphrase search text.
+- You may repair ordinary source and owner-approved core files such as electron/main.cjs or electron/developer-repair.cjs.
+- Never target security/**, electron/security/**, .github/workflows/**, scripts/**, package.json, package-lock.json, or existing src/tests/**.
+- Prefer exact replacements over whole-file replacement.
+- Maximum 6 files and 8 replacements per file.
+- Do not change release/version metadata.
+- If no safe concrete patch can be formed from the supplied source, return {"goal":"...","rationale":"NO_SAFE_PATCH: explain why","risk":"high","patches":[]}.
+
+OWNER REQUEST:
+${message}
+
+DIAGNOSTIC ANSWER:
+${String(response?.data?.result || '').slice(0,10000)}
+
+CURRENT SOURCE:
+${source}`;
+
+    try {
+      const planResponse = await openRouterRequest({
+        prompt:planPrompt,
+        task_type:'repair',
+        response_json_schema:{type:'object'},
+        timeout_ms:120000,
+        contains_sensitive_context:false
+      });
+      const proposal = parseRepairModelJson(planResponse?.data?.result);
+      if (Array.isArray(proposal?.patches) && proposal.patches.length) {
+        const plan = developerRepair.validateOwnerPlan(workspace,{
+          goal:proposal.goal || message,
+          rationale:proposal.rationale || 'Owner-requested manual Self-Repair',
+          risk:proposal.risk || 'medium',
+          patches:proposal.patches
+        });
+        manualRepairPlans.set(plan.hash,{workspace,plan,createdAt:Date.now()});
+        pendingRepair = {
+          hash:plan.hash,
+          goal:plan.goal,
+          rationale:plan.rationale,
+          risk:plan.risk,
+          files:plan.patches.map((patch)=>patch.file)
+        };
+      }
+    } catch (error) {
+      pendingRepair = {
+        error:String(error?.message || error)
+      };
+    }
+  }
+
   return {
     data:{
       reply:String(response?.data?.result || '').trim(),
       model:response?.data?.model || null,
       requestedModel:response?.data?.requestedModel || null,
       map:context.map,
-      files:context.excerpts.map(item=>item.path)
+      files:context.excerpts.map(item=>item.path),
+      pendingRepair
     }
   };
 }
@@ -2233,6 +2374,7 @@ app.whenReady().then(async () => {
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
   selfRepairLearning = new SelfRepairLearning(path.join(app.getPath('userData'),'self-repair-learning.json'));
   recoverInterruptedAutonomousRepairState();
+  writeAutonomousRepairState({ status:'DISABLED', autoCrashRepair:false, lastError:null });
   adminDiagnosticsManager = new AdminDiagnosticsManager({
     execPath:process.execPath,
     appPath:app.getAppPath(),
@@ -2407,6 +2549,57 @@ app.whenReady().then(async () => {
     if (!latestSystemReport?.id || report?.id !== latestSystemReport.id) throw new Error('JARVIS_REPAIR_REPORT_STALE');
     return buildRepairPlan(latestSystemReport);
   });
+  ipcMain.handle('jarvis:self-repair:manual:apply', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    const hash=String(request.hash || '');
+    const entry=manualRepairPlans.get(hash);
+    if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
+    if (Date.now()-entry.createdAt > 60*60*1000) {
+      manualRepairPlans.delete(hash);
+      throw new Error('MANUAL_REPAIR_PLAN_EXPIRED');
+    }
+    const approvedPlan={...entry.plan};
+    delete approvedPlan.hash;
+    if (developerRepair.proposalHash(approvedPlan)!==hash) {
+      manualRepairPlans.delete(hash);
+      throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
+    }
+
+    const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
+    try {
+      developerRepair.applyOwner(entry.workspace,entry.plan);
+      const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
+      if (!validation.ok) {
+        developerRepair.rollbackOwner(entry.workspace,backup);
+        manualRepairPlans.delete(hash);
+        return {success:false,status:'ROLLED_BACK',hash,backup,validation};
+      }
+      selfRepairLearning?.recordVerified?.({
+        title:entry.plan.goal || 'Kézi Self-Repair',
+        repairId:hash,
+        files:entry.plan.patches.map((patch)=>patch.file),
+        evidence:entry.plan.rationale || entry.plan.goal || '',
+        validation:(validation.results || []).map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+        success:true
+      });
+      manualRepairPlans.delete(hash);
+      return {
+        success:true,
+        status:'APPLIED_DIRECTLY',
+        hash,
+        backup,
+        workspace:entry.workspace,
+        files:entry.plan.patches.map((patch)=>patch.file),
+        validation,
+        requiresBuild:true
+      };
+    } catch (error) {
+      try { developerRepair.rollbackOwner(entry.workspace,backup); } catch {}
+      manualRepairPlans.delete(hash);
+      throw error;
+    }
+  });
+
   ipcMain.handle('jarvis:self-repair:auto:status', () => readAutonomousRepairState());
   ipcMain.handle('jarvis:self-repair:auto:crash-mode', async (_e, enabled=false) => {
     if (enabled === true) {
