@@ -44,6 +44,7 @@ const developerPlans = new Map();
 let latestSystemReport = null;
 let autonomousRepairStopRequested = false;
 let autonomousRepairRunning = false;
+let autonomousRepairAbortController = null;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
@@ -607,32 +608,61 @@ async function openRouterRequest(payload={}) {
   const body = { model, messages, usage:{ include:true } };
   if (model === 'openrouter/auto') body.cost_tier = costTier;
   if (payload.response_json_schema) body.response_format = { type:'json_object' };
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method:'POST',
-    headers:{
-      'Authorization':`Bearer ${apiKey}`,
-      'Content-Type':'application/json',
-      'HTTP-Referer':'https://jarvis.local',
-      'X-Title':'Jarvis Desktop'
-    },
-    body:JSON.stringify(body)
-  });
-  if (!res.ok) throw new Error(`OPENROUTER_${res.status}:${(await res.text()).slice(0,500)}`);
-  const json = await res.json();
-  const content = json?.choices?.[0]?.message?.content ?? '';
-  let result = content;
-  if (payload.response_json_schema) {
-    try { result = JSON.parse(content); } catch {}
+  const controller = new AbortController();
+  const timeoutMs = Math.min(
+    180000,
+    Math.max(10000, Number(payload.timeout_ms || payload.timeoutMs) || (taskType === 'repair' ? 120000 : 75000))
+  );
+  let timedOut = false;
+  let externalAbort = null;
+  if (payload.signal?.addEventListener) {
+    externalAbort = () => controller.abort();
+    if (payload.signal.aborted) controller.abort();
+    else payload.signal.addEventListener('abort', externalAbort, { once:true });
   }
-  return { success:true, data:{
-    result,
-    model:json.model || model,
-    requestedModel:model,
-    routingMode:effectiveRoutingMode,
-    costTier,
-    usage:json.usage || null,
-    cost:Number(json?.usage?.cost ?? 0) || 0
-  } };
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST',
+      signal:controller.signal,
+      headers:{
+        'Authorization':`Bearer ${apiKey}`,
+        'Content-Type':'application/json',
+        'HTTP-Referer':'https://jarvis.local',
+        'X-Title':'Jarvis Desktop'
+      },
+      body:JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`OPENROUTER_${res.status}:${(await res.text()).slice(0,500)}`);
+    const json = await res.json();
+    const content = json?.choices?.[0]?.message?.content ?? '';
+    let result = content;
+    if (payload.response_json_schema) {
+      try { result = JSON.parse(content); } catch {}
+    }
+    return { success:true, data:{
+      result,
+      model:json.model || model,
+      requestedModel:model,
+      routingMode:effectiveRoutingMode,
+      costTier,
+      usage:json.usage || null,
+      cost:Number(json?.usage?.cost ?? 0) || 0
+    } };
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      if (payload.signal?.aborted && !timedOut) throw new Error('OPENROUTER_ABORTED');
+      throw new Error(`OPENROUTER_TIMEOUT_${timeoutMs}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    if (externalAbort) payload.signal?.removeEventListener?.('abort', externalAbort);
+  }
 }
 
 async function testOpenRouterConnection(candidateApiKey = '') {
@@ -1032,6 +1062,7 @@ Keep it concise unless the owner asks for deep detail.`;
   const response = await openRouterRequest({
     prompt,
     task_type:'repair',
+    timeout_ms:90000,
     contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
   });
   return {
@@ -1070,7 +1101,7 @@ function summarizeValidation(validation) {
     .join('\n');
 }
 
-async function generateAutonomousRepairProposal(workspace, goal, feedback='', iteration=1) {
+async function generateAutonomousRepairProposal(workspace, goal, feedback='', iteration=1, signal=null) {
   const query = [goal, feedback].filter(Boolean).join('\n\n');
   const context = developerRepair.buildDiagnosticContext(workspace, query, { maxFiles:20, maxChars:70000 });
   const learned = selfRepairLearning?.relevant?.(query, 10) || [];
@@ -1132,7 +1163,9 @@ ${source}`;
     prompt,
     task_type:'repair',
     response_json_schema:{ type:'object' },
-    contains_sensitive_context:false
+    contains_sensitive_context:false,
+    timeout_ms:120000,
+    signal
   });
 
   return {
@@ -1156,6 +1189,7 @@ async function runAutonomousSelfRepair(payload={}) {
   if (autonomousRepairRunning) throw new Error('AUTONOMOUS_REPAIR_ALREADY_RUNNING');
   autonomousRepairRunning = true;
   autonomousRepairStopRequested = false;
+  autonomousRepairAbortController = new AbortController();
   const runId = crypto.randomUUID();
   let feedback = '';
   const applied = [];
@@ -1184,11 +1218,14 @@ async function runAutonomousSelfRepair(payload={}) {
 
     let generated;
     try {
-      generated = await generateAutonomousRepairProposal(workspace, requestedGoal, feedback, iteration);
+      generated = await generateAutonomousRepairProposal(workspace, requestedGoal, feedback, iteration, autonomousRepairAbortController?.signal);
       if (autonomousRepairStopRequested) {
         return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
       }
     } catch (error) {
+      if (autonomousRepairStopRequested || error?.message === 'OPENROUTER_ABORTED') {
+        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false, lastError:null });
+      }
       feedback = `Planner error: ${error?.message || error}`;
       writeAutonomousRepairState({ status:'PLANNER_RETRY', iteration, applied, lastError:feedback });
       continue;
@@ -1337,6 +1374,7 @@ async function runAutonomousSelfRepair(payload={}) {
   });
   } finally {
     autonomousRepairRunning = false;
+    autonomousRepairAbortController = null;
     if (autonomousRepairStopRequested) autonomousRepairStopRequested = false;
   }
 }
@@ -2195,6 +2233,7 @@ app.whenReady().then(async () => {
       return writeAutonomousRepairState({ status:'STOPPED', autoCrashRepair:false, lastError:null });
     }
     autonomousRepairStopRequested = true;
+    try { autonomousRepairAbortController?.abort(); } catch {}
     return writeAutonomousRepairState({ status:'STOP_REQUESTED', autoCrashRepair:false });
   });
   ipcMain.handle('jarvis:self-repair:release:approve', async (_e, request={}) => {
