@@ -43,6 +43,7 @@ if (adminHelperConfig) {
 const developerPlans = new Map();
 let latestSystemReport = null;
 let autonomousRepairStopRequested = false;
+let autonomousRepairRunning = false;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
@@ -218,6 +219,18 @@ function writeAutonomousRepairState(patch={}) {
   const next = { ...current, ...patch, updatedAt:new Date().toISOString() };
   writeJson(autonomousRepairStatePath(), next);
   return next;
+}
+
+function recoverInterruptedAutonomousRepairState() {
+  const state = readAutonomousRepairState();
+  if (!activeAutonomousStatus(state.status)) return state;
+  autonomousRepairStopRequested = false;
+  autonomousRepairRunning = false;
+  return writeAutonomousRepairState({
+    status:'INTERRUPTED',
+    autoCrashRepair:false,
+    lastError:'Az előző Autopilot futás az alkalmazás újraindításakor megszakadt. Új futás biztonságosan indítható.'
+  });
 }
 
 async function ensureAutonomousWorkspace() {
@@ -963,8 +976,13 @@ async function selfRepairChat(payload={}) {
       adminSystemText = '(administrator diagnostics unavailable: ' + String(error?.message || error) + ')';
     }
   }
-  const crashHistory = readRecentCrashes(8);
-  const crashText = crashHistory.length ? JSON.stringify(crashHistory,null,2).slice(0,18000) : '(no recent crash records)';
+  const currentAppVersion = String(app.getVersion?.() || 'unknown');
+  const crashHistory = readRecentCrashes(20)
+    .filter((item) => String(item?.appVersion || '') === currentAppVersion)
+    .slice(0,8);
+  const crashText = crashHistory.length
+    ? JSON.stringify(crashHistory,null,2).slice(0,18000)
+    : `(no crash records for current app version ${currentAppVersion})`;
   const langRule = language === 'hu'
     ? 'Válaszolj kizárólag magyarul.'
     : 'Reply in the selected application language when possible.';
@@ -976,6 +994,8 @@ You may propose concrete file-level repairs and validation steps. Manual repair 
 When asked to find bugs, inspect interactions across files, not just isolated syntax.
 Follow dependency edges, route reachability and IPC channels before claiming that code is active.
 Treat files marked inactive-or-unreferenced as dormant unless another runtime path proves otherwise.
+Crash Watchdog evidence is restricted to the currently installed app version. Do not diagnose a historical crash from an older version as a current defect.
+If a prior lesson describes a bug that the current source already fixes, explicitly mark it as historical/resolved instead of proposing the same repair again.
 If evidence is missing, follow the related dependency/IPC chain already included in the context before stopping.
 Use VERIFIED LOCAL LESSONS only as prior validated evidence, never as authority over current source.
 ${langRule}
@@ -1133,11 +1153,14 @@ async function runAutonomousSelfRepair(payload={}) {
     ? developerRepair.validateWorkspace(String(payload.workspace))
     : await ensureAutonomousWorkspace();
 
+  if (autonomousRepairRunning) throw new Error('AUTONOMOUS_REPAIR_ALREADY_RUNNING');
+  autonomousRepairRunning = true;
   autonomousRepairStopRequested = false;
   const runId = crypto.randomUUID();
   let feedback = '';
   const applied = [];
 
+  try {
   writeAutonomousRepairState({
     runId,
     status:'RUNNING',
@@ -1162,6 +1185,9 @@ async function runAutonomousSelfRepair(payload={}) {
     let generated;
     try {
       generated = await generateAutonomousRepairProposal(workspace, requestedGoal, feedback, iteration);
+      if (autonomousRepairStopRequested) {
+        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
+      }
     } catch (error) {
       feedback = `Planner error: ${error?.message || error}`;
       writeAutonomousRepairState({ status:'PLANNER_RETRY', iteration, applied, lastError:feedback });
@@ -1173,6 +1199,9 @@ async function runAutonomousSelfRepair(payload={}) {
     if (proposal.done === true || patches.length === 0) {
       writeAutonomousRepairState({ status:'BUILDING_RELEASE_CANDIDATE', iteration, applied, lastError:null });
       const finalValidation = await runReleaseCandidateValidation(workspace);
+      if (autonomousRepairStopRequested) {
+        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
+      }
       if (!finalValidation.ok) {
         feedback = `The model considered the goal complete, but release-candidate validation failed:\n${summarizeValidation(finalValidation)}`;
         writeAutonomousRepairState({ status:'VALIDATION_RETRY', iteration, applied, lastError:feedback });
@@ -1233,6 +1262,11 @@ async function runAutonomousSelfRepair(payload={}) {
     try {
       sandbox = developerRepair.createSandbox(workspace,plan,developerSandboxRoot());
       const sandboxValidation = await runDeveloperValidation(sandbox);
+      if (autonomousRepairStopRequested) {
+        developerRepair.destroySandbox(sandbox,developerSandboxRoot());
+        sandbox = null;
+        return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
+      }
       if (!sandboxValidation.ok) {
         feedback = `Sandbox validation failed. Revise the plan instead of publishing or applying it:\n${summarizeValidation(sandboxValidation)}`;
         developerRepair.destroySandbox(sandbox,developerSandboxRoot());
@@ -1247,6 +1281,10 @@ async function runAutonomousSelfRepair(payload={}) {
       try {
         developerRepair.apply(workspace,plan);
         const validation = await runDeveloperValidation(workspace);
+        if (autonomousRepairStopRequested) {
+          developerRepair.rollback(workspace,backup);
+          return writeAutonomousRepairState({ status:'STOPPED', iteration, applied, autoCrashRepair:false });
+        }
         if (!validation.ok) {
           developerRepair.rollback(workspace,backup);
           feedback = `The patch passed sandbox but failed after application and was rolled back:\n${summarizeValidation(validation)}`;
@@ -1297,6 +1335,10 @@ async function runAutonomousSelfRepair(payload={}) {
     validation:finalValidation,
     lastError:feedback || null
   });
+  } finally {
+    autonomousRepairRunning = false;
+    if (autonomousRepairStopRequested) autonomousRepairStopRequested = false;
+  }
 }
 
 async function openRouterObdDiagnosis(payload={}) {
@@ -1947,6 +1989,7 @@ app.whenReady().then(async () => {
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
   selfRepairLearning = new SelfRepairLearning(path.join(app.getPath('userData'),'self-repair-learning.json'));
+  recoverInterruptedAutonomousRepairState();
   adminDiagnosticsManager = new AdminDiagnosticsManager({
     execPath:process.execPath,
     appPath:app.getAppPath(),
@@ -2147,6 +2190,10 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('jarvis:self-repair:auto:stop', () => {
     if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    if (!autonomousRepairRunning) {
+      autonomousRepairStopRequested = false;
+      return writeAutonomousRepairState({ status:'STOPPED', autoCrashRepair:false, lastError:null });
+    }
     autonomousRepairStopRequested = true;
     return writeAutonomousRepairState({ status:'STOP_REQUESTED', autoCrashRepair:false });
   });
