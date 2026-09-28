@@ -156,3 +156,9 @@ test('main-process owner presence gates protect privileged self-repair actions',
   assert.match(main,/jarvis:developer:approve[\s\S]*requireOwnerPresence/);
   assert.match(main,/JARVIS_OWNER_ACTION_CANCELLED/);
 });
+
+
+test('crash Autopilot enablement is owner-presence gated', () => {
+  assert.match(main,/jarvis:self-repair:auto:crash-mode[\s\S]*enabled === true[\s\S]*requireOwnerPresence/);
+  assert.match(main,/Automatikus crash-javítás/);
+});
