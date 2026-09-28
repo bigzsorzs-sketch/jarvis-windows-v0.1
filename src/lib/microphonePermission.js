@@ -1,23 +1,11 @@
+import { microphoneErrorMessage } from '@/lib/voiceInputHealth';
+
 const MIC_CONSTRAINTS = {
   echoCancellation: true,
   noiseSuppression: true,
   autoGainControl: true,
   channelCount: 1,
 };
-
-function microphoneErrorMessage(error) {
-  const name = error?.name || '';
-  if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return 'A mikrofon hozzáférése le van tiltva. Engedélyezd a Jarvis számára a Windows / alkalmazás mikrofon-hozzáférését.';
-  }
-  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-    return 'Nem találok használható mikrofont ezen a gépen.';
-  }
-  if (name === 'NotReadableError' || name === 'TrackStartError') {
-    return 'A mikrofont egy másik alkalmazás használja, vagy a Windows nem tudja megnyitni.';
-  }
-  return 'A mikrofon nem indítható. Ellenőrizd a Windows mikrofonengedélyét és a kiválasztott bemeneti eszközt.';
-}
 
 export async function requestMicrophonePermission() {
   if (!navigator.mediaDevices?.getUserMedia) {
