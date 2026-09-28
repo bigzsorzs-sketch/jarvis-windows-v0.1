@@ -20,8 +20,12 @@ export default function GlobalVoiceControl() {
   const [resultText, setResultText] = useState('');
   const handledEventIdsRef = useRef(new Set());
 
-  const micEnabled = voice.state.handsFree;
-  const micLive = voice.state.handsFree && (voice.state.isListening || voice.state.isRecognitionActive || voice.state.isRecognitionStarting);
+  const pushToTalk = voice.state.activationMode === 'push-to-talk';
+  const wakeWordMode = voice.state.activationMode === 'wake-word';
+  const micEnabled = pushToTalk
+    ? (voice.state.isListening || voice.state.isRecognitionActive || voice.state.isRecognitionStarting)
+    : voice.state.handsFree;
+  const micLive = (pushToTalk || voice.state.handsFree) && (voice.state.isListening || voice.state.isRecognitionActive || voice.state.isRecognitionStarting);
 
   useEffect(() => {
     // Chat/Home already own the same runtime and handle voice there.
@@ -83,15 +87,18 @@ export default function GlobalVoiceControl() {
   }, [voice.lastTranscriptEvent?.id, location.pathname, navigate, voice]);
 
   const toggleListening = useCallback(async () => {
-    const next = !voice.state.handsFree;
-    if (next) {
-      const permission = await requestMicrophonePermission();
-      if (!permission.ok) {
-        alert(permission.message);
-        return;
-      }
+    const permission = await requestMicrophonePermission();
+    if (!permission.ok) {
+      alert(permission.message);
+      return;
     }
-    voice.setHandsFree(next);
+
+    if (voice.state.activationMode === 'push-to-talk') {
+      voice.startSingleCycle();
+      return;
+    }
+
+    voice.setHandsFree(!voice.state.handsFree);
   }, [voice]);
 
   return (
@@ -124,7 +131,7 @@ export default function GlobalVoiceControl() {
       <motion.button
         onClick={toggleListening}
         whileTap={{ scale: 0.88 }}
-        aria-label={micEnabled ? 'Mikrofon kikapcsolása' : 'Mikrofon bekapcsolása'}
+        aria-label={pushToTalk ? 'Beszéd indítása' : micEnabled ? 'Mikrofon kikapcsolása' : wakeWordMode ? `Jarvis ébresztőszó bekapcsolása: ${voice.state.wakeWord || 'jarvis'}` : 'Mikrofon bekapcsolása'}
         aria-pressed={micEnabled}
         className={`fixed bottom-[72px] right-4 z-50 w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all ${
           micEnabled ? 'bg-red-500' : isProcessing ? 'bg-primary/70' : 'bg-primary'
