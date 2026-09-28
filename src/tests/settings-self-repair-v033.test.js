@@ -94,7 +94,7 @@ test('repairs incomplete Autopilot workspaces and packages a real lockfile outsi
   );
   assert.equal(
     pkg.build.extraResources.some((entry) =>
-      entry.from === 'package.json' && entry.to === 'self-development-source/package.json'
+      entry.from === 'build/self-development-package.json' && entry.to === 'self-development-source/package.json'
     ),
     true
   );

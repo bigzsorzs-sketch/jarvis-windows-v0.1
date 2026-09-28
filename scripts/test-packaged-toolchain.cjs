@@ -16,10 +16,21 @@ const node = path.join(root, 'node.exe');
 const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
 const developmentRoot = path.join(resources, 'self-development-source');
 const developmentLock = path.join(developmentRoot, 'package-lock.json');
+const developmentPackage = path.join(developmentRoot, 'package.json');
 
 if (!fs.existsSync(node)) throw new Error('PACKAGED_SELF_REPAIR_NODE_MISSING');
 if (!fs.existsSync(npmCli)) throw new Error('PACKAGED_SELF_REPAIR_NPM_MISSING');
 if (!fs.existsSync(developmentLock)) throw new Error('PACKAGED_SELF_REPAIR_LOCKFILE_MISSING');
+if (!fs.existsSync(developmentPackage)) throw new Error('PACKAGED_SELF_REPAIR_PACKAGE_MISSING');
+try {
+  const pkg = JSON.parse(fs.readFileSync(developmentPackage, 'utf8'));
+  if (!pkg?.version || !Array.isArray(pkg?.build?.files) || !Array.isArray(pkg?.build?.extraResources)) {
+    throw new Error('PACKAGED_SELF_REPAIR_PACKAGE_INVALID');
+  }
+} catch (error) {
+  if (error?.message === 'PACKAGED_SELF_REPAIR_PACKAGE_INVALID') throw error;
+  throw new Error('PACKAGED_SELF_REPAIR_PACKAGE_INVALID');
+}
 try {
   const lock = JSON.parse(fs.readFileSync(developmentLock, 'utf8'));
   if (!lock?.lockfileVersion || !lock?.packages?.['']) {

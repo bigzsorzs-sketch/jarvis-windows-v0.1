@@ -43,6 +43,15 @@ fs.writeFileSync(path.join(out, 'toolchain.json'), JSON.stringify({
   stagedAt:new Date().toISOString()
 }, null, 2));
 
+// Do not use package.json itself as an electron-builder extraResource source.
+// electron-builder treats the application package specially; sourcing it again
+// as an extraResource can leave app.asar without the package metadata required
+// by Electron's package sanity check. Stage a byte-for-byte development copy
+// under build/ and package that copy instead.
+const sourcePackage = path.join(root, 'package.json');
+const stagedDevelopmentPackage = path.join(root, 'build', 'self-development-package.json');
+fs.copyFileSync(sourcePackage, stagedDevelopmentPackage);
+
 console.log('Self-repair toolchain staged:', {
   node:process.version,
   npm:npmPackage.version,

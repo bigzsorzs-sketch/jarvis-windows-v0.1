@@ -7,9 +7,11 @@ const read = (file) => fs.readFileSync(file, 'utf8');
 test('packaged Self-Repair carries the complete package.json outside app.asar', () => {
   const pkg = JSON.parse(read('package.json'));
   const resource = (pkg.build?.extraResources || []).find((item) =>
-    item?.from === 'package.json' && item?.to === 'self-development-source/package.json'
+    item?.from === 'build/self-development-package.json' && item?.to === 'self-development-source/package.json'
   );
   assert.ok(resource);
+  const stage = read('scripts/stage-self-repair-toolchain.cjs');
+  assert.equal(stage.includes('self-development-package.json'), true);
   assert.ok(Array.isArray(pkg.build?.files));
   assert.ok(pkg.build.files.includes('src/**/*'));
   assert.ok(pkg.build.files.includes('electron/**/*'));

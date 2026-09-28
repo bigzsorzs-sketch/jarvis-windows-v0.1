@@ -10,8 +10,8 @@
     "build": "vite build",
     "desktop": "electron .",
     "desktop:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
-    "desktop:build": "vite build && electron-builder --win nsis --x64",
-    "desktop:portable": "vite build && electron-builder --win portable --x64",
+    "desktop:build": "vite build && node scripts/stage-self-repair-toolchain.cjs && electron-builder --win nsis --x64",
+    "desktop:portable": "vite build && node scripts/stage-self-repair-toolchain.cjs && electron-builder --win portable --x64",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./tsconfig.json",
@@ -210,7 +210,7 @@
         "to": "self-development-source/scripts"
       },
       {
-        "from": "package.json",
+        "from": "build/self-development-package.json",
         "to": "self-development-source/package.json"
       },
       {
