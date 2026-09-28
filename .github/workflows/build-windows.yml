@@ -101,17 +101,7 @@ jobs:
         run: npx electron-builder --win nsis --x64 --publish never
 
       - name: Verify packaged Self-Repair toolchain
-        shell: pwsh
-        run: |
-          $root = Join-Path $PWD "release\win-unpacked\resources\self-repair-toolchain"
-          $node = Join-Path $root "node.exe"
-          $npm = Join-Path $root "npm\bin\npm-cli.js"
-          if (-not (Test-Path -LiteralPath $node)) { throw "Bundled Self-Repair node.exe missing" }
-          if (-not (Test-Path -LiteralPath $npm)) { throw "Bundled Self-Repair npm-cli.js missing" }
-          & $node --version
-          if ($LASTEXITCODE -ne 0) { throw "Bundled Self-Repair Node failed" }
-          & $node $npm --version
-          if ($LASTEXITCODE -ne 0) { throw "Bundled Self-Repair npm failed" }
+        run: node scripts/test-packaged-toolchain.cjs release\win-unpacked\resources
 
       - name: Test packaged admin-helper handshake
         run: node scripts/test-packaged-admin-helper.cjs release\win-unpacked\Jarvis.exe
