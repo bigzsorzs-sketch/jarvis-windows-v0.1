@@ -102,12 +102,13 @@ function localEntityApi(entityName) {
     },
     async create(data = {}) {
       const user = localUser();
+      const incoming = structuredClone(data);
       const row = {
+        ...incoming,
         id:id(),
         created_date:now(),
         updated_date:now(),
-        created_by:data.created_by || user.email,
-        ...structuredClone(data)
+        created_by:user.email
       };
       const rows = all();
       rows.push(row);
@@ -118,7 +119,12 @@ function localEntityApi(entityName) {
       const rows = all();
       const index = rows.findIndex((row) => row.id === rowId);
       if (index < 0) throw new Error(entityName + ' not found: ' + rowId);
-      rows[index] = { ...rows[index], ...structuredClone(patch), updated_date:now() };
+      const safePatch = structuredClone(patch);
+      delete safePatch.id;
+      delete safePatch.created_by;
+      delete safePatch.created_date;
+      delete safePatch.updated_date;
+      rows[index] = { ...rows[index], ...safePatch, id:rowId, updated_date:now() };
       save(rows);
       return structuredClone(rows[index]);
     },
