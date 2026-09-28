@@ -94,6 +94,12 @@ export default function Chat() {
   }, [voice]);
 
   const toggleVoice = useCallback(async () => {
+    if (voice.state.activationMode === 'push-to-talk'
+      && (voice.state.isListening || voice.state.isRecognitionActive || voice.state.isRecognitionStarting)) {
+      voice.cancelVoiceCycle?.('user_cancelled');
+      return;
+    }
+
     if (voice.state.activationMode !== 'push-to-talk' && voice.state.handsFree) {
       voice.setHandsFree(false);
       sessionPersistence.save({ handsFree: false });
