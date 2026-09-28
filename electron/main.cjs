@@ -16,6 +16,7 @@ const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
 const developerRepair = require('./developer-repair.cjs');
 const { SelfRepairLearning } = require('./self-repair-learning.cjs');
+const { parseHelperArgs, startAdminHelper, AdminDiagnosticsManager } = require('./admin-diagnostics.cjs');
 const {
   analyzeUploadedFiles,
   analyzeProjectDeep,
@@ -29,6 +30,8 @@ let obdBridge;
 let database;
 let backupManager;
 let selfRepairLearning;
+let adminDiagnosticsManager;
+const adminHelperConfig = parseHelperArgs(process.argv);
 const developerPlans = new Map();
 let latestSystemReport = null;
 
@@ -539,6 +542,7 @@ async function selfRepairMap(payload={}) {
     data:{
       map:context.map,
       learning:selfRepairLearning?.stats?.() || { entries:0, successful:0, lastVerified:null },
+      admin:adminDiagnosticsManager?.status?.() || { active:false, expiresAt:null },
       scannedAt:new Date().toISOString()
     }
   };
@@ -559,6 +563,15 @@ async function selfRepairChat(payload={}) {
     `--- ${item.path} (score=${item.score}, lines=${item.lines}) ---\n${item.excerpt}`
   ).join('\n\n');
   const historyText = history.map(item => `${item.role === 'assistant' ? 'Jarvis Self-Repair' : 'Owner'}: ${String(item.content || '').slice(0,1800)}`).join('\n');
+  let adminSystemText = '(administrator diagnostics session is not active)';
+  if (adminDiagnosticsManager?.isActive?.()) {
+    try {
+      const snapshot = await adminDiagnosticsManager.snapshot();
+      adminSystemText = JSON.stringify(snapshot, null, 2).slice(0,42000);
+    } catch (error) {
+      adminSystemText = '(administrator diagnostics unavailable: ' + String(error?.message || error) + ')';
+    }
+  }
   const langRule = language === 'hu'
     ? 'Válaszolj kizárólag magyarul.'
     : 'Reply in the selected application language when possible.';
@@ -576,6 +589,9 @@ ${langRule}
 
 VERIFIED LOCAL LESSONS:
 ${learnedText}
+
+UAC-AUTHORIZED WINDOWS DIAGNOSTICS:
+${adminSystemText}
 
 PROJECT MAP:
 ${mapSummary}
@@ -1181,13 +1197,23 @@ function createWindow() {
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (adminHelperConfig) {
+    await startAdminHelper(adminHelperConfig,{ onClose:() => app.quit() });
+    return;
+  }
+
   seedInitialSettings();
   purgeInsecureLegacySecrets();
   obdBridge = new NativeObdBridge();
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
   selfRepairLearning = new SelfRepairLearning(path.join(app.getPath('userData'),'self-repair-learning.json'));
+  adminDiagnosticsManager = new AdminDiagnosticsManager({
+    execPath:process.execPath,
+    appPath:app.getAppPath(),
+    isPackaged:app.isPackaged
+  });
   policy = new PolicyEngine({
     rulesPath:resourcePath('security','core-rules.json'),
     signaturePath:resourcePath('security','core-rules.sig'),
@@ -1213,6 +1239,24 @@ app.whenReady().then(() => {
     return policy.setOwnerPin(req.newPin);
   });
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
+  ipcMain.handle('jarvis:admin:status', () => adminDiagnosticsManager?.status?.() || {active:false,expiresAt:null});
+  ipcMain.handle('jarvis:admin:start', async () => {
+    if (!localOwnerAuthorised()) throw new Error('ADMIN_OWNER_REQUIRED');
+    return adminDiagnosticsManager.start();
+  });
+  ipcMain.handle('jarvis:admin:snapshot', async () => {
+    if (!adminDiagnosticsManager?.isActive?.()) throw new Error('ADMIN_SESSION_NOT_ACTIVE');
+    return adminDiagnosticsManager.snapshot();
+  });
+  ipcMain.handle('jarvis:admin:request', async (_e, request={}) => {
+    if (!adminDiagnosticsManager?.isActive?.()) throw new Error('ADMIN_SESSION_NOT_ACTIVE');
+    const operation = String(request.operation || '');
+    const allowed = new Set(['listDirectory','readTextFile','registryQuery']);
+    if (!allowed.has(operation)) throw new Error('ADMIN_OPERATION_NOT_ALLOWLISTED');
+    return adminDiagnosticsManager.request(operation, request.payload || {});
+  });
+  ipcMain.handle('jarvis:admin:stop', () => adminDiagnosticsManager?.stop?.() || {active:false,expiresAt:null});
+
   ipcMain.handle('jarvis:settings:get', () => getSettingsInternal());
   ipcMain.handle('jarvis:theme:set', (_e, theme) => {
     const resolved = theme === 'light' ? 'light' : 'dark';
@@ -1411,5 +1455,9 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('before-quit', () => { obdBridge?.disconnect?.().catch(() => {}); database?.close?.(); });
+app.on('before-quit', () => {
+  obdBridge?.disconnect?.().catch(() => {});
+  adminDiagnosticsManager?.stop?.().catch?.(() => {});
+  database?.close?.();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
