@@ -9,7 +9,14 @@ const PROTECTED = [
   /^security[\\/]/i,
   /^electron[\\/]main\.cjs$/i,
   /^electron[\\/]developer-repair\.cjs$/i,
+  /^electron[\\/]admin-diagnostics\.cjs$/i,
   /^\.github[\\/]workflows[\\/]/i,
+  /^scripts[\\/]/i,
+  /^package\.json$/i,
+  /^package-lock\.json$/i,
+  /^eslint\.config\.js$/i,
+  /^tsconfig\.json$/i,
+  /^vite\.config\.js$/i,
 ];
 const ALLOWED_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
@@ -53,6 +60,9 @@ function validatePlan(root, input={}) {
   const clean = patches.map((p) => {
     const file = normalizeRelative(p.file);
     const target = resolveInside(base,file);
+    if (/^src[\\/]tests[\\/]/i.test(file) && fs.existsSync(target)) {
+      throw new Error('DEV_REPAIR_EXISTING_TEST_PROTECTED');
+    }
     const hasFullContent = typeof p.content === 'string';
     const replacements = Array.isArray(p.replacements) ? p.replacements : [];
 
