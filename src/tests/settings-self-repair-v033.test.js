@@ -96,3 +96,11 @@ test('repairs incomplete Autopilot workspaces and packages a real lockfile outsi
     false
   );
 });
+
+
+test('Self-Repair does not diagnose stale crashes from older app versions', () => {
+  assert.match(system,/APP_VERSION/);
+  assert.match(system,/currentVersionCrashes/);
+  assert.match(system,/latestCurrentCrash/);
+  assert.match(system,/nem elemzem aktuális hibaként/);
+});
