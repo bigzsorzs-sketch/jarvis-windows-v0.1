@@ -139,6 +139,48 @@ async function runDeveloperValidation(workspace) {
   }
   return {ok:true,results};
 }
+async function runReleaseCandidateValidation(workspace) {
+  const sourceValidation = await runDeveloperValidation(workspace);
+  if (!sourceValidation.ok) return sourceValidation;
+
+  const runner = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const packageResult = { cmd:'npx electron-builder --win nsis --x64 --publish never', ok:false, output:'' };
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      runner,
+      ['electron-builder','--win','nsis','--x64','--publish','never'],
+      { cwd:workspace, windowsHide:true, timeout:900000, shell:false, maxBuffer:16 * 1024 * 1024 }
+    );
+    packageResult.ok = true;
+    packageResult.output = String(stdout || stderr || '').slice(-5000);
+  } catch (error) {
+    packageResult.output = String(error?.stdout || error?.stderr || error?.message || error).slice(-5000);
+    return { ok:false, results:[...(sourceValidation.results || []), packageResult] };
+  }
+
+  const releaseDir = path.join(workspace,'release');
+  const installer = fs.existsSync(releaseDir)
+    ? fs.readdirSync(releaseDir)
+        .filter((name) => /^Jarvis-Setup-.*-x64\.exe$/i.test(name))
+        .map((name) => path.join(releaseDir,name))
+        .sort((a,b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0]
+    : null;
+  if (!installer || !fs.existsSync(installer)) {
+    return {
+      ok:false,
+      results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:false, output:'Jarvis installer was not produced.' }]
+    };
+  }
+
+  const sha256 = crypto.createHash('sha256').update(fs.readFileSync(installer)).digest('hex');
+  return {
+    ok:true,
+    results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:true, output:installer }],
+    installer,
+    sha256
+  };
+}
+
 function localOwnerAuthorised() {
   try {
     const user = database?.getUser?.();
@@ -896,9 +938,10 @@ async function runAutonomousSelfRepair(payload={}) {
     const proposal = generated.proposal || {};
     const patches = Array.isArray(proposal.patches) ? proposal.patches : [];
     if (proposal.done === true || patches.length === 0) {
-      const finalValidation = await runDeveloperValidation(workspace);
+      writeAutonomousRepairState({ status:'BUILDING_RELEASE_CANDIDATE', iteration, applied, lastError:null });
+      const finalValidation = await runReleaseCandidateValidation(workspace);
       if (!finalValidation.ok) {
-        feedback = `The model considered the goal complete, but validation failed:\n${summarizeValidation(finalValidation)}`;
+        feedback = `The model considered the goal complete, but release-candidate validation failed:\n${summarizeValidation(finalValidation)}`;
         writeAutonomousRepairState({ status:'VALIDATION_RETRY', iteration, applied, lastError:feedback });
         continue;
       }
@@ -911,6 +954,8 @@ async function runAutonomousSelfRepair(payload={}) {
         applied,
         model:generated.model,
         validation:finalValidation,
+        installer:finalValidation.installer || null,
+        sha256:finalValidation.sha256 || null,
         createdAt:new Date().toISOString(),
         releaseApproved:false
       };
