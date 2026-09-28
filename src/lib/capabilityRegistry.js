@@ -48,7 +48,7 @@ const TOOL_DEFINITIONS = [
   {tool:'log_blood_sugar',category:'health',description:'Store a blood sugar reading locally',approval:'instant',params:'value, time_of_day?'},
   {tool:'log_meal',category:'health',description:'Store a meal locally',approval:'instant',params:'meal_name, meal_type?, calories?'},
   {tool:'log_finance',category:'finance',description:'Store a finance entry locally',approval:'instant',params:'description, amount, type(income|expense)?, category?'},
-  {tool:'control_device',category:'smart-home',description:'Control a physical smart-home device',approval:'confirm',params:'device_name, action, value?'},
+  {tool:'control_device',category:'smart-home',description:'Control a physical smart-home device',approval:'confirm',params:'device_name, command(on|off)'},
   {tool:'check_device_status',category:'smart-home',description:'Read smart-home device status',approval:'instant',params:'device_name'},
   {tool:'trigger_scene',category:'smart-home',description:'Trigger a smart-home scene',approval:'confirm',params:'scene_name'},
   {tool:'run_routine',category:'smart-home',description:'Run a smart-home routine',approval:'confirm',params:'routine_name'},
