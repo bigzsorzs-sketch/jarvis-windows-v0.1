@@ -85,12 +85,11 @@ test('Home voice wave uses a centered reference-style pulse instead of full-widt
   assert.equal(stage.includes('322,5 332,47'), false);
 });
 
-test('v0.3.12 release version is synchronized', () => {
+test('release version is synchronized', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const versionSource = read('src/lib/appVersion.js');
-  assert.equal(pkg.version, '0.3.12');
-  assert.equal(lock.version, '0.3.12');
-  assert.equal(lock.packages[''].version, '0.3.12');
-  assert.equal(versionSource.includes("APP_VERSION = '0.3.12'"), true);
+  assert.equal(lock.version, pkg.version);
+  assert.equal(lock.packages[''].version, pkg.version);
+  assert.equal(versionSource.includes(`APP_VERSION = '${pkg.version}'`), true);
 });
