@@ -28,6 +28,7 @@ let obdBridge;
 let database;
 let backupManager;
 const developerPlans = new Map();
+let latestSystemReport = null;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
@@ -1035,16 +1036,20 @@ async function runSystemCheck() {
   const freeGb = Number(context.freeMemoryBytes || 0) / 1024 / 1024 / 1024;
   add('memory', 'Szabad memória', freeGb >= 1, freeGb.toFixed(1) + ' GB szabad RAM', freeGb >= 1 ? 'normal' : 'warning');
 
-  return {
-    checkedAt: new Date().toISOString(),
-    appVersion: app.getVersion(),
+  const report = {
+    id:crypto.randomUUID(),
+    checkedAt:new Date().toISOString(),
+    appVersion:app.getVersion(),
     checks,
-    ok: checks.every((check) => check.ok || check.severity !== 'critical')
+    ok:checks.every((check) => check.ok || check.severity !== 'critical')
   };
+  latestSystemReport = report;
+  return report;
 }
 
 function buildRepairPlan(report) {
-  const failed = Array.isArray(report?.checks) ? report.checks.filter((check) => !check.ok) : [];
+  if (!report?.id || !Array.isArray(report?.checks)) throw new Error('JARVIS_REPAIR_REPORT_INVALID');
+  const failed = report.checks.filter((check) => !check.ok);
   const repairs = [];
   for (const check of failed) {
     if (check.id === 'backup') repairs.push({ id:'repair-backup-directory', checkId:check.id, title:'Backup mappa helyreállítása', description:'Újralétrehozza a Jarvis Backups mappát és ellenőrzi az írhatóságát.', risk:'low', automatic:true });
@@ -1054,11 +1059,17 @@ function buildRepairPlan(report) {
     else if (check.id === 'ai') repairs.push({ id:'manual-ai-key', checkId:check.id, title:'OpenRouter API-kulcs beállítása szükséges', description:check.detail, risk:'low', automatic:false });
     else repairs.push({ id:'manual-' + check.id, checkId:check.id, title:check.label + ' – kézi beavatkozás szükséges', description:check.detail, risk:check.severity === 'critical' ? 'high' : 'medium', automatic:false });
   }
-  return { generatedAt:new Date().toISOString(), repairs };
+  return { reportId:report.id, generatedAt:new Date().toISOString(), repairs };
 }
 
-async function runApprovedRepair(repairId) {
+async function runApprovedRepair(repairId, reportId) {
   if (!localOwnerAuthorised()) throw new Error('JARVIS_REPAIR_UNAUTHORISED');
+  if (!latestSystemReport?.id || String(reportId || '') !== String(latestSystemReport.id)) {
+    throw new Error('JARVIS_REPAIR_REPORT_STALE');
+  }
+  const currentPlan = buildRepairPlan(latestSystemReport);
+  const approvedRepair = currentPlan.repairs.find((repair) => repair.id === repairId && repair.automatic);
+  if (!approvedRepair) throw new Error('JARVIS_REPAIR_NOT_CURRENT');
   switch (repairId) {
     case 'repair-backup-directory': {
       const dir = path.join(app.getPath('documents'), 'Jarvis Backups');
@@ -1250,6 +1261,7 @@ app.whenReady().then(() => {
   ipcMain.handle('jarvis:obd:status', () => obdBridge.status());
   ipcMain.handle('jarvis:obd:disconnect', () => obdBridge.disconnect());
   ipcMain.handle('jarvis:data:filter', (_e, req={}) => database.filter(req.entity, req.query, req.sort, req.limit));
+  ipcMain.handle('jarvis:data:search', (_e, req={}) => database.search(req.entity, req.query, req.text, req.limit));
   ipcMain.handle('jarvis:data:create', (_e, req={}) => guarded(
     { type:'local_data_write', target:String(req.entity || '') },
     () => database.create(req.entity, req.data)
@@ -1281,7 +1293,10 @@ app.whenReady().then(() => {
     () => backupManager.restore(req.passphrase)
   ));
   ipcMain.handle('jarvis:system:check', () => runSystemCheck());
-  ipcMain.handle('jarvis:repair:plan', (_e, report={}) => buildRepairPlan(report));
+  ipcMain.handle('jarvis:repair:plan', (_e, report={}) => {
+    if (!latestSystemReport?.id || report?.id !== latestSystemReport.id) throw new Error('JARVIS_REPAIR_REPORT_STALE');
+    return buildRepairPlan(latestSystemReport);
+  });
   ipcMain.handle('jarvis:developer:plan', (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
     const workspace = developerRepair.validateWorkspace(String(request.workspace || ''));
@@ -1353,7 +1368,7 @@ app.whenReady().then(() => {
   ));
   ipcMain.handle('jarvis:repair:apply', (_e, request={}) => guarded(
     { type:'system_repair', target:String(request.repairId || '') },
-    () => runApprovedRepair(request.repairId),
+    () => runApprovedRepair(request.repairId, request.reportId),
     { message:'Jarvis egy helyi javítást készül végrehajtani. A művelet csak a jóváhagyott, beépített javítási listából futhat.' }
   ));
   createWindow();
