@@ -4,7 +4,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 
 import { useLang } from '@/lib/i18n';
 import PersonalServicesCard from '@/components/settings/PersonalServicesCard';
-import InviteUserCard from '@/components/settings/InviteUserCard';
 import { SecurityCard, CloudSyncCard } from '@/components/settings/SecurityCloudCards';
 import SettingsMenuItems from '@/components/settings/SettingsMenuItems';
 import DeleteAccountCard from '@/components/settings/DeleteAccountCard';
@@ -109,9 +108,6 @@ export default function Beallitasok() {
   const [themeMode, setThemeMode] = useState(() => getThemeMode());
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviting, setInviting] = useState(false);
-  const [inviteStatus, setInviteStatus] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [desktopAi, setDesktopAi] = useState({
     aiProvider: 'openrouter',
@@ -315,17 +311,6 @@ export default function Beallitasok() {
   const removeInterest = (interest) => {
     const updated = (settings.interests || []).filter(i => i !== interest);
     save({ interests: updated });
-  };
-
-  const sendInvite = async () => {
-    if (!inviteEmail.trim()) return;
-    setInviting(true);
-    setInviteStatus(null);
-    await jarvis.users.inviteUser(inviteEmail.trim(), 'user');
-    setInviteStatus('sent');
-    setInviteEmail('');
-    setInviting(false);
-    setTimeout(() => setInviteStatus(null), 3000);
   };
 
   const toggleChannelPreference = async (channel) => {
@@ -575,8 +560,6 @@ export default function Beallitasok() {
         />
 
         <PersonalServicesCard lang={lang} userChannelPrefs={userChannelPrefs} onToggle={toggleChannelPreference} />
-
-        <InviteUserCard lang={lang} inviteEmail={inviteEmail} setInviteEmail={setInviteEmail} inviting={inviting} inviteStatus={inviteStatus} onInvite={sendInvite} t={t} />
 
         <SecurityCard Toggle={Toggle} t={t} />
 
