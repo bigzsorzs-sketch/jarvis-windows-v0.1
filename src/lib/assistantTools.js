@@ -4,6 +4,8 @@ import { translateText, SUPPORTED_LANGUAGES } from './languageEngine';
 import { loadEcosystemData, analyzeEcosystem, buildEcosystemContext } from './ecosystemEngine';
 import { sanitizeString, escapePromptValue, validateAction } from './assistantTools/sanitization';
 import { logger } from '@/lib/logger';
+import { buildCapabilityPrompt, getApprovalMode } from '@/lib/capabilityRegistry';
+import { recordActionEpisode } from '@/lib/agentMemory';
 
 const today = () => new Date().toISOString().split('T')[0];
 
@@ -337,7 +339,7 @@ export async function loadFullContext(refreshCache = false) {
   const userFilter = getUserFilter(currentUser);
 
   const [memories, settings, todos, finance, bs, meals, meds, contacts, reminders, actions,
-    businesses, projects, employees, clients, invoices] = await Promise.all([
+    businesses, projects, employees, clients, invoices, agentEpisodes] = await Promise.all([
     jarvis.entities.Memory.filter(userFilter, '-importance', 20).catch(() => []),
     jarvis.entities.UserSettings.filter(userFilter).catch(() => []),
     jarvis.entities.TodoItem.filter({ ...userFilter, is_completed: false }, '-created_date', 15).catch(() => []),
@@ -353,6 +355,7 @@ export async function loadFullContext(refreshCache = false) {
     jarvis.entities.Employee.filter(userFilter).catch(() => []),
     jarvis.entities.BusinessClient.filter(userFilter).catch(() => []),
     jarvis.entities.Invoice.filter(userFilter, '-created_date', 50).catch(() => []),
+    jarvis.entities.AgentEpisode.filter(userFilter, '-created_date', 8).catch(() => []),
   ]);
 
   const activePromptTunings = await jarvis.functions.invoke('getActivePromptTunings', {})
@@ -372,7 +375,7 @@ export async function loadFullContext(refreshCache = false) {
 
   return {
     memories, settings: settings[0] || null, todos, finance, bs, meals, meds, contacts, reminders, actions,
-    businesses, projects, employees, clients, invoices, ecosystem: ecosystemData, userEmail,
+    businesses, projects, employees, clients, invoices, agentEpisodes, ecosystem: ecosystemData, userEmail,
     promptTunings: activePromptTunings,
   };
 }
@@ -380,7 +383,7 @@ export async function loadFullContext(refreshCache = false) {
 export function buildSystemPrompt(ctx, langInstruction = '', userMood = 'neutral') {
   if (!ctx) return 'You are a unified AI assistant. Help the user in their language!';
 
-  const { memories, settings, todos, finance, bs, meals, meds, contacts, reminders, actions, invoices, ecosystem, promptTunings } = ctx;
+  const { memories, settings, todos, finance, bs, meals, meds, contacts, reminders, actions, invoices, agentEpisodes, ecosystem, promptTunings } = ctx;
   const todayStr = today();
   const now = new Date();
   const dayNames = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
@@ -441,17 +444,13 @@ Reminders: ${pendingReminders.slice(0, 3).map(r => `${escapePromptValue(r.title,
 Finance: Balance £${balance.toFixed(2)} | Overdue invoices: ${overdueInvoices.length} | Recent: ${(finance || []).slice(0, 3).map(f => `${f.type === 'income' ? '+' : '-'}£${f.amount} ${escapePromptValue(f.description, 120)}`).join(', ') || 'none'}
 Health: Last BG=${lastBS ? `${lastBS.value} mmol/L (${lastBS.time_of_day})` : 'none'} | Today calories=${todayCalories} kcal
 Recent actions: ${recentActions || 'none'}
+Recent verified agent operations: ${(agentEpisodes || []).slice(0, 5).map((e) => `${e.kind || 'action'}:${e.goal || e.tool || ''}:${e.outcome || ''}`).join(' | ') || 'none'}
 
 ${ecosystem ? buildEcosystemContext(ecosystem) : ''}
-━━━ CAPABILITY MODULES ━━━
-[MEMORY] save_memory, search_data
-[PRODUCTIVITY] create_task, create_reminder, create_note
-[HEALTH] log_blood_sugar, log_meal
-[FINANCE] log_finance, create_invoice, generate_pdf
-[COMMUNICATION] draft_email, call_contact, create_contact, search_contacts
-[LANGUAGE] translate_text
-[SMART HOME] control_device, check_device_status, trigger_scene, run_routine
-[BUSINESS] analyze_ecosystem, optimize_workload, optimize_revenue
+━━━ CAPABILITY REGISTRY ━━━
+${buildCapabilityPrompt()}
+
+Approval levels: instant = execute immediately; confirm = ask owner before execution; owner = never execute without explicit owner release/system approval.
 
 ━━━ RULES ━━━
 1. Always respond in the user's language.
@@ -498,8 +497,10 @@ export function parseActions(reply) {
  * Each action: validate → execute → retry once on transient failure → log.
  * On critical failure, remaining actions still run (partial success model).
  */
-export async function executeActions(actions) {
+export async function executeActions(actions, options = {}) {
   const results = [];
+  const source = String(options.source || 'assistant');
+  const goal = String(options.goal || '');
 
   for (const action of actions) {
     if (!validateAction(action)) {
@@ -511,6 +512,26 @@ export async function executeActions(actions) {
     if (!toolFn) {
       results.push({ ...action, result: { success: false, message: `❌ Ismeretlen művelet: ${action.tool}` } });
       continue;
+    }
+
+    const approvalMode = getApprovalMode(action.tool);
+    if (approvalMode === 'owner') {
+      const blocked = 'Tulajdonosi engedély szükséges ehhez a művelethez.';
+      results.push({ ...action, blocked, result:{success:false,message:`🔒 ${blocked}`} });
+      await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result:{success:false,message:blocked}});
+      continue;
+    }
+    if (approvalMode === 'confirm') {
+      const label = String(action.tool || '').replaceAll('_',' ');
+      const approved = typeof window === 'undefined'
+        ? false
+        : window.confirm(`Jarvis ezt a műveletet készül végrehajtani: ${label}. Engedélyezed?`);
+      if (!approved) {
+        const blocked = 'A műveletet nem engedélyezted.';
+        results.push({ ...action, blocked, result:{success:false,message:`⛔ ${blocked}`} });
+        await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result:{success:false,message:blocked}});
+        continue;
+      }
     }
 
     let result;
@@ -530,10 +551,13 @@ export async function executeActions(actions) {
     if (lastErr) {
       logger.error('assistantTools', 'Action execution failed', { tool: action.tool, message: lastErr?.message });
       await logAction(action.tool, `Error: ${lastErr.message}`, action.params, null, 'failed');
-      results.push({ ...action, result: { success: false, message: '❌ Ezt most nem sikerült befejezni. Próbáld meg újra.' } });
+      const failedResult = { success: false, message: '❌ Ezt most nem sikerült befejezni. Próbáld meg újra.' };
+      results.push({ ...action, result: failedResult });
+      await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result:failedResult});
     } else {
       logger.info('assistantTools', 'Action executed', { tool: action.tool, success: result?.success !== false });
       results.push({ ...action, result });
+      await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result});
     }
   }
 
