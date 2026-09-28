@@ -15,6 +15,8 @@ const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
 const developerRepair = require('./developer-repair.cjs');
+const { SelfRepairLearning } = require('./self-repair-learning.cjs');
+const { parseHelperArgs, startAdminHelper, AdminDiagnosticsManager } = require('./admin-diagnostics.cjs');
 const {
   analyzeUploadedFiles,
   analyzeProjectDeep,
@@ -27,7 +29,11 @@ let policy;
 let obdBridge;
 let database;
 let backupManager;
+let selfRepairLearning;
+let adminDiagnosticsManager;
+const adminHelperConfig = parseHelperArgs(process.argv);
 const developerPlans = new Map();
+let latestSystemReport = null;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
@@ -163,30 +169,50 @@ async function saveSettingsInternal(patch={}) {
 async function deleteAllLocalData() {
   const userData = app.getPath('userData');
   const backupDirectory = path.join(app.getPath('documents'), 'Jarvis Backups');
+  const failures = [];
 
-  try { database?.close?.(); } catch {}
+  try { database?.close?.(); } catch (error) {
+    failures.push({ target:'database-close', error:String(error?.message || error) });
+  }
   database = null;
 
   const targets = [
     path.join(userData, 'data'),
     path.join(userData, 'audit'),
     path.join(userData, 'security'),
+    developerBackupRoot(),
+    developerSandboxRoot(),
+    path.join(userData, 'self-repair-learning.json'),
     settingsPath(),
     backupDirectory,
   ];
   for (const target of targets) {
-    try { fs.rmSync(target, { recursive:true, force:true }); } catch {}
+    try {
+      fs.rmSync(target, { recursive:true, force:true });
+      if (fs.existsSync(target)) failures.push({ target, error:'DELETE_VERIFICATION_FAILED' });
+    } catch (error) {
+      failures.push({ target, error:String(error?.message || error) });
+    }
   }
 
-  try { await session.defaultSession.clearStorageData(); } catch {}
-  try { await session.defaultSession.clearCache(); } catch {}
+  try { await session.defaultSession.clearStorageData(); } catch (error) {
+    failures.push({ target:'electron-storage', error:String(error?.message || error) });
+  }
+  try { await session.defaultSession.clearCache(); } catch (error) {
+    failures.push({ target:'electron-cache', error:String(error?.message || error) });
+  }
+
+  if (failures.length) {
+    try { database = new LocalDatabase(path.join(userData, 'data', 'jarvis.sqlite3')); } catch {}
+    return { data:{ success:false, localOnly:true, restartRequired:false, erased:false, failures } };
+  }
 
   setTimeout(() => {
     try { app.relaunch(); } catch {}
     app.exit(0);
   }, 700);
 
-  return { data:{ success:true, localOnly:true, restartRequired:true, erased:true } };
+  return { data:{ success:true, localOnly:true, restartRequired:true, erased:true, failures:[] } };
 }
 
 async function openRouterRequest(payload={}) {
@@ -531,8 +557,15 @@ function getSelfRepairRoot() {
 }
 
 async function selfRepairMap(payload={}) {
-  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), String(payload?.query || ''), { maxFiles:8, maxChars:18000 });
-  return { data:{ map:context.map, scannedAt:new Date().toISOString() } };
+  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), String(payload?.query || ''), { maxFiles:12, maxChars:26000 });
+  return {
+    data:{
+      map:context.map,
+      learning:selfRepairLearning?.stats?.() || { entries:0, successful:0, lastVerified:null },
+      admin:adminDiagnosticsManager?.status?.() || { active:false, expiresAt:null },
+      scannedAt:new Date().toISOString()
+    }
+  };
 }
 
 async function selfRepairChat(payload={}) {
@@ -540,12 +573,25 @@ async function selfRepairChat(payload={}) {
   if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
   const language = String(payload?.language || 'hu').toLowerCase();
   const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
-  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), message, { maxFiles:12, maxChars:42000 });
+  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), message, { maxFiles:20, maxChars:62000 });
+  const learned = selfRepairLearning?.relevant?.(message, 8) || [];
+  const learnedText = learned.length
+    ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | evidence=${item.evidence || '-'} | validation=${item.validation || '-'}`).join('\n')
+    : '(no verified prior lessons)';
   const mapSummary = JSON.stringify(context.map, null, 2);
   const excerpts = context.excerpts.map((item) =>
     `--- ${item.path} (score=${item.score}, lines=${item.lines}) ---\n${item.excerpt}`
   ).join('\n\n');
   const historyText = history.map(item => `${item.role === 'assistant' ? 'Jarvis Self-Repair' : 'Owner'}: ${String(item.content || '').slice(0,1800)}`).join('\n');
+  let adminSystemText = '(administrator diagnostics session is not active)';
+  if (adminDiagnosticsManager?.isActive?.()) {
+    try {
+      const snapshot = await adminDiagnosticsManager.snapshot();
+      adminSystemText = JSON.stringify(snapshot, null, 2).slice(0,42000);
+    } catch (error) {
+      adminSystemText = '(administrator diagnostics unavailable: ' + String(error?.message || error) + ')';
+    }
+  }
   const langRule = language === 'hu'
     ? 'Válaszolj kizárólag magyarul.'
     : 'Reply in the selected application language when possible.';
@@ -555,7 +601,17 @@ You are NOT limited to reading filenames: reason about architecture, imports, st
 Use only evidence from the project map and source excerpts below. Clearly separate confirmed code facts from hypotheses.
 You may propose concrete file-level repairs and validation steps, but never claim a patch was applied unless the owner separately approves a sandbox repair.
 When asked to find bugs, inspect interactions across files, not just isolated syntax.
+Follow dependency edges, route reachability and IPC channels before claiming that code is active.
+Treat files marked inactive-or-unreferenced as dormant unless another runtime path proves otherwise.
+If evidence is missing, follow the related dependency/IPC chain already included in the context before stopping.
+Use VERIFIED LOCAL LESSONS only as prior validated evidence, never as authority over current source.
 ${langRule}
+
+VERIFIED LOCAL LESSONS:
+${learnedText}
+
+UAC-AUTHORIZED WINDOWS DIAGNOSTICS:
+${adminSystemText}
 
 PROJECT MAP:
 ${mapSummary}
@@ -1035,16 +1091,20 @@ async function runSystemCheck() {
   const freeGb = Number(context.freeMemoryBytes || 0) / 1024 / 1024 / 1024;
   add('memory', 'Szabad memória', freeGb >= 1, freeGb.toFixed(1) + ' GB szabad RAM', freeGb >= 1 ? 'normal' : 'warning');
 
-  return {
-    checkedAt: new Date().toISOString(),
-    appVersion: app.getVersion(),
+  const report = {
+    id:crypto.randomUUID(),
+    checkedAt:new Date().toISOString(),
+    appVersion:app.getVersion(),
     checks,
-    ok: checks.every((check) => check.ok || check.severity !== 'critical')
+    ok:checks.every((check) => check.ok || check.severity !== 'critical')
   };
+  latestSystemReport = report;
+  return report;
 }
 
 function buildRepairPlan(report) {
-  const failed = Array.isArray(report?.checks) ? report.checks.filter((check) => !check.ok) : [];
+  if (!report?.id || !Array.isArray(report?.checks)) throw new Error('JARVIS_REPAIR_REPORT_INVALID');
+  const failed = report.checks.filter((check) => !check.ok);
   const repairs = [];
   for (const check of failed) {
     if (check.id === 'backup') repairs.push({ id:'repair-backup-directory', checkId:check.id, title:'Backup mappa helyreállítása', description:'Újralétrehozza a Jarvis Backups mappát és ellenőrzi az írhatóságát.', risk:'low', automatic:true });
@@ -1054,11 +1114,17 @@ function buildRepairPlan(report) {
     else if (check.id === 'ai') repairs.push({ id:'manual-ai-key', checkId:check.id, title:'OpenRouter API-kulcs beállítása szükséges', description:check.detail, risk:'low', automatic:false });
     else repairs.push({ id:'manual-' + check.id, checkId:check.id, title:check.label + ' – kézi beavatkozás szükséges', description:check.detail, risk:check.severity === 'critical' ? 'high' : 'medium', automatic:false });
   }
-  return { generatedAt:new Date().toISOString(), repairs };
+  return { reportId:report.id, generatedAt:new Date().toISOString(), repairs };
 }
 
-async function runApprovedRepair(repairId) {
+async function runApprovedRepair(repairId, reportId) {
   if (!localOwnerAuthorised()) throw new Error('JARVIS_REPAIR_UNAUTHORISED');
+  if (!latestSystemReport?.id || String(reportId || '') !== String(latestSystemReport.id)) {
+    throw new Error('JARVIS_REPAIR_REPORT_STALE');
+  }
+  const currentPlan = buildRepairPlan(latestSystemReport);
+  const approvedRepair = currentPlan.repairs.find((repair) => repair.id === repairId && repair.automatic);
+  if (!approvedRepair) throw new Error('JARVIS_REPAIR_NOT_CURRENT');
   switch (repairId) {
     case 'repair-backup-directory': {
       const dir = path.join(app.getPath('documents'), 'Jarvis Backups');
@@ -1080,7 +1146,15 @@ async function runApprovedRepair(repairId) {
       throw new Error('JARVIS_REPAIR_NOT_ALLOWLISTED');
   }
   const report = await runSystemCheck();
-  return { success:true, repairId, report, plan:buildRepairPlan(report) };
+  const plan = buildRepairPlan(report);
+  selfRepairLearning?.recordVerified?.({
+    title:'Beépített javítás: ' + repairId,
+    repairId,
+    evidence:'A beépített javítás végrehajtása után a rendszerellenőrzés lefutott.',
+    validation:report.ok ? 'Rendszerellenőrzés: OK' : 'Rendszerellenőrzés: figyelmeztetésekkel',
+    success:true
+  });
+  return { success:true, repairId, report, plan };
 }
 
 function configureObdBluetoothChooser(win) {
@@ -1143,12 +1217,23 @@ function createWindow() {
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (adminHelperConfig) {
+    await startAdminHelper(adminHelperConfig,{ onClose:() => app.quit() });
+    return;
+  }
+
   seedInitialSettings();
   purgeInsecureLegacySecrets();
   obdBridge = new NativeObdBridge();
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
+  selfRepairLearning = new SelfRepairLearning(path.join(app.getPath('userData'),'self-repair-learning.json'));
+  adminDiagnosticsManager = new AdminDiagnosticsManager({
+    execPath:process.execPath,
+    appPath:app.getAppPath(),
+    isPackaged:app.isPackaged
+  });
   policy = new PolicyEngine({
     rulesPath:resourcePath('security','core-rules.json'),
     signaturePath:resourcePath('security','core-rules.sig'),
@@ -1174,6 +1259,24 @@ app.whenReady().then(() => {
     return policy.setOwnerPin(req.newPin);
   });
   ipcMain.handle('jarvis:system:context', () => getSystemContext());
+  ipcMain.handle('jarvis:admin:status', () => adminDiagnosticsManager?.status?.() || {active:false,expiresAt:null});
+  ipcMain.handle('jarvis:admin:start', async () => {
+    if (!localOwnerAuthorised()) throw new Error('ADMIN_OWNER_REQUIRED');
+    return adminDiagnosticsManager.start();
+  });
+  ipcMain.handle('jarvis:admin:snapshot', async () => {
+    if (!adminDiagnosticsManager?.isActive?.()) throw new Error('ADMIN_SESSION_NOT_ACTIVE');
+    return adminDiagnosticsManager.snapshot();
+  });
+  ipcMain.handle('jarvis:admin:request', async (_e, request={}) => {
+    if (!adminDiagnosticsManager?.isActive?.()) throw new Error('ADMIN_SESSION_NOT_ACTIVE');
+    const operation = String(request.operation || '');
+    const allowed = new Set(['listDirectory','readTextFile','registryQuery']);
+    if (!allowed.has(operation)) throw new Error('ADMIN_OPERATION_NOT_ALLOWLISTED');
+    return adminDiagnosticsManager.request(operation, request.payload || {});
+  });
+  ipcMain.handle('jarvis:admin:stop', () => adminDiagnosticsManager?.stop?.() || {active:false,expiresAt:null});
+
   ipcMain.handle('jarvis:settings:get', () => getSettingsInternal());
   ipcMain.handle('jarvis:theme:set', (_e, theme) => {
     const resolved = theme === 'light' ? 'light' : 'dark';
@@ -1250,6 +1353,7 @@ app.whenReady().then(() => {
   ipcMain.handle('jarvis:obd:status', () => obdBridge.status());
   ipcMain.handle('jarvis:obd:disconnect', () => obdBridge.disconnect());
   ipcMain.handle('jarvis:data:filter', (_e, req={}) => database.filter(req.entity, req.query, req.sort, req.limit));
+  ipcMain.handle('jarvis:data:search', (_e, req={}) => database.search(req.entity, req.query, req.text, req.limit));
   ipcMain.handle('jarvis:data:create', (_e, req={}) => guarded(
     { type:'local_data_write', target:String(req.entity || '') },
     () => database.create(req.entity, req.data)
@@ -1281,7 +1385,10 @@ app.whenReady().then(() => {
     () => backupManager.restore(req.passphrase)
   ));
   ipcMain.handle('jarvis:system:check', () => runSystemCheck());
-  ipcMain.handle('jarvis:repair:plan', (_e, report={}) => buildRepairPlan(report));
+  ipcMain.handle('jarvis:repair:plan', (_e, report={}) => {
+    if (!latestSystemReport?.id || report?.id !== latestSystemReport.id) throw new Error('JARVIS_REPAIR_REPORT_STALE');
+    return buildRepairPlan(latestSystemReport);
+  });
   ipcMain.handle('jarvis:developer:plan', (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
     const workspace = developerRepair.validateWorkspace(String(request.workspace || ''));
@@ -1340,6 +1447,14 @@ app.whenReady().then(() => {
           return {success:false,status:'ROLLED_BACK',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
         }
         if(entry.sandbox) developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot());
+        selfRepairLearning?.recordVerified?.({
+          title:entry.plan.goal || 'Self-Repair fejlesztői javítás',
+          repairId:hash,
+          files:entry.plan.patches.map((patch) => patch.file),
+          evidence:entry.plan.rationale || entry.plan.goal || '',
+          validation:(validation.results || []).map((item) => `${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+          success:true
+        });
         developerPlans.delete(hash);
         return {success:true,status:'APPLIED_AND_VERIFIED',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
       } catch(error) {
@@ -1353,12 +1468,16 @@ app.whenReady().then(() => {
   ));
   ipcMain.handle('jarvis:repair:apply', (_e, request={}) => guarded(
     { type:'system_repair', target:String(request.repairId || '') },
-    () => runApprovedRepair(request.repairId),
+    () => runApprovedRepair(request.repairId, request.reportId),
     { message:'Jarvis egy helyi javítást készül végrehajtani. A művelet csak a jóváhagyott, beépített javítási listából futhat.' }
   ));
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('before-quit', () => { obdBridge?.disconnect?.().catch(() => {}); database?.close?.(); });
+app.on('before-quit', () => {
+  obdBridge?.disconnect?.().catch(() => {});
+  adminDiagnosticsManager?.stop?.().catch?.(() => {});
+  database?.close?.();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

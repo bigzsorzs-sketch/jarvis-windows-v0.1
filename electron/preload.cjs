@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   ownerOverride: (request) => ipcRenderer.invoke('jarvis:policy:override', request),
   getOwnerPinStatus: () => ipcRenderer.invoke('jarvis:policy:pin:status'),
   setOwnerPin: (request) => ipcRenderer.invoke('jarvis:policy:pin:set', request),
+  elevatedDiagnostics: {
+    status: () => ipcRenderer.invoke('jarvis:admin:status'),
+    start: () => ipcRenderer.invoke('jarvis:admin:start'),
+    snapshot: () => ipcRenderer.invoke('jarvis:admin:snapshot'),
+    stop: () => ipcRenderer.invoke('jarvis:admin:stop'),
+  },
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   setTheme: (theme) => ipcRenderer.invoke('jarvis:theme:set', theme),
@@ -21,6 +27,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   localDeviceRequest: (request) => ipcRenderer.invoke('jarvis:device:request', request),
   data: {
     filter: (entity, query, sort, limit) => ipcRenderer.invoke('jarvis:data:filter', { entity, query, sort, limit }),
+    search: (entity, query, text, limit) => ipcRenderer.invoke('jarvis:data:search', { entity, query, text, limit }),
     create: (entity, data) => ipcRenderer.invoke('jarvis:data:create', { entity, data }),
     update: (entity, id, patch) => ipcRenderer.invoke('jarvis:data:update', { entity, id, patch }),
     delete: (entity, id) => ipcRenderer.invoke('jarvis:data:delete', { entity, id }),
@@ -36,7 +43,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   runSystemCheck: () => ipcRenderer.invoke('jarvis:system:check'),
   repair: {
     plan: (report) => ipcRenderer.invoke('jarvis:repair:plan', report),
-    apply: (repairId) => ipcRenderer.invoke('jarvis:repair:apply', { repairId }),
+    apply: (repairId, reportId) => ipcRenderer.invoke('jarvis:repair:apply', { repairId, reportId }),
   },
   developerRepair: {
     plan: (workspace, plan) => ipcRenderer.invoke('jarvis:developer:plan', { workspace, plan }),

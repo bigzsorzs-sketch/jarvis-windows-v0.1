@@ -49,6 +49,16 @@ function requireNumber(val, name) {
   return n;
 }
 
+function requireStrictNumber(val, name, { min = -Infinity, max = Infinity } = {}) {
+  const raw = typeof val === 'number' ? String(val) : String(val ?? '').trim().replace(',', '.');
+  if (!raw || !/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw)) {
+    throw new Error(`Érvénytelen szám: ${name}`);
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > max) throw new Error(`Érvénytelen szám: ${name}`);
+  return n;
+}
+
 // ─── TOOL DEFINITIONS ────────────────────────────────────────────────────────
 
 export const TOOLS = {
@@ -97,12 +107,7 @@ export const TOOLS = {
   search_contacts: async ({ query }) => {
     const currentUser = await getCurrentUserOrThrow();
     const q = requireString(query, 'keresési feltétel').toLowerCase();
-    const contacts = await jarvis.entities.Contact.filter(getUserFilter(currentUser), '-created_date', 50);
-    const results = contacts.filter(c =>
-      c.name?.toLowerCase().includes(q) ||
-      c.email?.toLowerCase().includes(q) ||
-      c.phone?.includes(q)
-    );
+    const results = await jarvis.entities.Contact.search(q, getUserFilter(currentUser), 1000);
     await logAction('search_contacts', `Searched contacts: "${q}"`, { query: q }, { count: results.length });
     return { success: true, message: `🔍 ${results.length} találat: ${results.map(c => c.name).join(', ') || 'nincs'}.`, data: results };
   },
@@ -114,8 +119,7 @@ export const TOOLS = {
     const results = {};
     for (const e of entityList) {
       if (!jarvis.entities[e]) continue;
-      const items = await jarvis.entities[e].filter(getUserFilter(currentUser), '-created_date', 30);
-      results[e] = items.filter(i => JSON.stringify(i).toLowerCase().includes(q));
+      results[e] = await jarvis.entities[e].search(q, getUserFilter(currentUser), 1000);
     }
     const total = Object.values(results).flat().length;
     await logAction('search_data', `Searched: "${q}"`, { query: q, entity }, { total });
@@ -133,13 +137,20 @@ export const TOOLS = {
     const currentUser = await getCurrentUserOrThrow();
     const cn = requireString(client_name, 'ügyfél neve');
     const inv_number = 'INV-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-    const processedItems = (items || []).map(i => ({
-      description: i.description || 'Tétel',
-      quantity: parseFloat(i.quantity) || 1,
-      unit_price: parseFloat(i.unit_price) || 0,
-      total: (parseFloat(i.quantity) || 1) * (parseFloat(i.unit_price) || 0)
-    }));
-    const total = processedItems.reduce((s, i) => s + i.total, 0);
+    if (!Array.isArray(items) || items.length === 0) throw new Error('A számlához legalább egy tétel szükséges.');
+    const processedItems = items.map((item, index) => {
+      const quantity = requireStrictNumber(item?.quantity, `tétel ${index + 1} mennyisége`, { min:0.000001, max:1000000 });
+      const unitPrice = requireStrictNumber(item?.unit_price, `tétel ${index + 1} egységára`, { min:0, max:1000000000 });
+      const description = String(item?.description || 'Tétel').trim() || 'Tétel';
+      return {
+        description,
+        quantity,
+        unit_price:unitPrice,
+        total:quantity * unitPrice
+      };
+    });
+    const total = processedItems.reduce((sum, item) => sum + item.total, 0);
+    if (!Number.isFinite(total)) throw new Error('Érvénytelen számlaösszeg.');
     const invoice = await jarvis.entities.Invoice.create(withOwner({
       invoice_number: inv_number, client_name: cn, client_email: client_email || '',
       items: processedItems, total_amount: total, notes: notes || '',

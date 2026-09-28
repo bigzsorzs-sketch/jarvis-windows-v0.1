@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity, CheckCircle2, XCircle, AlertTriangle, Database, ShieldCheck, Save, Upload,
   RefreshCw, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2
@@ -36,15 +36,72 @@ export default function SystemCenter() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [conversation, setConversation] = useState([]);
+  const [learningStats, setLearningStats] = useState({ entries:0, successful:0, lastVerified:null });
+  const [adminStatus, setAdminStatus] = useState({ active:false, expiresAt:null });
+  const [adminSnapshot, setAdminSnapshot] = useState(null);
+  const [adminBusy, setAdminBusy] = useState(false);
+
+  useEffect(() => {
+    window.jarvisDesktop?.elevatedDiagnostics?.status?.()
+      .then((status) => setAdminStatus(status || { active:false, expiresAt:null }))
+      .catch(() => {});
+  }, []);
+
+  const startElevatedDiagnostics = async () => {
+    if (!window.jarvisDesktop?.elevatedDiagnostics?.start) {
+      setMessage(tx('A rendszergazdai diagnosztika nem érhető el.', 'Elevated diagnostics is unavailable.'));
+      return;
+    }
+    setAdminBusy(true);
+    setMessage(tx('Windows rendszergazdai engedélyre vár...', 'Waiting for Windows administrator approval...'));
+    try {
+      const status = await window.jarvisDesktop.elevatedDiagnostics.start();
+      setAdminStatus(status || { active:false, expiresAt:null });
+      const snapshot = await window.jarvisDesktop.elevatedDiagnostics.snapshot();
+      setAdminSnapshot(snapshot || null);
+      setMessage(tx(
+        '✓ Rendszergazdai diagnosztikai munkamenet aktív. A Self-Repair most a Windows rendszerállapotát is látja.',
+        '✓ Elevated diagnostics session is active. Self-Repair can now use Windows system state.'
+      ));
+    } catch (error) {
+      setAdminStatus({ active:false, expiresAt:null });
+      setAdminSnapshot(null);
+      setMessage(tx('Rendszergazdai hozzáférés hiba: ', 'Administrator access error: ') + (error?.message || error));
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  const stopElevatedDiagnostics = async () => {
+    setAdminBusy(true);
+    try {
+      await window.jarvisDesktop?.elevatedDiagnostics?.stop?.();
+      setAdminStatus({ active:false, expiresAt:null });
+      setAdminSnapshot(null);
+      setMessage(tx('Rendszergazdai diagnosztikai munkamenet leállítva.', 'Elevated diagnostics session stopped.'));
+    } finally {
+      setAdminBusy(false);
+    }
+  };
 
   const runCheck = async () => {
-    if (!window.jarvisDesktop?.runSystemCheck) return;
-    setBusy(true); setMessage('');
+    setBusy(true);
+    setMessage('');
+    setRepairPlan(null);
+    if (!window.jarvisDesktop?.runSystemCheck || !window.jarvisDesktop?.repair?.plan) {
+      setBusy(false);
+      setMessage(tx('A natív diagnosztikai híd nem érhető el.', 'Native diagnostics bridge is unavailable.'));
+      return;
+    }
     try {
       const next = await window.jarvisDesktop.runSystemCheck();
+      if (!next?.id || !Array.isArray(next?.checks)) throw new Error(tx('Érvénytelen diagnosztikai válasz.','Invalid diagnostics response.'));
+      const plan = await window.jarvisDesktop.repair.plan(next);
+      if (!plan?.reportId || plan.reportId !== next.id) throw new Error(tx('A javítási terv nem ehhez a diagnózishoz tartozik.','Repair plan does not match this diagnostic report.'));
       setReport(next);
-      setRepairPlan(await window.jarvisDesktop?.repair?.plan?.(next) || null);
+      setRepairPlan(plan);
     } catch (error) {
+      setRepairPlan(null);
       setMessage(tx('Rendszerellenőrzés hiba: ', 'System check error: ') + (error?.message || error));
     } finally { setBusy(false); }
   };
@@ -53,7 +110,11 @@ export default function SystemCenter() {
     setMapBusy(true); setMessage('');
     try {
       const result = await jarvis.functions.invoke('selfRepairMap', { query:chatInput || '' });
-      setProjectMap(result?.data?.map || null);
+      const map = result?.data?.map;
+      if (!map?.summary) throw new Error(tx('A feltérképezés nem adott vissza használható programtérképet.','Mapping returned no usable project map.'));
+      setProjectMap(map);
+      if (result?.data?.learning) setLearningStats(result.data.learning);
+      if (result?.data?.admin) setAdminStatus(result.data.admin);
       setMessage(tx('✓ A Jarvis programtérképe elkészült.', '✓ Jarvis project map is ready.'));
     } catch (error) {
       setMessage(tx('Feltérképezési hiba: ', 'Mapping error: ') + (error?.message || error));
@@ -101,7 +162,7 @@ export default function SystemCenter() {
     if (!approved) return;
     setRepairBusy(repair.id); setMessage('');
     try {
-      const result = await window.jarvisDesktop?.repair?.apply?.(repair.id);
+      const result = await window.jarvisDesktop?.repair?.apply?.(repair.id, repairPlan?.reportId);
       if (!result?.success) throw new Error(tx('A javítás nem fejeződött be.','Repair did not complete.'));
       setReport(result.report);
       setRepairPlan(result.plan);
@@ -121,6 +182,7 @@ export default function SystemCenter() {
       const result = await window.jarvisDesktop?.backup?.create(passphrase);
       if (result?.success) setMessage(tx('✓ Mentés elkészült: ','✓ Backup created: ') + result.path);
       else if (result?.canceled) setMessage(tx('Mentés megszakítva.','Backup cancelled.'));
+      else throw new Error(result?.error || tx('A mentés nem sikerült.','Backup failed.'));
     } catch (error) {
       setMessage(tx('Backup hiba: ','Backup error: ') + (error?.message || error));
     } finally { setBackupBusy(false); }
@@ -137,6 +199,7 @@ export default function SystemCenter() {
       const result = await window.jarvisDesktop?.backup?.restore(passphrase);
       if (result?.success) setMessage(tx('✓ Mentés visszaállítva. Indítsd újra a Jarvist.','✓ Backup restored. Restart Jarvis.'));
       else if (result?.canceled) setMessage(tx('Visszaállítás megszakítva.','Restore cancelled.'));
+      else throw new Error(result?.error || tx('A visszaállítás nem sikerült.','Restore failed.'));
     } catch (error) {
       setMessage(tx('Visszaállítás hiba: ','Restore error: ') + (error?.message || error));
     } finally { setBackupBusy(false); }
@@ -191,6 +254,42 @@ export default function SystemCenter() {
               <div className="jarvis-metric"><span>{tx('Auto-javítás','Auto repair')}</span><strong>{automaticRepairs.length}</strong></div>
             </div>
           )}
+        </section>
+
+        <section className="app-surface rounded-3xl p-5 md:p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><ShieldCheck size={19} className="text-primary"/></div>
+              <div>
+                <h2 className="font-semibold">{tx('Rendszergazdai rendszerdiagnosztika','Elevated system diagnostics')}</h2>
+                <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                  {tx(
+                    'A Windows UAC engedélyablakával ideiglenes, 30 perces rendszergazdai diagnosztikai munkamenetet indít. A Self-Repair így látja az operációs rendszer, lemezek, folyamatok, szolgáltatások, hálózat, illesztőprogramok, telepített programok és friss rendszerhibák állapotát. Javítást továbbra is csak külön jóváhagyással hajt végre.',
+                    'Starts a temporary 30-minute administrator diagnostics session through Windows UAC. Self-Repair can inspect OS, disks, processes, services, network, drivers, installed apps and recent system errors. Repairs still require separate approval.'
+                  )}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={adminStatus.active ? stopElevatedDiagnostics : startElevatedDiagnostics}
+              disabled={adminBusy}
+              className={adminStatus.active
+                ? 'px-4 py-3 rounded-xl border border-green-500/30 bg-green-500/10 text-green-400 font-semibold text-sm disabled:opacity-50'
+                : 'px-4 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50'}
+            >
+              {adminBusy
+                ? tx('Engedélyezés...','Authorizing...')
+                : adminStatus.active
+                  ? tx('Rendszergazdai mód leállítása','Stop elevated mode')
+                  : tx('Rendszergazdai hozzáférés engedélyezése','Allow administrator diagnostics')}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+            <div className="jarvis-metric"><span>{tx('Admin állapot','Admin status')}</span><strong>{adminStatus.active ? tx('AKTÍV','ACTIVE') : tx('KIKAPCSOLVA','OFF')}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Tanult javítások','Learned repairs')}</span><strong>{learningStats.entries || 0}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Folyamatok','Processes')}</span><strong>{Array.isArray(adminSnapshot?.Processes) ? adminSnapshot.Processes.length : '-'}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Rendszeresemények','System events')}</span><strong>{Array.isArray(adminSnapshot?.RecentEvents) ? adminSnapshot.RecentEvents.length : '-'}</strong></div>
+          </div>
         </section>
 
         <section className="app-surface rounded-3xl p-5 md:p-6">

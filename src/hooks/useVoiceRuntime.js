@@ -24,6 +24,8 @@ export function useVoiceRuntime() {
   });
 
   const [lastTranscript, setLastTranscript] = useState('');
+  const [lastTranscriptEvent, setLastTranscriptEvent] = useState(null);
+  const transcriptSeqRef = useRef(0);
   const [lastError, setLastError] = useState(null);
 
   useEffect(() => {
@@ -36,7 +38,10 @@ export function useVoiceRuntime() {
 
     // Subscribe to transcripts (for optional consumption)
     const unsubTranscript = runtime.subscribe('transcript', (transcript) => {
-      setLastTranscript(transcript);
+      const normalizedTranscript = normalizeHungarianSpeechInput(transcript);
+      transcriptSeqRef.current += 1;
+      setLastTranscript(normalizedTranscript);
+      setLastTranscriptEvent({ id:transcriptSeqRef.current, text:normalizedTranscript, at:Date.now() });
     });
 
     // Subscribe to errors
@@ -55,6 +60,7 @@ export function useVoiceRuntime() {
   return {
     state,
     lastTranscript,
+    lastTranscriptEvent,
     lastError,
     toggleHandsFree: useCallback(() => {
       runtimeRef.current?.toggleHandsFree();
@@ -85,6 +91,7 @@ export function useVoiceRuntime() {
     }, []),
     clearTranscript: useCallback(() => {
       setLastTranscript('');
+      setLastTranscriptEvent(null);
     }, []),
     // For advanced usage
     runtime: runtimeRef.current,

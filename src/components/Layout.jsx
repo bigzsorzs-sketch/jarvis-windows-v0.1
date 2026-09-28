@@ -13,9 +13,9 @@ import MobileHeader from './MobileHeader';
 import { recordTabPath, getLastTabPath, resetTabPath } from '@/lib/tabHistory';
 
 const toolPaths = new Set([
-  '/contacts','/reminders','/smarthome','/routines','/legal','/retail','/gmail',
+  '/contacts','/smarthome','/routines','/legal','/retail','/gmail',
   '/locations','/habits','/fuel-tracker','/jelentesek','/holding','/privacy-terms',
-  '/release-checklist','/voice-help','/ai-feedback-admin','/system-center'
+  '/release-checklist','/voice-help','/ai-feedback-admin'
 ]);
 
 export default function Layout() {
@@ -96,7 +96,9 @@ export default function Layout() {
     setShowMore(false);
   };
 
-  const currentItem = [...desktopNav, ...systemNav].find(item => isDesktopActive(item.path));
+  const allDesktopItems = [...desktopNav, ...systemNav];
+  const currentItem = allDesktopItems.find((item) => item.path === location.pathname)
+    || allDesktopItems.find((item) => isDesktopActive(item.path));
   const pageTitle = currentItem?.label || 'Jarvis';
   const pageEyebrow = 'JARVIS';
   const isMoreActive = mobileMoreNav.some(n => n.path === location.pathname);
@@ -123,7 +125,10 @@ export default function Layout() {
         </nav>
         <div className="jarvis-reference-spacer" />
         {location.pathname !== '/' && <nav className="jarvis-reference-nav jarvis-reference-system-nav">
-          {systemNav.map(({ path, label, icon: Icon }) => <button key={path} onClick={() => navigate(path)} title={label}><Icon size={15}/>{!sidebarCollapsed && <span>{label}</span>}</button>)}
+          {systemNav.map(({ path, label, icon: Icon }) => {
+            const active = isDesktopActive(path);
+            return <button key={path} onClick={() => navigate(path)} title={label} className={active ? 'active' : ''}><Icon size={15}/>{!sidebarCollapsed && <span>{label}</span>}</button>;
+          })}
         </nav>}
         <button onClick={() => navigate('/beallitasok')} className="jarvis-reference-settings" title={t('settings')}><Settings size={15}/>{!sidebarCollapsed && <span>{t('settings')}</span>}</button>
       </aside>

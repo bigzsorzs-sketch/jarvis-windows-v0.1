@@ -89,6 +89,13 @@ function localEntityApi(entityName) {
       if (Number.isFinite(limit)) rows = rows.slice(0, limit);
       return structuredClone(rows);
     },
+    async search(text = '', query = {}, limit = 500) {
+      const needle = String(text || '').trim().toLowerCase();
+      let rows = all().filter((row) => Object.entries(query || {}).every(([k,v]) => row?.[k] === v));
+      if (needle) rows = rows.filter((row) => JSON.stringify(row).toLowerCase().includes(needle));
+      rows.sort((a,b) => String(b?.created_date || '').localeCompare(String(a?.created_date || '')));
+      return structuredClone(rows.slice(0, Math.max(1, Math.min(5000, Number(limit) || 500))));
+    },
     async create(data = {}) {
       const user = localUser();
       const row = {
@@ -129,6 +136,12 @@ function entityApi(entityName) {
       if (!api?.filter) return fallback.filter(query, sort, limit);
       await ensureDesktopMigration();
       return api.filter(entityName, query, sort, limit);
+    },
+    async search(text = '', query = {}, limit = 500) {
+      const api = nativeData();
+      if (!api?.search) return fallback.search(text, query, limit);
+      await ensureDesktopMigration();
+      return api.search(entityName, query, text, limit);
     },
     async create(data = {}) {
       const api = nativeData();

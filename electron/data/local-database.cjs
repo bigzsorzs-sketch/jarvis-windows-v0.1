@@ -109,6 +109,22 @@ class LocalDatabase {
     return clone(rows);
   }
 
+  search(entity, query = {}, text = '', limit = 500) {
+    this.ensureOpen();
+    const needle = String(text || '').trim().toLocaleLowerCase('hu-HU');
+    if (!needle) return this.filter(entity, query, '-created_date', limit);
+
+    const cap = Math.max(1, Math.min(5000, Number(limit) || 500));
+    const rows = this.db.prepare(
+      'SELECT json FROM entities WHERE entity = ? ORDER BY created_date DESC LIMIT ?'
+    ).all(String(entity), cap)
+      .map((row) => JSON.parse(row.json))
+      .filter((row) => Object.entries(query || {}).every(([key, value]) => row?.[key] === value))
+      .filter((row) => JSON.stringify(row).toLocaleLowerCase('hu-HU').includes(needle));
+
+    return clone(rows);
+  }
+
   create(entity, data = {}) {
     this.ensureOpen();
     const user = this.getUser();
