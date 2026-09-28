@@ -6,6 +6,7 @@ import { isCallCommand, extractCallTarget, isGlobalVoiceCommand } from '@/lib/vo
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { findFastChatReply } from '@/lib/fastChatReplies';
 import { isCodeAssistantRequest, runCodeAssistantTurn } from '@/lib/codeAssistant';
+import { shouldUseAgentPlanner, runAgentTask } from '@/lib/agentOrchestrator';
 
 async function findLegacyCallCommand(text, handlers = {}) {
   const lower = text.toLowerCase();
@@ -66,6 +67,16 @@ export async function routeUserCommand({
 
   const legacyCall = await findLegacyCallCommand(input, handlers);
   if (legacyCall?.handled) return legacyCall;
+
+  if (attachedFiles.length === 0 && shouldUseAgentPlanner(input)) {
+    const agentResult = await runAgentTask({
+      goal:input,
+      ctx,
+      lang,
+      source,
+    }).catch(() => null);
+    if (agentResult?.handled) return agentResult;
+  }
 
   const turn = await runAssistantTurn({
     message: input,
