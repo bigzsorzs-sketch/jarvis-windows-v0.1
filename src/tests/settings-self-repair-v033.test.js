@@ -82,7 +82,8 @@ test('settings persistence supports owned entity lookup before update', () => {
 
 
 test('repairs incomplete Autopilot workspaces and packages a real lockfile outside app.asar', () => {
-  assert.match(main,/Repair partially-created or stale workspaces as well/);
+  assert.match(main,/A packaged upgrade must refresh the development workspace/);
+  assert.match(main,/refreshForVersion/);
   assert.match(main,/AUTONOMOUS_REPAIR_LOCKFILE_INVALID/);
   assert.equal(pkg.build.files.includes('package.json'), true);
   assert.equal(
