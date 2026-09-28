@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
     approve: (hash) => ipcRenderer.invoke('jarvis:developer:approve', { hash }),
     apply: (hash) => ipcRenderer.invoke('jarvis:developer:apply', { hash }),
     autonomousStatus: () => ipcRenderer.invoke('jarvis:self-repair:auto:status'),
+    setCrashAutoRepair: (enabled) => ipcRenderer.invoke('jarvis:self-repair:auto:crash-mode', enabled === true),
     prepareAutonomousWorkspace: () => ipcRenderer.invoke('jarvis:self-repair:auto:workspace'),
     runAutonomous: (request) => ipcRenderer.invoke('jarvis:self-repair:auto:run', request),
     stopAutonomous: () => ipcRenderer.invoke('jarvis:self-repair:auto:stop'),
