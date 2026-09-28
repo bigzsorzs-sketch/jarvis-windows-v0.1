@@ -108,7 +108,16 @@ function settingsPath() { return path.join(app.getPath('userData'), 'settings.js
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
 function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
 function autonomousRepairStatePath() { return path.join(app.getPath('userData'),'autonomous-self-repair-state.json'); }
-function autonomousWorkspaceRoot() { return path.join(app.getPath('documents'),'Jarvis Self-Development'); }
+function autonomousWorkspaceRoot() {
+  // Keep Self-Repair out of Documents/OneDrive. Cloud-sync providers can hold
+  // directory handles and make recursive refreshes fail with EPERM on Windows.
+  // A versioned local userData workspace also avoids deleting a previous
+  // release's source tree while upgrading.
+  const safeVersion = String(app.getVersion?.() || 'current')
+    .replace(/^v/i,'')
+    .replace(/[^0-9A-Za-z._-]/g,'_');
+  return path.join(app.getPath('userData'),'self-development-workspaces',`v${safeVersion}`);
+}
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
 function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
 
@@ -2327,6 +2336,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('jarvis:self-repair:auto:workspace', async () => {
     if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
     const workspace = await ensureAutonomousWorkspace();
+    const state = readAutonomousRepairState();
+    if (!activeAutonomousStatus(state.status) && state.workspace !== workspace) {
+      writeAutonomousRepairState({
+        workspace,
+        status:state.status === 'INTERRUPTED' ? 'IDLE' : state.status,
+        lastError:null
+      });
+    }
     return { success:true, workspace };
   });
   ipcMain.handle('jarvis:self-repair:auto:run', async (_e, request={}) => {
