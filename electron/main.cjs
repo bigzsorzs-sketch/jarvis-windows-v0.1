@@ -549,6 +549,19 @@ async function deleteAllLocalData() {
   return { data:{ success:true, localOnly:true, restartRequired:true, erased:true, failures:[] } };
 }
 
+async function withNetworkTimeout(timeoutMs, label, operation) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, Number(timeoutMs) || 15000));
+  try {
+    return await operation(controller.signal);
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`${label}_TIMEOUT`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function openRouterRequest(payload={}) {
   if (payloadContainsSensitiveContext(payload)) {
     await enforcePolicy({
@@ -669,22 +682,28 @@ async function testOpenRouterConnection(candidateApiKey = '') {
   const raw = readJson(settingsPath(), {});
   const apiKey = String(candidateApiKey || '').trim() || unprotectSecret(raw.openRouterKey);
   if (!apiKey) throw new Error('OPENROUTER_API_KEY_REQUIRED');
-  const response = await fetch('https://openrouter.ai/api/v1/models?sort=most-popular', {
-    headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
+  return withNetworkTimeout(15000, 'OPENROUTER_CONNECTION', async (signal) => {
+    const response = await fetch('https://openrouter.ai/api/v1/models?sort=most-popular', {
+      signal,
+      headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
+    });
+    if (!response.ok) throw new Error(`OPENROUTER_CONNECTION_${response.status}`);
+    const json = await response.json();
+    const models = Array.isArray(json?.data) ? json.data : [];
+    return { success:true, modelCount:models.length, routingMode:raw.aiRoutingMode || 'smart', costTier:raw.aiCostTier || 'low' };
   });
-  if (!response.ok) throw new Error(`OPENROUTER_CONNECTION_${response.status}`);
-  const json = await response.json();
-  const models = Array.isArray(json?.data) ? json.data : [];
-  return { success:true, modelCount:models.length, routingMode:raw.aiRoutingMode || 'smart', costTier:raw.aiCostTier || 'low' };
 }
 
 async function listOpenRouterImageModels(apiKey) {
-  const response = await fetch('https://openrouter.ai/api/v1/images/models', {
-    headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
+  return withNetworkTimeout(15000, 'OPENROUTER_IMAGE_MODELS', async (signal) => {
+    const response = await fetch('https://openrouter.ai/api/v1/images/models', {
+      signal,
+      headers:{ Authorization:`Bearer ${apiKey}`, 'User-Agent':'Jarvis-Desktop' }
+    });
+    if (!response.ok) throw new Error(`OPENROUTER_IMAGE_MODELS_${response.status}`);
+    const json = await response.json();
+    return Array.isArray(json?.data) ? json.data : [];
   });
-  if (!response.ok) throw new Error(`OPENROUTER_IMAGE_MODELS_${response.status}`);
-  const json = await response.json();
-  return Array.isArray(json?.data) ? json.data : [];
 }
 
 async function openRouterGenerateImage(payload={}) {
@@ -717,30 +736,33 @@ async function openRouterGenerateImage(payload={}) {
     }));
   }
 
-  const response = await fetch('https://openrouter.ai/api/v1/images', {
-    method:'POST',
-    headers:{
-      'Authorization':`Bearer ${apiKey}`,
-      'Content-Type':'application/json',
-      'HTTP-Referer':'https://jarvis.local',
-      'X-Title':'Jarvis Desktop'
-    },
-    body:JSON.stringify(body)
+  return withNetworkTimeout(120000, 'OPENROUTER_IMAGE', async (signal) => {
+    const response = await fetch('https://openrouter.ai/api/v1/images', {
+      method:'POST',
+      signal,
+      headers:{
+        'Authorization':`Bearer ${apiKey}`,
+        'Content-Type':'application/json',
+        'HTTP-Referer':'https://jarvis.local',
+        'X-Title':'Jarvis Desktop'
+      },
+      body:JSON.stringify(body)
+    });
+    if (!response.ok) throw new Error(`OPENROUTER_IMAGE_${response.status}:${(await response.text()).slice(0,500)}`);
+    const json = await response.json();
+    const image = json?.data?.[0];
+    if (!image?.b64_json) throw new Error('OPENROUTER_IMAGE_DATA_MISSING');
+    const mediaType = image.media_type || 'image/png';
+    return {
+      success:true,
+      data:{
+        url:`data:${mediaType};base64,${image.b64_json}`,
+        model,
+        mediaType,
+        usage:json.usage || null
+      }
+    };
   });
-  if (!response.ok) throw new Error(`OPENROUTER_IMAGE_${response.status}:${(await response.text()).slice(0,500)}`);
-  const json = await response.json();
-  const image = json?.data?.[0];
-  if (!image?.b64_json) throw new Error('OPENROUTER_IMAGE_DATA_MISSING');
-  const mediaType = image.media_type || 'image/png';
-  return {
-    success:true,
-    data:{
-      url:`data:${mediaType};base64,${image.b64_json}`,
-      model,
-      mediaType,
-      usage:json.usage || null
-    }
-  };
 }
 
 function getOpenRouterAudioCredentials() {
@@ -754,20 +776,22 @@ async function listOpenRouterSpeechModels() {
   const raw = readJson(settingsPath(), {});
   const apiKey = unprotectSecret(raw.openRouterKey);
   const headers = apiKey ? { Authorization:`Bearer ${apiKey}` } : {};
-  const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=speech', { headers });
-  if (!response.ok) throw new Error(`OPENROUTER_SPEECH_MODELS_${response.status}`);
-  const json = await response.json();
+  return withNetworkTimeout(15000, 'OPENROUTER_SPEECH_MODELS', async (signal) => {
+    const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=speech', { headers, signal });
+    if (!response.ok) throw new Error(`OPENROUTER_SPEECH_MODELS_${response.status}`);
+    const json = await response.json();
 
-  return (json.data || [])
-    .filter((model) => Array.isArray(model?.supported_voices) && model.supported_voices.length > 0)
-    .map((model) => ({
-      id:model.id,
-      name:model.name || model.id,
-      voices:model.supported_voices,
-      pricing:model.pricing || null,
-      context_length:model.context_length || null
-    }))
-    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return (json.data || [])
+      .filter((model) => Array.isArray(model?.supported_voices) && model.supported_voices.length > 0)
+      .map((model) => ({
+        id:model.id,
+        name:model.name || model.id,
+        voices:model.supported_voices,
+        pricing:model.pricing || null,
+        context_length:model.context_length || null
+      }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  });
 }
 
 function audioFormatFromMimeType(mimeType='') {
@@ -876,26 +900,51 @@ async function requestOpenRouterSpeech({ apiKey, model, voice, input, responseFo
   let last = null;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-      method:'POST',
-      headers:openRouterAudioHeaders(apiKey),
-      body:JSON.stringify({
-        model,
-        input,
-        voice,
-        response_format:responseFormat
-      })
-    });
+    try {
+      const result = await withNetworkTimeout(45000, 'OPENROUTER_TTS', async (signal) => {
+        const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+          method:'POST',
+          signal,
+          headers:openRouterAudioHeaders(apiKey),
+          body:JSON.stringify({
+            model,
+            input,
+            voice,
+            response_format:responseFormat
+          })
+        });
 
-    if (response.ok) return { response, errorBody:'' };
+        if (!response.ok) {
+          return {
+            ok:false,
+            status:response.status,
+            errorBody:(await response.text()).slice(0,700)
+          };
+        }
 
-    const errorBody = (await response.text()).slice(0,700);
-    last = { status:response.status, errorBody };
-    if (!retryable.has(response.status) || attempt > 0) break;
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        const audioBuffer = Buffer.from(await response.arrayBuffer());
+        return {
+          ok:true,
+          status:response.status,
+          contentType,
+          audioBuffer,
+          generationId:response.headers.get('x-generation-id') || null
+        };
+      });
+
+      if (result.ok) return result;
+      last = { status:result.status, errorBody:result.errorBody };
+    } catch (error) {
+      last = { status:0, errorBody:String(error?.message || error) };
+    }
+
+    const canRetry = retryable.has(last.status) || last.errorBody === 'OPENROUTER_TTS_TIMEOUT';
+    if (!canRetry || attempt > 0) break;
     await new Promise((resolve) => setTimeout(resolve, 450 * (attempt + 1)));
   }
 
-  return { response:null, ...(last || { status:500, errorBody:'UNKNOWN_TTS_ERROR' }) };
+  return { ok:false, ...(last || { status:500, errorBody:'UNKNOWN_TTS_ERROR' }) };
 }
 
 async function openRouterSynthesizeVoice(payload={}) {
@@ -926,13 +975,13 @@ async function openRouterSynthesizeVoice(payload={}) {
     const { model, voice } = candidate;
     for (const responseFormat of ['mp3', 'pcm']) {
       const attempt = await requestOpenRouterSpeech({ apiKey, model, voice, input, responseFormat });
-      if (!attempt.response) {
+      if (!attempt.ok) {
         lastError = `OPENROUTER_TTS_${attempt.status}:${attempt.errorBody}`;
         continue;
       }
 
-      const contentType = String(attempt.response.headers.get('content-type') || '').toLowerCase();
-      let audioBuffer = Buffer.from(await attempt.response.arrayBuffer());
+      const contentType = attempt.contentType;
+      let audioBuffer = attempt.audioBuffer;
       if (!audioBuffer.length) {
         lastError = 'OPENROUTER_TTS_EMPTY_AUDIO';
         continue;
@@ -957,7 +1006,7 @@ async function openRouterSynthesizeVoice(payload={}) {
           mimeType,
           model,
           voice,
-          generationId:attempt.response.headers.get('x-generation-id') || null
+          generationId:attempt.generationId
         }
       };
     }
@@ -1500,24 +1549,33 @@ function compareVersions(a,b) {
   return 0;
 }
 async function fetchLatestRelease() {
-  const res=await fetch(UPDATE_API,{headers:{'Accept':'application/vnd.github+json','User-Agent':'Jarvis-Desktop-Updater'}});
-  if(!res.ok) throw new Error(`UPDATE_CHECK_${res.status}`);
-  const release=await res.json();
-  if (release.draft || release.prerelease) throw new Error('UPDATE_RELEASE_NOT_STABLE');
-  const latestVersion=String(release.tag_name||'').replace(/^v/i,'');
-  if (!/^\d+\.\d+\.\d+$/.test(latestVersion)) throw new Error('UPDATE_VERSION_INVALID');
-  const expectedInstallerName=`Jarvis-Setup-${latestVersion}-x64.exe`;
-  const exe=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === expectedInstallerName.toLowerCase());
-  if(!exe) throw new Error('UPDATE_INSTALLER_NOT_FOUND');
-  const checksum=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === `${expectedInstallerName}.sha256`.toLowerCase());
-  if(!checksum) throw new Error('UPDATE_CHECKSUM_NOT_FOUND');
-  return {latestVersion, releaseName:release.name||release.tag_name, publishedAt:release.published_at, exe, checksum};
+  return withNetworkTimeout(15000, 'UPDATE_CHECK', async (signal) => {
+    const res=await fetch(UPDATE_API,{
+      signal,
+      headers:{'Accept':'application/vnd.github+json','User-Agent':'Jarvis-Desktop-Updater'}
+    });
+    if(!res.ok) throw new Error(`UPDATE_CHECK_${res.status}`);
+    const release=await res.json();
+    if (release.draft || release.prerelease) throw new Error('UPDATE_RELEASE_NOT_STABLE');
+    const latestVersion=String(release.tag_name||'').replace(/^v/i,'');
+    if (!/^\d+\.\d+\.\d+$/.test(latestVersion)) throw new Error('UPDATE_VERSION_INVALID');
+    const expectedInstallerName=`Jarvis-Setup-${latestVersion}-x64.exe`;
+    const exe=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === expectedInstallerName.toLowerCase());
+    if(!exe) throw new Error('UPDATE_INSTALLER_NOT_FOUND');
+    const checksum=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === `${expectedInstallerName}.sha256`.toLowerCase());
+    if(!checksum) throw new Error('UPDATE_CHECKSUM_NOT_FOUND');
+    return {latestVersion, releaseName:release.name||release.tag_name, publishedAt:release.published_at, exe, checksum};
+  });
 }
+
 async function downloadFile(url,destination) {
-  const res=await fetch(url,{redirect:'follow',headers:{'User-Agent':'Jarvis-Desktop-Updater'}});
-  if(!res.ok || !res.body) throw new Error(`UPDATE_DOWNLOAD_${res.status}`);
-  await pipeline(Readable.fromWeb(res.body),fs.createWriteStream(destination));
+  return withNetworkTimeout(10 * 60 * 1000, 'UPDATE_DOWNLOAD', async (signal) => {
+    const res=await fetch(url,{redirect:'follow',signal,headers:{'User-Agent':'Jarvis-Desktop-Updater'}});
+    if(!res.ok || !res.body) throw new Error(`UPDATE_DOWNLOAD_${res.status}`);
+    await pipeline(Readable.fromWeb(res.body),fs.createWriteStream(destination));
+  });
 }
+
 async function sha256File(file) {
   return new Promise((resolve,reject)=>{
     const h=crypto.createHash('sha256');
@@ -2126,10 +2184,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('jarvis:ai:list-models', async () => {
     const raw=readJson(settingsPath(),{}); const key=unprotectSecret(raw.openRouterKey);
     if (!key) return [];
-    const res=await fetch('https://openrouter.ai/api/v1/models',{headers:{Authorization:`Bearer ${key}`}});
-    if(!res.ok) throw new Error(`OPENROUTER_MODELS_${res.status}`);
-    const json=await res.json();
-    return (json.data||[]).map(m=>({id:m.id,name:m.name||m.id,context_length:m.context_length||null,pricing:m.pricing||null}));
+    return withNetworkTimeout(15000, 'OPENROUTER_MODELS', async (signal) => {
+      const res=await fetch('https://openrouter.ai/api/v1/models',{signal,headers:{Authorization:`Bearer ${key}`}});
+      if(!res.ok) throw new Error(`OPENROUTER_MODELS_${res.status}`);
+      const json=await res.json();
+      return (json.data||[]).map(m=>({id:m.id,name:m.name||m.id,context_length:m.context_length||null,pricing:m.pricing||null}));
+    });
   });
   ipcMain.handle('jarvis:ai:list-speech-models', () => listOpenRouterSpeechModels());
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
