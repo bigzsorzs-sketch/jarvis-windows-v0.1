@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   capabilities: { recordedStt:true, remoteTts:true, gmailOAuth:false, cloudSync:false },
   invokeFunction: (name, payload) => ipcRenderer.invoke('jarvis:function:invoke', name, payload),
   getSystemContext: () => ipcRenderer.invoke('jarvis:system:context'),
+  getRecentCrashes: (limit = 20) => ipcRenderer.invoke('jarvis:crash:recent', limit),
   getRules: () => ipcRenderer.invoke('jarvis:policy:rules'),
   evaluateAction: (action) => ipcRenderer.invoke('jarvis:policy:evaluate', action),
   ownerOverride: (request) => ipcRenderer.invoke('jarvis:policy:override', request),
