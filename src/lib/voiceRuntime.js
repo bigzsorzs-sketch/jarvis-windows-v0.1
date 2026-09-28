@@ -575,7 +575,7 @@ class VoiceRuntime {
       this.ttsRestartConsumedRef = false;
       this._updateState({ machineState: VOICE_PHASE.LISTENING, isRecognitionStarting: true, isListening: false, recognitionLang: this.languageLockRef });
       Promise.resolve(this.recordedVoiceRef?.startContinuous()).then((started) => {
-        if (started !== false) return;
+        if (started !== false || this.state.machineState === VOICE_PHASE.ERROR) return;
         const message = 'A mikrofon indítása nem sikerült.';
         useVoiceStore.getState().setLastError({ type: 'recording_failed', message });
         this._emit('error', { type: 'recording_failed', message });
