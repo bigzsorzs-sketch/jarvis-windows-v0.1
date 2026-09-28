@@ -13,12 +13,12 @@
  *   – Minimal AI fallback for unrecognised commands
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, X, Loader2, Volume2, VolumeX, RefreshCw } from 'lucide-react';
 import { invokeWithRetry } from '@/lib/llmGateway';
 import { jarvis } from '@/api/jarvisClient';
-import { speak, cancelSpeech } from '@/lib/voiceTTS';
+import { parseVoiceCommand, localDateString } from '@/lib/voiceCommandParser';
 import { useVoiceRuntime } from '@/hooks/useVoiceRuntime';
 
 async function getCurrentUserOrThrow() {
@@ -63,16 +63,12 @@ export default function VoiceCommandEngine({ onClose, onDataChange }) {
   const handsFree = voice.state.handsFree;
   // Stable ref to avoid stale closure in callbacks
   const handsFreeRef = useRef(handsFree);
+  const commandRunningRef = useRef(false);
+  const pendingTranscriptsRef = useRef([]);
+  const handledEventIdsRef = useRef(new Set());
+  const activeCommandTextRef = useRef('');
+  const handlersRef = useRef({});
   useEffect(() => { handsFreeRef.current = handsFree; }, [handsFree]);
-
-  // Subscribe to transcripts from central runtime
-  useEffect(() => {
-    if (!voice.lastTranscript) return;
-    const text = voice.lastTranscript;
-    setTranscript(text);
-    setPhase(PHASE.PROCESSING);
-    handleCommand(text);
-  }, [voice.lastTranscript]);
 
   // Sync listening phase with runtime state
   useEffect(() => {
@@ -105,58 +101,14 @@ export default function VoiceCommandEngine({ onClose, onDataChange }) {
   };
 
   // ── Command execution ─────────────────────────────────────────────────────
-  // Inline voice command parsing (voiceCommandParser.js deleted — logic merged here)
-  const parseVoiceCommand = (text) => {
-    const t = text.toLowerCase().trim();
-    const today = () => new Date().toISOString().split('T')[0];
-
-    const todoAdd = t.match(/^(?:add (?:todo|task)|teendő(?:t)?(?: hozzáadás)?|hozzáadom hogy|emlékeztess(?:,)? hogy|ne felejtsem|ne felejtsd el(?:,)? hogy)\s+(.+)$/i) || t.match(/^(?:új teendő|new task)[:\s]+(.+)$/i);
-    if (todoAdd) return { type: 'create_todo', payload: { title: todoAdd[1].trim().charAt(0).toUpperCase() + todoAdd[1].trim().slice(1) }, confirmText: `Teendő: ${todoAdd[1].trim()}` };
-
-    const bsMatch = t.match(/(?:vércukor|blood sugar)[,\s]+(?:(\w[\w\s]+?)[,\s]+)?(\d+[.,]\d+|\d+)\s*(?:mmol)?/i);
-    if (bsMatch) {
-      const value = parseFloat((bsMatch[2] || '').replace(',', '.'));
-      if (!isNaN(value) && value > 0 && value < 40) return { type: 'create_blood_sugar', payload: { value, time_of_day: 'reggel', date: today() }, confirmText: `Vércukor: ${value} mmol/L` };
-    }
-
-    const expenseMatch = t.match(/(?:ma\s+)?(?:költöttem|fizettem|kiadás(?:om)?\s+volt)\s+(\d+[\.,]?\d*)\s*(?:ft|forint)\w*\s+(.+)/i);
-    if (expenseMatch) {
-      const amount = parseFloat((expenseMatch[1] || '').replace(',', '.'));
-      const description = expenseMatch[2].trim();
-      if (!isNaN(amount) && amount > 0) {
-        return {
-          type: 'create_expense',
-          payload: { description: description.charAt(0).toUpperCase() + description.slice(1), amount, type: 'expense', category: 'magan', date: today() },
-          confirmText: `Kiadás: ${amount} Ft – ${description}`
-        };
-      }
-    }
-
-    const mealMatch = t.match(/^(?:ettem|reggeliztem|ebédeltem|vacsoráztam|étkezés)(?:re|hez|nél)?[,\s]+(.+)$/i);
-    if (mealMatch) {
-      const rest = mealMatch[1].trim();
-      const calMatch = rest.match(/(\d+)\s*(?:kcal|kalória|cal)/i);
-      const mealType = t.includes('ebéd') ? 'ebéd' : t.includes('vacs') ? 'vacsora' : t.includes('tízórai') ? 'tízórai' : t.includes('uzsonna') ? 'uzsonna' : 'reggeli';
-      return { type: 'create_meal', payload: { meal_name: rest.replace(/\d+\s*(?:kcal|kalória|cal)/i, '').trim(), meal_type: mealType, calories: calMatch ? parseInt(calMatch[1]) : 0, date: today() }, confirmText: `Étkezés: ${rest}` };
-    }
-
-    const reminderMatch = t.match(/^(?:emlékeztess|set reminder)[,\s]+(.+)$/i);
-    if (reminderMatch) return { type: 'create_reminder', payload: { title: reminderMatch[1].trim(), category: 'other' }, confirmText: `Emlékeztető: ${reminderMatch[1].trim()}` };
-
-    const navMatch = t.match(/^(?:navigálj|navigate)[,\s]+(.+)$/i);
-    if (navMatch) return { type: 'navigate', payload: { destination: navMatch[1].trim() }, confirmText: `Navigálás: ${navMatch[1].trim()}` };
-
-    return null;
-  };
-
-  const handleCommand = useCallback(async (text) => {
+  const handleCommand = async (text) => {
     const parsed = parseVoiceCommand(text);
     if (parsed) {
-      await executeLocalCommand(parsed, text);
+      await handlersRef.current.executeLocalCommand(parsed, text);
     } else {
-      await fallbackToAI(text);
+      await handlersRef.current.fallbackToAI(text);
     }
-  }, []);
+  };
 
   const executeLocalCommand = async (cmd, rawText) => {
     try {
@@ -226,10 +178,10 @@ export default function VoiceCommandEngine({ onClose, onDataChange }) {
           break;
       }
 
-      finishCommand(resultMsg, true);
+      await finishCommand(resultMsg, true);
       onDataChange?.(); // signal parent to refresh data
     } catch (error) {
-      finishCommand(error?.message === 'AUTH_REQUIRED' ? 'A mentéshez be kell jelentkezned.' : 'A művelet most nem sikerült.', false);
+      await finishCommand(error?.message === 'AUTH_REQUIRED' ? 'A mentéshez be kell jelentkezned.' : 'A művelet most nem sikerült.', false);
     }
   };
 
@@ -257,7 +209,7 @@ Példák:
         if (!isNaN(amount) && description) {
           await executeLocalCommand({
             type: 'create_expense',
-            payload: { description: description.charAt(0).toUpperCase() + description.slice(1), amount, type: 'expense', category: 'magan', date: new Date().toISOString().split('T')[0] },
+            payload: { description: description.charAt(0).toUpperCase() + description.slice(1), amount, type: 'expense', category: 'magan', date: localDateString() },
             confirmText: `Kiadás: ${amount} Ft – ${description}`
           }, text);
           return;
@@ -269,7 +221,7 @@ Példák:
         if (!isNaN(value)) {
           await executeLocalCommand({
             type: 'create_blood_sugar',
-            payload: { value, time_of_day: timeOfDay || 'reggel', date: new Date().toISOString().split('T')[0] },
+            payload: { value, time_of_day: timeOfDay || 'reggel', date: localDateString() },
             confirmText: `Vércukor: ${value} mmol/L`
           }, text);
           return;
@@ -281,33 +233,38 @@ Példák:
         if (mealName) {
           await executeLocalCommand({
             type: 'create_meal',
-            payload: { meal_name: mealName, meal_type: mealType || 'ebéd', calories, date: new Date().toISOString().split('T')[0] },
+            payload: { meal_name: mealName, meal_type: mealType || 'ebéd', calories, date: localDateString() },
             confirmText: `Étkezés: ${mealName}`
           }, text);
           return;
         }
       }
-      finishCommand('Nem tudtam naplózható tételként értelmezni a mondatot.', false);
+      await finishCommand('Nem tudtam naplózható tételként értelmezni a mondatot.', false);
     } catch {
-      finishCommand('Nem sikerült feldolgozni a parancsot', false);
+      await finishCommand('Nem sikerült feldolgozni a parancsot', false);
     }
   };
 
-  const finishCommand = (msg, success) => {
+  const finishCommand = async (msg, success) => {
     setStatusMsg(msg);
     setPhase(success ? PHASE.DONE : PHASE.ERROR);
-    setHistory(prev => [{ text: transcript, result: msg, ok: success, ts: Date.now() }, ...prev].slice(0, 5));
+    setHistory(prev => [{ text: activeCommandTextRef.current || transcript, result: msg, ok: success, ts: Date.now() }, ...prev].slice(0, 5));
 
     if (ttsEnabled) {
-      speak(msg, 'hu-HU', () => {
-        afterCommand(success);
-      });
+      try {
+        await voice.speakText(msg, 'hu');
+      } catch {
+        // The command result is still valid even if voice playback fails.
+      }
+      afterCommand(success);
     } else {
-      setTimeout(() => afterCommand(success), 1800);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      afterCommand(success);
     }
   };
 
   const afterCommand = (success) => {
+    if (pendingTranscriptsRef.current.length > 0) return;
     if (handsFreeRef.current) {
       setPhase(PHASE.LISTENING);
       setTranscript('');
@@ -320,6 +277,40 @@ Példák:
       setStatusMsg(success ? 'Sikeres! Nyomd meg a mikrofont a folytatáshoz' : 'Próbáld újra');
     }
   };
+
+  handlersRef.current = { executeLocalCommand, fallbackToAI, handleCommand };
+
+  useEffect(() => {
+    const event = voice.lastTranscriptEvent;
+    if (!event?.id || !event.text) return;
+    if (handledEventIdsRef.current.has(event.id)) return;
+    handledEventIdsRef.current.add(event.id);
+    if (handledEventIdsRef.current.size > 200) {
+      handledEventIdsRef.current = new Set([event.id]);
+    }
+
+    pendingTranscriptsRef.current.push(event.text);
+    voice.clearTranscript?.();
+
+    const pump = async () => {
+      if (commandRunningRef.current) return;
+      commandRunningRef.current = true;
+      try {
+        while (pendingTranscriptsRef.current.length > 0) {
+          const text = pendingTranscriptsRef.current.shift();
+          activeCommandTextRef.current = text;
+          setTranscript(text);
+          setPhase(PHASE.PROCESSING);
+          await handleCommand(text);
+        }
+      } finally {
+        activeCommandTextRef.current = '';
+        commandRunningRef.current = false;
+      }
+    };
+
+    void pump();
+  }, [voice.lastTranscriptEvent?.id]);
 
   const toggleMic = () => {
     if (phase === PHASE.LISTENING) stopListening();
@@ -335,7 +326,7 @@ Példák:
   };
 
   const handleClose = () => {
-    cancelSpeech();
+    pendingTranscriptsRef.current = [];
     voice.setHandsFree(false);
     onClose?.();
   };
