@@ -121,3 +121,14 @@ test('Autopilot stale active state is recovered and stop cannot remain stuck for
   assert.match(main,/AUTONOMOUS_REPAIR_ALREADY_RUNNING/);
   assert.match(main,/finally \{[\s\S]*?autonomousRepairRunning = false/);
 });
+
+
+test('Self-Repair network work is bounded and Autopilot stop aborts the planner', () => {
+  assert.match(main,/timeout_ms:90000/);
+  assert.match(main,/taskType === 'repair' \? 120000 : 75000/);
+  assert.match(main,/OPENROUTER_TIMEOUT_/);
+  assert.match(main,/let autonomousRepairAbortController = null/);
+  assert.match(main,/autonomousRepairAbortController = new AbortController\(\)/);
+  assert.match(main,/autonomousRepairAbortController\?\.abort\(\)/);
+  assert.match(main,/OPENROUTER_ABORTED/);
+});
