@@ -2,7 +2,7 @@ import { jarvis } from '@/api/jarvisClient';
 import { CONFIG } from '@/lib/appConfig';
 import { networkMonitor } from '@/lib/networkMonitor';
 import { getOfflineQueue, enqueueOfflineAction, updateOfflineAction, removeOfflineAction } from '@/lib/offlineActionQueue';
-import { enqueueSyncAction, saveRouteSnapshot } from '@/lib/indexedDbOfflineStore';
+import { saveRouteSnapshot } from '@/lib/indexedDbOfflineStore';
 import { setRouteTrackingState } from '@/lib/routeTrackingStore';
 
 const ROUTE_QUEUE_PREFIX = 'route_';
@@ -31,7 +31,8 @@ export function enqueueRouteAction(type, payload) {
     status: 'pending',
   });
   saveRouteSnapshot(payload);
-  enqueueSyncAction({ type, id: `route_${entry.id}`, payload: { ...payload, local_id: payload.local_id } });
+  // Route actions use this queue as their single source of truth. Conversation
+  // sync still uses IndexedDB, but route actions must not be enqueued twice.
   mapStats();
   return entry;
 }
