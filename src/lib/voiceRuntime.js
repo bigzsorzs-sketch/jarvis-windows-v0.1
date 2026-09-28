@@ -721,6 +721,18 @@ class VoiceRuntime {
     return started;
   }
 
+  cancelVoiceCycle(reason = 'cancelled') {
+    if (this.cycleTimeoutRef) clearTimeout(this.cycleTimeoutRef);
+    this.cycleTimeoutRef = null;
+    this.voiceCycleLockedRef = false;
+    this.singleCycleActiveRef = false;
+    this.restartAllowedRef = this.state.handsFree;
+    this._stopRecognition(false);
+    this._updateState({ machineState: VOICE_PHASE.IDLE, isListening:false, isSpeaking:false, isRecognitionActive:false, isRecognitionStarting:false });
+    logger.info(MODULE, 'VOICE_CYCLE_CANCELLED', { reason });
+    return true;
+  }
+
   completeVoiceCycle(latencyMs = 0, reason = 'completed') {
     if (this.cycleTimeoutRef) clearTimeout(this.cycleTimeoutRef);
     this.cycleTimeoutRef = null;
