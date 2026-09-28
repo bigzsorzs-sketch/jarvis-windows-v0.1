@@ -1,5 +1,6 @@
 import { jarvis } from '@/api/jarvisClient';
 import { startLipSyncFromAudioElement, stopLipSync } from '@/lib/lipSyncBus';
+import { computeSpeechThreshold, hasLiveAudioTrack, isLikelySilenceTranscript, microphoneErrorMessage, updateNoiseFloor } from '@/lib/voiceInputHealth';
 
 const RECORDER_TIMESLICE_MS = 120;
 const AUDIO_BITS_PER_SECOND = 32000;
@@ -10,14 +11,6 @@ const MAX_UTTERANCE_MS = 15000;
 const RESUME_AFTER_TRANSCRIPT_MS = 30000;
 const TTS_CACHE_LIMIT = 24;
 const TTS_SEGMENT_MAX_CHARS = 1400;
-const STT_HALLUCINATION_PATTERNS = [
-  /feliratok az amara\.org/i,
-  /amara\.org közösségétől/i,
-  /jó étvágyat kíván/i,
-  /^nézd meg[!.]?$/i,
-  /^ecosdarae[.!]?$/i,
-  /^[a-z]{4,12}[.!]?$/i,
-];
 let localAckAudioContext = null;
 
 export function playLocalAckTone() {
@@ -67,12 +60,6 @@ function stopStream(stream) {
   stream?.getTracks?.().forEach((track) => track.stop());
 }
 
-function isLikelySilenceTranscript(text = '') {
-  const clean = String(text || '').trim();
-  if (!clean) return true;
-  return STT_HALLUCINATION_PATTERNS.some((pattern) => pattern.test(clean));
-}
-
 function splitForSpeech(text) {
   const sentences = String(text || '')
     .replace(/\s+/g, ' ')
@@ -111,7 +98,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   let segmentStartedAt = 0;
   let speechDetected = false;
   let lastSpeechAt = 0;
-  let noiseFloor = 0.008;
+  let noiseFloor = 0.006;
 
   const emitError = (type, message) => onError?.({ type, message });
 
@@ -138,9 +125,15 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   };
 
   const ensureStream = async () => {
-    if (stream?.active) return stream;
+    if (hasLiveAudioTrack(stream)) return stream;
 
-    stream = await navigator.mediaDevices.getUserMedia({
+    if (stream) {
+      stopStream(stream);
+      stream = null;
+      await closeAudioInputGraph();
+    }
+
+    const nextStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -148,12 +141,24 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         channelCount: 1,
       },
     });
+    stream = nextStream;
+
+    for (const track of nextStream.getAudioTracks?.() || []) {
+      track.addEventListener?.('ended', () => {
+        if (stream !== nextStream) return;
+        stream = null;
+        void closeAudioInputGraph();
+        if (active && !paused && !processing) {
+          window.setTimeout(startSegment, 600);
+        }
+      }, { once:true });
+    }
 
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (AudioContextClass) {
       audioContext = new AudioContextClass();
       try { await audioContext.resume(); } catch {}
-      mediaSource = audioContext.createMediaStreamSource(stream);
+      mediaSource = audioContext.createMediaStreamSource(nextStream);
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.25;
@@ -161,7 +166,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       mediaSource.connect(analyser);
     }
 
-    return stream;
+    return nextStream;
   };
 
   const currentRms = () => {
@@ -188,7 +193,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
     segmentStartedAt = performance.now();
     speechDetected = false;
     lastSpeechAt = 0;
-    noiseFloor = 0.008;
+    noiseFloor = 0.006;
 
     vadTimer = window.setInterval(() => {
       if (!recorder || recorder.state !== 'recording') return;
@@ -196,15 +201,15 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       const now = performance.now();
       const elapsed = now - segmentStartedAt;
       const rms = currentRms();
+      const speechThreshold = computeSpeechThreshold(noiseFloor);
 
-      if (!speechDetected && rms > 0) {
-        noiseFloor = (noiseFloor * 0.94) + (Math.min(rms, 0.035) * 0.06);
-      }
-
-      const speechThreshold = Math.max(0.012, Math.min(0.06, (noiseFloor * 2.6) + 0.003));
       if (rms >= speechThreshold) {
         speechDetected = true;
         lastSpeechAt = now;
+      } else if (!speechDetected) {
+        // Learn only from samples below the speech threshold so quiet speech
+        // does not get absorbed into the ambient-noise estimate.
+        noiseFloor = updateNoiseFloor(noiseFloor, rms);
       }
 
       if (speechDetected && lastSpeechAt && now - lastSpeechAt >= END_OF_SPEECH_SILENCE_MS) {
@@ -314,16 +319,13 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       startVad();
       onStateChange?.({ phase: 'listening', isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
     } catch (error) {
-      const name = error?.name || '';
-      const message = name === 'NotAllowedError'
-        ? 'A mikrofon hozzáférése nincs engedélyezve.'
-        : name === 'NotFoundError'
-          ? 'Nem találok használható mikrofont.'
-          : name === 'NotReadableError'
-            ? 'A mikrofont egy másik alkalmazás használja, vagy a Windows nem tudja megnyitni.'
-            : 'A mikrofon nem érhető el vagy nincs engedélyezve.';
-      emitError('microphone_denied', message);
+      emitError('microphone_denied', microphoneErrorMessage(error));
       active = false;
+      paused = false;
+      processing = false;
+      stopStream(stream);
+      stream = null;
+      await closeAudioInputGraph();
       onStateChange?.({ phase: 'idle', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
     }
   };
@@ -349,16 +351,47 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   return {
     async startContinuous() {
       if (!canUseRecordedVoiceIO()) return false;
-      if (active) return true;
       if (!navigator.onLine) {
         emitError('network_offline', 'Nincs internetkapcsolat, a hangvezérlés most nem indítható.');
         return false;
       }
+
+      if (active && hasLiveAudioTrack(stream)) {
+        if (paused && !processing) resumeCapture();
+        return true;
+      }
+
+      if (active) {
+        active = false;
+        paused = false;
+        processing = false;
+        clearTimers();
+        stopRecorder(true);
+        stopStream(stream);
+        stream = null;
+        await closeAudioInputGraph();
+      }
+
       active = true;
       paused = false;
-      await ensureStream();
-      window.setTimeout(startSegment, 180);
-      return true;
+      try {
+        await ensureStream();
+        if (!hasLiveAudioTrack(stream)) throw new Error('MICROPHONE_STREAM_NOT_LIVE');
+        window.setTimeout(startSegment, 180);
+        return true;
+      } catch (error) {
+        active = false;
+        paused = false;
+        processing = false;
+        clearTimers();
+        stopRecorder(true);
+        stopStream(stream);
+        stream = null;
+        await closeAudioInputGraph();
+        emitError('microphone_denied', microphoneErrorMessage(error));
+        onStateChange?.({ phase: 'idle', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
+        return false;
+      }
     },
 
     pauseCapture() {
