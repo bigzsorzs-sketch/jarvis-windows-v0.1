@@ -504,6 +504,9 @@ export async function executeActions(actions, options = {}) {
   const results = [];
   const source = String(options.source || 'assistant');
   const goal = String(options.goal || '');
+  const preapprovedTools = new Set(
+    Array.isArray(options.preapprovedTools) ? options.preapprovedTools.map(String) : []
+  );
 
   for (const action of actions) {
     if (!validateAction(action)) {
@@ -524,7 +527,7 @@ export async function executeActions(actions, options = {}) {
       await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result:{success:false,message:blocked}});
       continue;
     }
-    if (approvalMode === 'confirm') {
+    if (approvalMode === 'confirm' && !preapprovedTools.has(String(action.tool))) {
       const label = String(action.tool || '').replaceAll('_',' ');
       const approved = typeof window === 'undefined'
         ? false
