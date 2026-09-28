@@ -91,11 +91,30 @@ jobs:
       - name: Build renderer
         run: npm run build
 
+      - name: Stage installed Self-Repair toolchain
+        run: node scripts/stage-self-repair-toolchain.cjs
+
       - name: Build Windows installer
         env:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Verify packaged Self-Repair toolchain
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD "release\win-unpacked\resources\self-repair-toolchain"
+          $node = Join-Path $root "node.exe"
+          $npm = Join-Path $root "npm\bin\npm-cli.js"
+          if (-not (Test-Path -LiteralPath $node)) { throw "Bundled Self-Repair node.exe missing" }
+          if (-not (Test-Path -LiteralPath $npm)) { throw "Bundled Self-Repair npm-cli.js missing" }
+          & $node --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled Self-Repair Node failed" }
+          & $node $npm --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled Self-Repair npm failed" }
+
+      - name: Test packaged admin-helper handshake
+        run: node scripts/test-packaged-admin-helper.cjs release\win-unpacked\Jarvis.exe
 
       - name: Smoke test packaged Windows startup
         shell: pwsh
