@@ -12,6 +12,8 @@ const repair = fs.readFileSync('electron/developer-repair.cjs','utf8');
 const system = fs.readFileSync('src/pages/SystemCenter.jsx','utf8');
 const app = fs.readFileSync('src/App.jsx','utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
+const client = fs.readFileSync('src/api/jarvisClient.js','utf8');
+const owned = fs.readFileSync('src/lib/ownedEntityHelpers.js','utf8');
 
 test('selected OpenRouter model is actually used instead of being forced back to auto', () => {
   assert.match(settings,/aiRoutingMode: selectedModel === 'openrouter\/auto' \? 'smart' : 'manual'/);
@@ -67,4 +69,13 @@ test('self repair maps architecture, retrieves relevant source and supports conv
 test('installed builds include readable source for whole-program Self-Repair mapping', () => {
   assert.equal(pkg.build.files.includes('src/**/*'), true);
   assert.equal(pkg.build.files.includes('electron/**/*'), true);
+});
+
+
+test('settings persistence supports owned entity lookup before update', () => {
+  assert.match(client,/async get\(rowId\)/);
+  assert.match(client,/api\.filter\(entityName, \{ id: rowId \}, null, 1\)/);
+  assert.match(owned,/ENTITY_NOT_FOUND/);
+  assert.match(settings,/UserSettings\.filter\(\{ created_by: currentUser\.email \}, '-updated_date', 1\)/);
+  assert.match(settings,/Jarvis settings save failed/);
 });
