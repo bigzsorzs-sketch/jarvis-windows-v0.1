@@ -15,6 +15,7 @@ const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
 const developerRepair = require('./developer-repair.cjs');
+const { SelfRepairLearning } = require('./self-repair-learning.cjs');
 const {
   analyzeUploadedFiles,
   analyzeProjectDeep,
@@ -27,6 +28,7 @@ let policy;
 let obdBridge;
 let database;
 let backupManager;
+let selfRepairLearning;
 const developerPlans = new Map();
 let latestSystemReport = null;
 
@@ -532,8 +534,14 @@ function getSelfRepairRoot() {
 }
 
 async function selfRepairMap(payload={}) {
-  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), String(payload?.query || ''), { maxFiles:8, maxChars:18000 });
-  return { data:{ map:context.map, scannedAt:new Date().toISOString() } };
+  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), String(payload?.query || ''), { maxFiles:12, maxChars:26000 });
+  return {
+    data:{
+      map:context.map,
+      learning:selfRepairLearning?.stats?.() || { entries:0, successful:0, lastVerified:null },
+      scannedAt:new Date().toISOString()
+    }
+  };
 }
 
 async function selfRepairChat(payload={}) {
@@ -541,7 +549,11 @@ async function selfRepairChat(payload={}) {
   if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
   const language = String(payload?.language || 'hu').toLowerCase();
   const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
-  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), message, { maxFiles:12, maxChars:42000 });
+  const context = developerRepair.buildDiagnosticContext(getSelfRepairRoot(), message, { maxFiles:20, maxChars:62000 });
+  const learned = selfRepairLearning?.relevant?.(message, 8) || [];
+  const learnedText = learned.length
+    ? learned.map((item) => `- ${item.title} | files=${(item.files || []).join(', ')} | evidence=${item.evidence || '-'} | validation=${item.validation || '-'}`).join('\n')
+    : '(no verified prior lessons)';
   const mapSummary = JSON.stringify(context.map, null, 2);
   const excerpts = context.excerpts.map((item) =>
     `--- ${item.path} (score=${item.score}, lines=${item.lines}) ---\n${item.excerpt}`
@@ -556,7 +568,14 @@ You are NOT limited to reading filenames: reason about architecture, imports, st
 Use only evidence from the project map and source excerpts below. Clearly separate confirmed code facts from hypotheses.
 You may propose concrete file-level repairs and validation steps, but never claim a patch was applied unless the owner separately approves a sandbox repair.
 When asked to find bugs, inspect interactions across files, not just isolated syntax.
+Follow dependency edges, route reachability and IPC channels before claiming that code is active.
+Treat files marked inactive-or-unreferenced as dormant unless another runtime path proves otherwise.
+If evidence is missing, follow the related dependency/IPC chain already included in the context before stopping.
+Use VERIFIED LOCAL LESSONS only as prior validated evidence, never as authority over current source.
 ${langRule}
+
+VERIFIED LOCAL LESSONS:
+${learnedText}
 
 PROJECT MAP:
 ${mapSummary}
@@ -1091,7 +1110,15 @@ async function runApprovedRepair(repairId, reportId) {
       throw new Error('JARVIS_REPAIR_NOT_ALLOWLISTED');
   }
   const report = await runSystemCheck();
-  return { success:true, repairId, report, plan:buildRepairPlan(report) };
+  const plan = buildRepairPlan(report);
+  selfRepairLearning?.recordVerified?.({
+    title:'Beépített javítás: ' + repairId,
+    repairId,
+    evidence:'A beépített javítás végrehajtása után a rendszerellenőrzés lefutott.',
+    validation:report.ok ? 'Rendszerellenőrzés: OK' : 'Rendszerellenőrzés: figyelmeztetésekkel',
+    success:true
+  });
+  return { success:true, repairId, report, plan };
 }
 
 function configureObdBluetoothChooser(win) {
@@ -1160,6 +1187,7 @@ app.whenReady().then(() => {
   obdBridge = new NativeObdBridge();
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
+  selfRepairLearning = new SelfRepairLearning(path.join(app.getPath('userData'),'self-repair-learning.json'));
   policy = new PolicyEngine({
     rulesPath:resourcePath('security','core-rules.json'),
     signaturePath:resourcePath('security','core-rules.sig'),
@@ -1355,6 +1383,14 @@ app.whenReady().then(() => {
           return {success:false,status:'ROLLED_BACK',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
         }
         if(entry.sandbox) developerRepair.destroySandbox(entry.sandbox,developerSandboxRoot());
+        selfRepairLearning?.recordVerified?.({
+          title:entry.plan.goal || 'Self-Repair fejlesztői javítás',
+          repairId:hash,
+          files:entry.plan.patches.map((patch) => patch.file),
+          evidence:entry.plan.rationale || entry.plan.goal || '',
+          validation:(validation.results || []).map((item) => `${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+          success:true
+        });
         developerPlans.delete(hash);
         return {success:true,status:'APPLIED_AND_VERIFIED',hash,backup,sandboxValidation:entry.sandboxValidation,validation};
       } catch(error) {
