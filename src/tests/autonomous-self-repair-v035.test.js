@@ -146,3 +146,13 @@ test('installed Autopilot uses its bundled Node/npm toolchain instead of system 
   assert.match(workflow,/Verify packaged Self-Repair toolchain/);
   assert.match(workflow,/test-packaged-admin-helper\.cjs/);
 });
+
+
+test('main-process owner presence gates protect privileged self-repair actions', () => {
+  assert.match(main,/async function requireOwnerPresence/);
+  assert.match(main,/jarvis:admin:start[\s\S]*requireOwnerPresence/);
+  assert.match(main,/jarvis:self-repair:auto:run[\s\S]*requireOwnerPresence/);
+  assert.match(main,/jarvis:self-repair:release:approve[\s\S]*requireOwnerPresence/);
+  assert.match(main,/jarvis:developer:approve[\s\S]*requireOwnerPresence/);
+  assert.match(main,/JARVIS_OWNER_ACTION_CANCELLED/);
+});
