@@ -6,6 +6,9 @@ const globalVoice = fs.readFileSync('src/components/voice/GlobalVoiceControl.jsx
 const chat = fs.readFileSync('src/pages/Chat.jsx','utf8');
 const mobile = fs.readFileSync('src/lib/mobileVoiceIO.js','utf8');
 const bridge = fs.readFileSync('src/hooks/useChatVoiceBridge.js','utf8');
+const voiceRuntime = fs.readFileSync('src/lib/voiceRuntime.js','utf8');
+const voiceHook = fs.readFileSync('src/hooks/useVoiceRuntime.js','utf8');
+const chatInput = fs.readFileSync('src/components/chat/ChatInputBar.jsx','utf8');
 
 test('turning the microphone off never asks for microphone permission first', () => {
   assert.match(globalVoice,/activationMode !== 'push-to-talk' && voice\.state\.handsFree[\s\S]*?setHandsFree\(false\)[\s\S]*?requestMicrophonePermission/);
@@ -35,4 +38,19 @@ test('voice overlay consumes transcripts without replaying them', () => {
 test('microphone failures stay visible as an error state', () => {
   const errors = mobile.match(/phase: 'error', isListening: false, isRecognitionActive: false/g) || [];
   assert.ok(errors.length >= 2);
+});
+
+
+test('push-to-talk can be cancelled while the microphone is live', () => {
+  assert.match(voiceRuntime,/cancelVoiceCycle\(reason = 'cancelled'\)/);
+  assert.match(voiceHook,/cancelVoiceCycle/);
+  assert.match(globalVoice,/cancelVoiceCycle\?\.\('user_cancelled'\)/);
+  assert.match(chat,/cancelVoiceCycle\?\.\('user_cancelled'\)/);
+  assert.doesNotMatch(chatInput,/disabled=\{voiceBusy && !handsFree\}/);
+});
+
+test('stale STT results are invalidated after microphone cancellation or restart', () => {
+  assert.match(mobile,/captureGeneration/);
+  assert.match(mobile,/segmentGeneration !== captureGeneration/);
+  assert.match(mobile,/captureGeneration \+= 1/);
 });
