@@ -81,13 +81,18 @@ test('settings persistence supports owned entity lookup before update', () => {
 });
 
 
-test('repairs incomplete Autopilot workspaces without duplicating root metadata outside app.asar', () => {
+test('repairs incomplete Autopilot workspaces and packages a real lockfile outside app.asar', () => {
   assert.match(main,/Repair partially-created or stale workspaces as well/);
   assert.match(main,/AUTONOMOUS_REPAIR_LOCKFILE_INVALID/);
-  assert.equal(pkg.build.files.includes('package-lock.json'), true);
   assert.equal(pkg.build.files.includes('package.json'), true);
   assert.equal(
-    pkg.build.extraResources.some((entry) => entry.from === 'package.json' || entry.from === 'package-lock.json'),
+    pkg.build.extraResources.some((entry) =>
+      entry.from === 'package-lock.json' && entry.to === 'self-development-source/package-lock.json'
+    ),
+    true
+  );
+  assert.equal(
+    pkg.build.extraResources.some((entry) => entry.from === 'package.json'),
     false
   );
 });

@@ -210,6 +210,10 @@
         "to": "self-development-source/scripts"
       },
       {
+        "from": "package-lock.json",
+        "to": "self-development-source/package-lock.json"
+      },
+      {
         "from": "build/self-repair-toolchain",
         "to": "self-repair-toolchain"
       }
