@@ -35,7 +35,12 @@ export default function GlobalVoiceControl() {
     if (!event?.id || !event.text || handledEventIdsRef.current.has(event.id)) return undefined;
 
     // The dedicated full-screen voice tool owns commands while its overlay is active.
-    if (document.querySelector('[data-jarvis-voice-command-overlay="true"]')) return undefined;
+    // Mark the event consumed here as well so closing the overlay cannot replay
+    // the same transcript through the global command handler.
+    if (document.querySelector('[data-jarvis-voice-command-overlay="true"]')) {
+      handledEventIdsRef.current.add(event.id);
+      return undefined;
+    }
 
     handledEventIdsRef.current.add(event.id);
     if (handledEventIdsRef.current.size > 250) {
@@ -87,6 +92,17 @@ export default function GlobalVoiceControl() {
   }, [voice.lastTranscriptEvent?.id, location.pathname, navigate, voice]);
 
   const toggleListening = useCallback(async () => {
+    if (voice.state.activationMode === 'push-to-talk'
+      && (voice.state.isListening || voice.state.isRecognitionActive || voice.state.isRecognitionStarting)) {
+      voice.cancelVoiceCycle?.('user_cancelled');
+      return;
+    }
+
+    if (voice.state.activationMode !== 'push-to-talk' && voice.state.handsFree) {
+      voice.setHandsFree(false);
+      return;
+    }
+
     const permission = await requestMicrophonePermission();
     if (!permission.ok) {
       alert(permission.message);
@@ -98,7 +114,7 @@ export default function GlobalVoiceControl() {
       return;
     }
 
-    voice.setHandsFree(!voice.state.handsFree);
+    voice.setHandsFree(true);
   }, [voice]);
 
   return (

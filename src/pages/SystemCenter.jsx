@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { jarvis } from '@/api/jarvisClient';
 import { useLang } from '@/lib/i18n';
+import { APP_VERSION } from '@/lib/appVersion';
 
 function statusClasses(check) {
   if (check.ok) return 'border-green-500/30 bg-green-500/10 text-green-500';
@@ -46,6 +47,8 @@ export default function SystemCenter() {
   );
   const [autonomousBusy, setAutonomousBusy] = useState(false);
   const [crashes, setCrashes] = useState([]);
+  const currentVersionCrashes = crashes.filter((item) => String(item?.appVersion || '') === APP_VERSION);
+  const latestCurrentCrash = currentVersionCrashes[0] || null;
 
   useEffect(() => {
     window.jarvisDesktop?.elevatedDiagnostics?.status?.()
@@ -86,15 +89,23 @@ export default function SystemCenter() {
   };
 
   const analyzeLatestCrash = () => {
-    const latest = crashes[0];
+    const latest = latestCurrentCrash;
     if (!latest) {
-      setMessage(tx('Nincs friss crash napló.', 'No recent crash record.'));
+      if (crashes.length) {
+        const newestOldVersion = crashes[0]?.appVersion || tx('ismeretlen', 'unknown');
+        setMessage(tx(
+          `Nincs crash a jelenlegi ${APP_VERSION} verzióból. A legutóbbi napló egy korábbi (${newestOldVersion}) verzióból származik, ezért nem elemzem aktuális hibaként.`,
+          `There is no crash from the current ${APP_VERSION} version. The latest record is from an older (${newestOldVersion}) version, so it will not be analyzed as a current failure.`
+        ));
+      } else {
+        setMessage(tx('Nincs friss crash napló.', 'No recent crash record.'));
+      }
       return;
     }
     const evidence = JSON.stringify(latest);
     sendSelfRepairMessage(tx(
-      `Elemezd a legutóbbi Crash Watchdog eseményt. Azonosítsd a valószínű okot és javasolj vagy készíts biztonságos javítást. Crash: ${evidence}`,
-      `Analyze the latest Crash Watchdog event. Identify the likely cause and propose or prepare a safe repair. Crash: ${evidence}`
+      `Elemezd a jelenlegi ${APP_VERSION} verzió legutóbbi Crash Watchdog eseményét. Azonosítsd a valószínű okot és javasolj vagy készíts biztonságos javítást. Crash: ${evidence}`,
+      `Analyze the latest Crash Watchdog event from the current ${APP_VERSION} version. Identify the likely cause and propose or prepare a safe repair. Crash: ${evidence}`
     ));
   };
 
@@ -451,16 +462,16 @@ export default function SystemCenter() {
                 : 'rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold'}>
                 {autonomousState?.autoCrashRepair ? tx('Auto crash-javítás: BE','Auto crash repair: ON') : tx('Auto crash-javítás: KI','Auto crash repair: OFF')}
               </button>
-              <button onClick={analyzeLatestCrash} disabled={!crashes.length || chatBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
+              <button onClick={analyzeLatestCrash} disabled={!latestCurrentCrash || chatBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
                 {tx('Legutóbbi crash elemzése','Analyze latest crash')}
               </button>
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-            <div className="jarvis-metric"><span>{tx('Naplózott crash','Recorded crashes')}</span><strong>{crashes.length}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Aktuális verzió crash','Current-version crashes')}</span><strong>{currentVersionCrashes.length}</strong></div>
             <div className="jarvis-metric"><span>{tx('Auto crash-javítás','Auto crash repair')}</span><strong>{autonomousState?.autoCrashRepair ? tx('AKTÍV','ACTIVE') : tx('KIKAPCSOLVA','OFF')}</strong></div>
-            <div className="jarvis-metric"><span>{tx('Utolsó típus','Latest type')}</span><strong className="text-[10px]">{crashes[0]?.kind || '-'}</strong></div>
-            <div className="jarvis-metric"><span>{tx('Utolsó időpont','Latest time')}</span><strong className="text-[10px]">{crashes[0]?.at ? new Date(crashes[0].at).toLocaleString() : '-'}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Utolsó típus','Latest type')}</span><strong className="text-[10px]">{latestCurrentCrash?.kind || '-'}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Utolsó időpont','Latest time')}</span><strong className="text-[10px]">{latestCurrentCrash?.at ? new Date(latestCurrentCrash.at).toLocaleString() : '-'}</strong></div>
           </div>
         </section>
 

@@ -24,3 +24,14 @@ test('watchdog does not tear down an active microphone just because the user is 
   assert.match(voice,/WATCHDOG_HEALTHY_SILENCE/);
   assert.match(voice,/reason === 'watchdog_timeout' && \(this\.recognitionStateRef\.isActive \|\| this\.state\.isListening\)/);
 });
+
+
+test('recorded microphone recovers when the app returns to foreground', () => {
+  assert.match(voice,/voiceInputMode === 'recorded'[\s\S]*?_safeStartRecognition\(\)/);
+  assert.match(voice,/Promise\.resolve\(this\.recordedVoiceRef\?\.startContinuous\(\)\)/);
+  assert.match(voice,/started !== false/);
+});
+
+test('stopping recorded recognition returns the runtime to idle when audio is not protected', () => {
+  assert.match(voice,/recordedVoiceRef\?\.stopContinuous\(\)[\s\S]*?machineState: this\._isProtectedAudioPhase\(\) \? this\.state\.machineState : VOICE_PHASE\.IDLE/);
+});

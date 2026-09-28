@@ -73,7 +73,7 @@ const ChatInputBar = memo(function ChatInputBar({
           <button
             onClick={onToggleVoice}
             aria-label={micActive ? t('cancel') : t('listening')}
-            disabled={voiceBusy && !handsFree}
+            disabled={(voicePhase === 'processing' || voicePhase === 'speaking' || voicePhase === 'tts_pending') && !handsFree}
             className={`shrink-0 w-11 h-11 rounded-full flex items-center justify-center transition-all disabled:opacity-50 ${
               micActive ? 'bg-green-500' : 'bg-secondary hover:bg-muted'
             }`}

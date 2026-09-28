@@ -793,29 +793,39 @@ async function openRouterTranscribeVoice(payload={}) {
   if (audioBase64.length > 24 * 1024 * 1024) throw new Error('VOICE_AUDIO_TOO_LARGE');
 
   const format = audioFormatFromMimeType(payload.mimeType);
-  const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
-    method:'POST',
-    headers:openRouterAudioHeaders(apiKey),
-    body:JSON.stringify({
-      model,
-      input_audio:{ data:audioBase64, format }
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
+      method:'POST',
+      headers:openRouterAudioHeaders(apiKey),
+      signal:controller.signal,
+      body:JSON.stringify({
+        model,
+        input_audio:{ data:audioBase64, format }
+      })
+    });
 
-  if (!response.ok) {
-    throw new Error(`OPENROUTER_STT_${response.status}:${(await response.text()).slice(0,500)}`);
-  }
-
-  const json = await response.json();
-  return {
-    data:{
-      supported:true,
-      text:String(json?.text || '').trim(),
-      model,
-      usage:json?.usage || null,
-      generationId:response.headers.get('x-generation-id') || null
+    if (!response.ok) {
+      throw new Error(`OPENROUTER_STT_${response.status}:${(await response.text()).slice(0,500)}`);
     }
-  };
+
+    const json = await response.json();
+    return {
+      data:{
+        supported:true,
+        text:String(json?.text || '').trim(),
+        model,
+        usage:json?.usage || null,
+        generationId:response.headers.get('x-generation-id') || null
+      }
+    };
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('OPENROUTER_STT_TIMEOUT');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function requestOpenRouterSpeech({ apiKey, model, voice, input, responseFormat }) {
@@ -1868,6 +1878,34 @@ function lockRendererNavigation(win) {
   });
 }
 
+function configureMediaPermissions(win) {
+  const ses = win.webContents.session;
+  const trustedRequester = (webContents, requestingUrl='') => {
+    if (!webContents || webContents !== win.webContents) return false;
+    return isTrustedRendererNavigation(requestingUrl || webContents.getURL());
+  };
+
+  ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details={}) => {
+    if (permission !== 'media') return true;
+    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || requestingOrigin || '';
+    const mediaType = details.mediaType || 'unknown';
+    return trustedRequester(webContents, requestingUrl)
+      && (mediaType === 'audio' || mediaType === 'unknown');
+  });
+
+  ses.setPermissionRequestHandler((webContents, permission, callback, details={}) => {
+    if (permission !== 'media') {
+      callback(true);
+      return;
+    }
+    const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
+    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || details.securityOrigin || '';
+    const requestsVideo = mediaTypes.includes('video');
+    const requestsAudio = mediaTypes.length === 0 || mediaTypes.includes('audio');
+    callback(trustedRequester(webContents, requestingUrl) && requestsAudio && !requestsVideo);
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width:1400,
@@ -1890,6 +1928,7 @@ function createWindow() {
   });
   mainWindow.removeMenu();
   lockRendererNavigation(mainWindow);
+  configureMediaPermissions(mainWindow);
   configureObdBluetoothChooser(mainWindow);
   registerCrashWatchdog(mainWindow);
   if (isDev) mainWindow.loadURL('http://127.0.0.1:5173');

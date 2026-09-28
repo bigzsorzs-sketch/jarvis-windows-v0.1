@@ -14,9 +14,21 @@ const resources = path.resolve(process.argv[2] || path.join('release','win-unpac
 const root = path.join(resources, 'self-repair-toolchain');
 const node = path.join(root, 'node.exe');
 const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
+const developmentRoot = path.join(resources, 'self-development-source');
+const developmentLock = path.join(developmentRoot, 'package-lock.json');
 
 if (!fs.existsSync(node)) throw new Error('PACKAGED_SELF_REPAIR_NODE_MISSING');
 if (!fs.existsSync(npmCli)) throw new Error('PACKAGED_SELF_REPAIR_NPM_MISSING');
+if (!fs.existsSync(developmentLock)) throw new Error('PACKAGED_SELF_REPAIR_LOCKFILE_MISSING');
+try {
+  const lock = JSON.parse(fs.readFileSync(developmentLock, 'utf8'));
+  if (!lock?.lockfileVersion || !lock?.packages?.['']) {
+    throw new Error('PACKAGED_SELF_REPAIR_LOCKFILE_INVALID');
+  }
+} catch (error) {
+  if (error?.message === 'PACKAGED_SELF_REPAIR_LOCKFILE_INVALID') throw error;
+  throw new Error('PACKAGED_SELF_REPAIR_LOCKFILE_INVALID');
+}
 
 const cleanPath = [
   root,

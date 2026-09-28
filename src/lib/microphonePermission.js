@@ -1,3 +1,5 @@
+import { microphoneErrorMessage } from '@/lib/voiceInputHealth';
+
 const MIC_CONSTRAINTS = {
   echoCancellation: true,
   noiseSuppression: true,
@@ -5,26 +7,25 @@ const MIC_CONSTRAINTS = {
   channelCount: 1,
 };
 
-function microphoneErrorMessage(error) {
-  const name = error?.name || '';
-  if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return 'A mikrofon hozzáférése le van tiltva. Engedélyezd a Jarvis számára a Windows / alkalmazás mikrofon-hozzáférését.';
-  }
-  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-    return 'Nem találok használható mikrofont ezen a gépen.';
-  }
-  if (name === 'NotReadableError' || name === 'TrackStartError') {
-    return 'A mikrofont egy másik alkalmazás használja, vagy a Windows nem tudja megnyitni.';
-  }
-  return 'A mikrofon nem indítható. Ellenőrizd a Windows mikrofonengedélyét és a kiválasztott bemeneti eszközt.';
-}
-
 export async function requestMicrophonePermission() {
   if (!navigator.mediaDevices?.getUserMedia) {
     return { ok: false, message: 'Ez az eszköz nem támogatja a mikrofon hozzáférést.' };
   }
 
   try {
+    try {
+      const permissionStatus = await navigator.permissions?.query?.({ name:'microphone' });
+      if (permissionStatus?.state === 'denied') {
+        return { ok:false, code:'NotAllowedError', message:microphoneErrorMessage({ name:'NotAllowedError' }) };
+      }
+      if (permissionStatus?.state === 'granted') {
+        return { ok:true, permission:'granted' };
+      }
+    } catch {
+      // Some Chromium/Electron versions do not expose microphone through
+      // Permissions API. Fall back to a real getUserMedia permission prompt.
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
     const track = stream.getAudioTracks?.()[0];
     const settings = track?.getSettings?.() || {};

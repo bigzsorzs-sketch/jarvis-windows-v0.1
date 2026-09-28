@@ -296,7 +296,13 @@ class VoiceRuntime {
         return;
       }
       this.restartAllowedRef = this.state.handsFree;
-      if (this.state.handsFree) this._scheduleRestart(MIN_RESTART_DELAY_MS);
+      if (this.state.handsFree) {
+        if (this.state.voiceInputMode === 'recorded') {
+          window.setTimeout(() => this._safeStartRecognition(), MIN_RESTART_DELAY_MS);
+        } else {
+          this._scheduleRestart(MIN_RESTART_DELAY_MS, 'app-visible');
+        }
+      }
     });
   }
 
@@ -568,7 +574,13 @@ class VoiceRuntime {
       this.lastRestartAtRef = Date.now();
       this.ttsRestartConsumedRef = false;
       this._updateState({ machineState: VOICE_PHASE.LISTENING, isRecognitionStarting: true, isListening: false, recognitionLang: this.languageLockRef });
-      this.recordedVoiceRef?.startContinuous().catch((error) => {
+      Promise.resolve(this.recordedVoiceRef?.startContinuous()).then((started) => {
+        if (started !== false || this.state.machineState === VOICE_PHASE.ERROR) return;
+        const message = 'A mikrofon indítása nem sikerült.';
+        useVoiceStore.getState().setLastError({ type: 'recording_failed', message });
+        this._emit('error', { type: 'recording_failed', message });
+        this._updateState({ handsFree: false, machineState: VOICE_PHASE.ERROR, isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
+      }).catch((error) => {
         const message = error?.message || 'A mikrofon indítása nem sikerült.';
         useVoiceStore.getState().setLastError({ type: 'recording_failed', message });
         this._emit('error', { type: 'recording_failed', message });
@@ -639,7 +651,12 @@ class VoiceRuntime {
     if (this.state.voiceInputMode === 'recorded') {
       this.recordedVoiceRef?.stopContinuous();
       this.recognitionStateRef = { isActive: false, isStarting: false };
-      this._updateState({ isRecognitionActive: false, isRecognitionStarting: false, isListening: false });
+      this._updateState({
+        machineState: this._isProtectedAudioPhase() ? this.state.machineState : VOICE_PHASE.IDLE,
+        isRecognitionActive: false,
+        isRecognitionStarting: false,
+        isListening: false
+      });
       this.transcriptQueue.clear();
       return;
     }
@@ -702,6 +719,18 @@ class VoiceRuntime {
     const started = this._safeStartRecognition(true);
     if (!started) this.completeVoiceCycle(0, 'start_failed');
     return started;
+  }
+
+  cancelVoiceCycle(reason = 'cancelled') {
+    if (this.cycleTimeoutRef) clearTimeout(this.cycleTimeoutRef);
+    this.cycleTimeoutRef = null;
+    this.voiceCycleLockedRef = false;
+    this.singleCycleActiveRef = false;
+    this.restartAllowedRef = this.state.handsFree;
+    this._stopRecognition(false);
+    this._updateState({ machineState: VOICE_PHASE.IDLE, isListening:false, isSpeaking:false, isRecognitionActive:false, isRecognitionStarting:false });
+    logger.info(MODULE, 'VOICE_CYCLE_CANCELLED', { reason });
+    return true;
   }
 
   completeVoiceCycle(latencyMs = 0, reason = 'completed') {
