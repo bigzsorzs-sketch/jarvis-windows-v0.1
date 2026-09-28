@@ -72,6 +72,9 @@ export function useVoiceRuntime() {
     completeVoiceCycle: useCallback((latencyMs, reason) => {
       return runtimeRef.current?.completeVoiceCycle(latencyMs, reason);
     }, []),
+    cancelVoiceCycle: useCallback((reason) => {
+      return runtimeRef.current?.cancelVoiceCycle(reason);
+    }, []),
     setHandsFree: useCallback((enabled) => {
       runtimeRef.current?.setHandsFree(enabled);
     }, []),
