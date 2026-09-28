@@ -412,6 +412,7 @@ async function deleteAllLocalData() {
     developerBackupRoot(),
     developerSandboxRoot(),
     path.join(userData, 'self-repair-learning.json'),
+    path.join(userData, 'crash-watchdog'),
     autonomousRepairStatePath(),
     autonomousWorkspaceRoot(),
     settingsPath(),
@@ -2068,9 +2069,6 @@ app.whenReady().then(async () => {
 
 process.on('uncaughtExceptionMonitor',(error,origin)=>{
   recordCrash('main-uncaught-exception',{message:String(error?.message || error),stack:String(error?.stack || '').slice(0,12000),origin});
-});
-process.on('unhandledRejection',(reason)=>{
-  recordCrash('main-unhandled-rejection',{message:String(reason?.message || reason),stack:String(reason?.stack || '').slice(0,12000)});
 });
 app.on('child-process-gone',(_event,details={})=>{
   recordCrash('child-process-gone',{
