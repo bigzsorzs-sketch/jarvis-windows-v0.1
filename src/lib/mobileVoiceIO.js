@@ -82,6 +82,7 @@ function splitForSpeech(text) {
 
 export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) {
   let active = false;
+  let captureGeneration = 0;
   let stream = null;
   let recorder = null;
   let chunks = [];
@@ -261,6 +262,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
 
     try {
       const currentStream = await ensureStream();
+      const segmentGeneration = captureGeneration;
       chunks = [];
       discardCurrent = false;
       const mimeType = MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus')
@@ -276,7 +278,19 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         if (event.data?.size) chunks.push(event.data);
       };
 
-      recorder.onerror = () => emitError('recording_failed', 'A hangrögzítés megszakadt.');
+      recorder.onerror = () => {
+        emitError('recording_failed', 'A hangrögzítés megszakadt.');
+        active = false;
+        paused = false;
+        processing = false;
+        captureGeneration += 1;
+        clearTimers();
+        stopRecorder(true);
+        stopStream(stream);
+        stream = null;
+        void closeAudioInputGraph();
+        onStateChange?.({ phase:'error', isListening:false, isRecognitionActive:false, isRecognitionStarting:false });
+      };
 
       recorder.onstop = async () => {
         clearVad();
@@ -296,6 +310,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
 
         try {
           const text = await transcribeBlob(blob);
+          if (!active || segmentGeneration !== captureGeneration) return;
           if (text && !isLikelySilenceTranscript(text)) {
             paused = true;
             console.info('[voiceLanguage] Model STT transcript received', { text });
@@ -320,6 +335,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       onStateChange?.({ phase: 'listening', isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
     } catch (error) {
       emitError('microphone_denied', microphoneErrorMessage(error));
+      captureGeneration += 1;
       active = false;
       paused = false;
       processing = false;
@@ -372,6 +388,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         await closeAudioInputGraph();
       }
 
+      captureGeneration += 1;
       active = true;
       paused = false;
       try {
@@ -403,6 +420,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
     resumeCapture,
 
     stopContinuous() {
+      captureGeneration += 1;
       active = false;
       paused = false;
       processing = false;
