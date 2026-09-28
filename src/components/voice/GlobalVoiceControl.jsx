@@ -92,6 +92,12 @@ export default function GlobalVoiceControl() {
   }, [voice.lastTranscriptEvent?.id, location.pathname, navigate, voice]);
 
   const toggleListening = useCallback(async () => {
+    if (voice.state.activationMode === 'push-to-talk'
+      && (voice.state.isListening || voice.state.isRecognitionActive || voice.state.isRecognitionStarting)) {
+      voice.cancelVoiceCycle?.('user_cancelled');
+      return;
+    }
+
     if (voice.state.activationMode !== 'push-to-talk' && voice.state.handsFree) {
       voice.setHandsFree(false);
       return;
