@@ -38,13 +38,23 @@ export default function SystemCenter() {
   const [conversation, setConversation] = useState([]);
 
   const runCheck = async () => {
-    if (!window.jarvisDesktop?.runSystemCheck) return;
-    setBusy(true); setMessage('');
+    setBusy(true);
+    setMessage('');
+    setRepairPlan(null);
+    if (!window.jarvisDesktop?.runSystemCheck || !window.jarvisDesktop?.repair?.plan) {
+      setBusy(false);
+      setMessage(tx('A natív diagnosztikai híd nem érhető el.', 'Native diagnostics bridge is unavailable.'));
+      return;
+    }
     try {
       const next = await window.jarvisDesktop.runSystemCheck();
+      if (!next?.id || !Array.isArray(next?.checks)) throw new Error(tx('Érvénytelen diagnosztikai válasz.','Invalid diagnostics response.'));
+      const plan = await window.jarvisDesktop.repair.plan(next);
+      if (!plan?.reportId || plan.reportId !== next.id) throw new Error(tx('A javítási terv nem ehhez a diagnózishoz tartozik.','Repair plan does not match this diagnostic report.'));
       setReport(next);
-      setRepairPlan(await window.jarvisDesktop?.repair?.plan?.(next) || null);
+      setRepairPlan(plan);
     } catch (error) {
+      setRepairPlan(null);
       setMessage(tx('Rendszerellenőrzés hiba: ', 'System check error: ') + (error?.message || error));
     } finally { setBusy(false); }
   };
@@ -53,7 +63,9 @@ export default function SystemCenter() {
     setMapBusy(true); setMessage('');
     try {
       const result = await jarvis.functions.invoke('selfRepairMap', { query:chatInput || '' });
-      setProjectMap(result?.data?.map || null);
+      const map = result?.data?.map;
+      if (!map?.summary) throw new Error(tx('A feltérképezés nem adott vissza használható programtérképet.','Mapping returned no usable project map.'));
+      setProjectMap(map);
       setMessage(tx('✓ A Jarvis programtérképe elkészült.', '✓ Jarvis project map is ready.'));
     } catch (error) {
       setMessage(tx('Feltérképezési hiba: ', 'Mapping error: ') + (error?.message || error));
@@ -101,7 +113,7 @@ export default function SystemCenter() {
     if (!approved) return;
     setRepairBusy(repair.id); setMessage('');
     try {
-      const result = await window.jarvisDesktop?.repair?.apply?.(repair.id);
+      const result = await window.jarvisDesktop?.repair?.apply?.(repair.id, repairPlan?.reportId);
       if (!result?.success) throw new Error(tx('A javítás nem fejeződött be.','Repair did not complete.'));
       setReport(result.report);
       setRepairPlan(result.plan);
@@ -121,6 +133,7 @@ export default function SystemCenter() {
       const result = await window.jarvisDesktop?.backup?.create(passphrase);
       if (result?.success) setMessage(tx('✓ Mentés elkészült: ','✓ Backup created: ') + result.path);
       else if (result?.canceled) setMessage(tx('Mentés megszakítva.','Backup cancelled.'));
+      else throw new Error(result?.error || tx('A mentés nem sikerült.','Backup failed.'));
     } catch (error) {
       setMessage(tx('Backup hiba: ','Backup error: ') + (error?.message || error));
     } finally { setBackupBusy(false); }
@@ -137,6 +150,7 @@ export default function SystemCenter() {
       const result = await window.jarvisDesktop?.backup?.restore(passphrase);
       if (result?.success) setMessage(tx('✓ Mentés visszaállítva. Indítsd újra a Jarvist.','✓ Backup restored. Restart Jarvis.'));
       else if (result?.canceled) setMessage(tx('Visszaállítás megszakítva.','Restore cancelled.'));
+      else throw new Error(result?.error || tx('A visszaállítás nem sikerült.','Restore failed.'));
     } catch (error) {
       setMessage(tx('Visszaállítás hiba: ','Restore error: ') + (error?.message || error));
     } finally { setBackupBusy(false); }
