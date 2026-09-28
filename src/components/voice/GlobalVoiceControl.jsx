@@ -69,7 +69,7 @@ export default function GlobalVoiceControl() {
         await voice.speakInstantAck?.('hu');
         queueVoiceCommand(currentTranscript);
         if (!cancelled) setResultText('Átadom a Jarvis parancskezelőnek…');
-        navigate('/chat');
+        navigate('/');
       } catch (error) {
         const message = error?.message ? `Nem sikerült: ${error.message}` : 'A hangparancs végrehajtása nem sikerült.';
         if (!cancelled) setResultText(message);
