@@ -85,7 +85,7 @@ async function ensureAutonomousWorkspace() {
     fs.mkdirSync(target,{recursive:true});
     const sourceRoot = resourcePath();
     const entries = [
-      'src','electron','security','build',
+      'src','electron','security','build','scripts',
       'package.json','package-lock.json','index.html','eslint.config.js',
       'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
       'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
