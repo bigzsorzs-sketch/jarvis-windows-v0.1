@@ -62,14 +62,19 @@ async function systemSnapshot() {
     '$procs=Get-Process | Sort-Object CPU -Descending | Select-Object -First 40 Id,ProcessName,CPU,WorkingSet64,Path;',
     '$services=Get-Service | Select-Object Name,DisplayName,Status,StartType;',
     '$net=Get-NetIPConfiguration | Select-Object InterfaceAlias,InterfaceDescription,@{N="IPv4";E={$_.IPv4Address.IPAddress}},@{N="Gateway";E={$_.IPv4DefaultGateway.NextHop}},@{N="DNS";E={$_.DNSServer.ServerAddresses}};',
-    '$drivers=Get-CimInstance Win32_PnPSignedDriver | Select-Object -First 120 DeviceName,DriverVersion,Manufacturer,DriverDate;',
-    '$events=Get-WinEvent -FilterHashtable @{LogName=@("System","Application");Level=1,2,3;StartTime=(Get-Date).AddDays(-2)} -MaxEvents 60 | Select-Object TimeCreated,LogName,Id,ProviderName,LevelDisplayName,Message;',
+    '$drivers=Get-CimInstance Win32_PnPSignedDriver | Select-Object -First 160 DeviceName,DriverVersion,Manufacturer,DriverDate;',
+    '$events=Get-WinEvent -FilterHashtable @{LogName=@("System","Application");Level=1,2,3;StartTime=(Get-Date).AddDays(-2)} -MaxEvents 80 | Select-Object TimeCreated,LogName,Id,ProviderName,LevelDisplayName,Message;',
     '$uninstall=@("HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*","HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*");',
-    '$apps=Get-ItemProperty $uninstall | Where-Object DisplayName | Sort-Object DisplayName | Select-Object -First 300 DisplayName,DisplayVersion,Publisher,InstallDate;',
+    '$apps=Get-ItemProperty $uninstall | Where-Object DisplayName | Sort-Object DisplayName | Select-Object -First 350 DisplayName,DisplayVersion,Publisher,InstallDate;',
+    '$startup=Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location,User;',
+    '$tasks=Get-ScheduledTask | Select-Object -First 250 TaskName,TaskPath,State,Author;',
+    '$firewall=Get-NetFirewallProfile | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction;',
+    '$updates=Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 120 HotFixID,Description,InstalledBy,InstalledOn;',
+    '$defender=Get-MpComputerStatus | Select-Object AntivirusEnabled,AntispywareEnabled,RealTimeProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled,AntivirusSignatureLastUpdated,QuickScanEndTime,FullScanEndTime;',
     '$obj=[pscustomobject]@{',
     'OS=[pscustomobject]@{Caption=$os.Caption;Version=$os.Version;Build=$os.BuildNumber;LastBoot=$os.LastBootUpTime};',
     'Computer=[pscustomobject]@{Manufacturer=$cs.Manufacturer;Model=$cs.Model;RAM=$cs.TotalPhysicalMemory;BIOS=$bios.SMBIOSBIOSVersion};',
-    'CPU=$cpu;GPU=$gpu;Drives=$drives;Processes=$procs;Services=$services;Network=$net;Drivers=$drivers;RecentEvents=$events;InstalledApps=$apps};',
+    'CPU=$cpu;GPU=$gpu;Drives=$drives;Processes=$procs;Services=$services;Network=$net;Drivers=$drivers;RecentEvents=$events;InstalledApps=$apps;Startup=$startup;ScheduledTasks=$tasks;Firewall=$firewall;Updates=$updates;Defender=$defender};',
     '$obj|ConvertTo-Json -Depth 7 -Compress'
   ].join('');
   const raw = await runPowerShell(script,30000);
