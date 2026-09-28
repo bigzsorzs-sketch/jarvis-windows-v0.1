@@ -108,7 +108,10 @@ export async function syncOfflineData() {
         if (item.type === 'conversation_snapshot') {
           await syncConversationSnapshot(item, user);
         } else if (item.type?.startsWith('route_')) {
-          await syncRouteAction(item, user);
+          // Route sync has its own authoritative local queue. Drop legacy
+          // IndexedDB route entries so upgrades cannot replay the same action.
+          await removeSyncAction(item.id);
+          continue;
         }
         await removeSyncAction(item.id);
         synced += 1;
