@@ -9,6 +9,7 @@ const bridge = fs.readFileSync('src/hooks/useChatVoiceBridge.js','utf8');
 const voiceRuntime = fs.readFileSync('src/lib/voiceRuntime.js','utf8');
 const voiceHook = fs.readFileSync('src/hooks/useVoiceRuntime.js','utf8');
 const chatInput = fs.readFileSync('src/components/chat/ChatInputBar.jsx','utf8');
+const main = fs.readFileSync('electron/main.cjs','utf8');
 
 test('turning the microphone off never asks for microphone permission first', () => {
   assert.match(globalVoice,/activationMode !== 'push-to-talk' && voice\.state\.handsFree[\s\S]*?setHandsFree\(false\)[\s\S]*?requestMicrophonePermission/);
@@ -53,4 +54,11 @@ test('stale STT results are invalidated after microphone cancellation or restart
   assert.match(mobile,/captureGeneration/);
   assert.match(mobile,/segmentGeneration !== captureGeneration/);
   assert.match(mobile,/captureGeneration \+= 1/);
+});
+
+
+test('model transcription has a hard timeout so microphone processing cannot hang forever', () => {
+  assert.match(main,/openRouterTranscribeVoice[\s\S]*?new AbortController\(\)/);
+  assert.match(main,/controller\.abort\(\), 30000/);
+  assert.match(main,/OPENROUTER_STT_TIMEOUT/);
 });
