@@ -265,11 +265,37 @@ async function runReleaseCandidateValidation(workspace) {
   }
 
   const sha256 = crypto.createHash('sha256').update(fs.readFileSync(installer)).digest('hex');
+  const signature = await getAuthenticodeSignature(installer).catch((error)=>({
+    status:'Unavailable',
+    thumbprint:'',
+    subject:'',
+    error:String(error?.message || error)
+  }));
+  const signed = signature.status === 'Valid' && Boolean(signature.thumbprint);
+  const manifest = {
+    version:JSON.parse(fs.readFileSync(path.join(workspace,'package.json'),'utf8')).version,
+    builtAt:new Date().toISOString(),
+    installer,
+    sha256,
+    signing:{
+      signed,
+      status:signature.status || 'Unknown',
+      subject:signature.subject || null,
+      thumbprint:signature.thumbprint || null
+    },
+    validation:(sourceValidation.results || []).map((item)=>({cmd:item.cmd,ok:item.ok})),
+  };
+  const manifestPath=path.join(releaseDir,'release-candidate-manifest.json');
+  fs.writeFileSync(manifestPath,JSON.stringify(manifest,null,2),'utf8');
   return {
     ok:true,
-    results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:true, output:installer }],
+    results:[...(sourceValidation.results || []), packageResult, { cmd:'installer-artifact', ok:true, output:installer }, {cmd:'release-manifest',ok:true,output:manifestPath}],
     installer,
-    sha256
+    sha256,
+    signature,
+    signed,
+    manifest,
+    manifestPath
   };
 }
 
@@ -1054,6 +1080,12 @@ async function runAutonomousSelfRepair(payload={}) {
         validation:finalValidation,
         installer:finalValidation.installer || null,
         sha256:finalValidation.sha256 || null,
+        signed:finalValidation.signed === true,
+        signature:finalValidation.signature || null,
+        manifest:finalValidation.manifest || null,
+        manifestPath:finalValidation.manifestPath || null,
+        changedFiles:[...new Set(applied.flatMap((item)=>item.files || []))],
+        riskSummary:applied.some((item)=>item.risk === 'high') ? 'high' : applied.some((item)=>item.risk === 'medium') ? 'medium' : 'low',
         createdAt:new Date().toISOString(),
         releaseApproved:false
       };
