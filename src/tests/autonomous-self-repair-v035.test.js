@@ -162,3 +162,11 @@ test('crash Autopilot enablement is owner-presence gated', () => {
   assert.match(main,/jarvis:self-repair:auto:crash-mode[\s\S]*enabled === true[\s\S]*requireOwnerPresence/);
   assert.match(main,/Automatikus crash-javítás/);
 });
+
+
+test('bundled toolchain is prepended to PATH for npm child processes', () => {
+  assert.match(main,/function withSelfRepairToolchainEnv/);
+  assert.match(main,/\[toolchain\.root, existingPath\]/);
+  assert.match(main,/PATH:toolchainPath/);
+  assert.match(main,/runToolchainNpm[\s\S]*withSelfRepairToolchainEnv/);
+});
