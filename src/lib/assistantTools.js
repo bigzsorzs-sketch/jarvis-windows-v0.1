@@ -4,7 +4,7 @@ import { translateText, SUPPORTED_LANGUAGES } from './languageEngine';
 import { loadEcosystemData, analyzeEcosystem, buildEcosystemContext } from './ecosystemEngine';
 import { sanitizeString, escapePromptValue, validateAction } from './assistantTools/sanitization';
 import { logger } from '@/lib/logger';
-import { buildCapabilityPrompt, getApprovalMode } from '@/lib/capabilityRegistry';
+import { buildCapabilityPrompt, getApprovalMode, syncDiscoveredTools } from '@/lib/capabilityRegistry';
 import { recordActionEpisode } from '@/lib/agentMemory';
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -327,6 +327,8 @@ export const TOOLS = {
     };
   },
 };
+
+syncDiscoveredTools(Object.keys(TOOLS));
 
 // ─── CONTEXT LOADER ──────────────────────────────────────────────────────────
 
