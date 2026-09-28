@@ -33,7 +33,9 @@ export default function JarvisVoiceStage({
         ? (busyLabel || 'Gondolkodom…')
         : listening
           ? 'Figyelek…'
-          : (hu ? 'Beszélj természetesen… figyelek.' : 'Speak naturally… I’m listening.'));
+          : voice?.state?.activationMode === 'wake-word'
+            ? (hu ? `Mondd: „${voice?.state?.wakeWord || 'Jarvis'} …”` : `Say: “${voice?.state?.wakeWord || 'Jarvis'} …”`)
+            : (hu ? 'Beszélj természetesen… figyelek.' : 'Speak naturally… I’m listening.'));
 
   const orbPhaseClass = speaking
     ? ' is-speaking'
@@ -55,17 +57,18 @@ export default function JarvisVoiceStage({
 
   const toggleMicrophone = async () => {
     setMicError('');
-    if (voice?.state?.handsFree) {
-      voice?.setHandsFree?.(false);
-      return;
-    }
-
     const permission = await requestMicrophonePermission();
     if (!permission.ok) {
       setMicError(permission.message);
       return;
     }
-    voice?.setHandsFree?.(true);
+
+    if (voice?.state?.activationMode === 'push-to-talk') {
+      voice?.startSingleCycle?.();
+      return;
+    }
+
+    voice?.setHandsFree?.(!voice?.state?.handsFree);
   };
 
   return (
@@ -102,11 +105,11 @@ export default function JarvisVoiceStage({
       <div className={active ? 'jarvis-wave-console is-active' : 'jarvis-wave-console'}>
         <button
           type="button"
-          className={voice?.state?.handsFree ? 'jarvis-wave-mic enabled' : 'jarvis-wave-mic'}
+          className={(voice?.state?.handsFree || listening) ? 'jarvis-wave-mic enabled' : 'jarvis-wave-mic'}
           onClick={toggleMicrophone}
-          aria-label={voice?.state?.handsFree ? 'Mikrofon kikapcsolása' : 'Mikrofon bekapcsolása'}
+          aria-label={voice?.state?.activationMode === 'push-to-talk' ? 'Beszéd indítása' : voice?.state?.handsFree ? 'Mikrofon kikapcsolása' : 'Mikrofon bekapcsolása'}
         >
-          {voice?.state?.handsFree ? <Mic size={20} /> : <MicOff size={20} />}
+          {(voice?.state?.handsFree || listening) ? <Mic size={20} /> : <MicOff size={20} />}
         </button>
         <div className={active ? 'jarvis-waveform is-active' : 'jarvis-waveform'} aria-hidden="true">
           <svg viewBox="0 0 760 52" preserveAspectRatio="none">
