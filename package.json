@@ -132,7 +132,14 @@
       "src/**/*",
       "tailwind.config.js",
       "vite.config.js",
-      "tsconfig.json"
+      "tsconfig.json",
+      "package-lock.json",
+      "index.html",
+      "eslint.config.js",
+      "postcss.config.js",
+      "jsconfig.json",
+      "components.json",
+      "build/installer.nsh"
     ],
     "directories": {
       "output": "release",
