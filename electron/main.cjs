@@ -1754,6 +1754,47 @@ app.whenReady().then(async () => {
     if (!latestSystemReport?.id || report?.id !== latestSystemReport.id) throw new Error('JARVIS_REPAIR_REPORT_STALE');
     return buildRepairPlan(latestSystemReport);
   });
+  ipcMain.handle('jarvis:self-repair:auto:status', () => readAutonomousRepairState());
+  ipcMain.handle('jarvis:self-repair:auto:workspace', async () => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    const workspace = await ensureAutonomousWorkspace();
+    return { success:true, workspace };
+  });
+  ipcMain.handle('jarvis:self-repair:auto:run', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    return runAutonomousSelfRepair(request);
+  });
+  ipcMain.handle('jarvis:self-repair:auto:stop', () => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    autonomousRepairStopRequested = true;
+    return writeAutonomousRepairState({ status:'STOP_REQUESTED' });
+  });
+  ipcMain.handle('jarvis:self-repair:release:approve', (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    const state = readAutonomousRepairState();
+    const candidate = state.releaseCandidate;
+    if (!candidate?.id || candidate.id !== String(request.candidateId || '')) {
+      throw new Error('RELEASE_CANDIDATE_NOT_FOUND');
+    }
+    if (!['RELEASE_CANDIDATE_READY','NEEDS_OWNER_REVIEW_BEFORE_RELEASE'].includes(state.status)) {
+      throw new Error('RELEASE_CANDIDATE_NOT_READY');
+    }
+    return writeAutonomousRepairState({
+      releaseApproved:true,
+      releaseApprovedAt:new Date().toISOString(),
+      status:'RELEASE_APPROVED_BY_OWNER'
+    });
+  });
+  ipcMain.handle('jarvis:self-repair:release:revoke', () => {
+    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    const state = readAutonomousRepairState();
+    return writeAutonomousRepairState({
+      releaseApproved:false,
+      releaseApprovedAt:null,
+      status:state.releaseCandidate ? 'RELEASE_CANDIDATE_READY' : state.status
+    });
+  });
+
   ipcMain.handle('jarvis:developer:plan', (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
     const workspace = developerRepair.validateWorkspace(String(request.workspace || ''));
