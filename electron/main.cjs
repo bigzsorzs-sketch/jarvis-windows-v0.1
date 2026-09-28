@@ -350,6 +350,25 @@ function localOwnerAuthorised() {
   }
 }
 
+async function requireOwnerPresence({title='Jarvis tulajdonosi jóváhagyás',message,detail=''}={}) {
+  if (!localOwnerAuthorised()) throw new Error('JARVIS_OWNER_REQUIRED');
+  const options = {
+    type:'warning',
+    buttons:['Mégse','Engedélyezem'],
+    defaultId:0,
+    cancelId:0,
+    noLink:true,
+    title,
+    message:String(message || 'Ez a művelet külön tulajdonosi jóváhagyást igényel.'),
+    detail:String(detail || 'A jóváhagyás csak erre az egy műveletre érvényes.')
+  };
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  if (result.response !== 1) throw new Error('JARVIS_OWNER_ACTION_CANCELLED');
+  return true;
+}
+
 const INSTALLER_LANG_MAP = {
   '1033':'en','1038':'hu','1031':'de','1036':'fr','3082':'es','1034':'es','1040':'it',
   '2070':'pt','1046':'pt','1045':'pl','1048':'ro','1043':'nl','1049':'ru','2052':'zh'
@@ -1853,7 +1872,11 @@ app.whenReady().then(async () => {
   }));
   ipcMain.handle('jarvis:admin:status', () => adminDiagnosticsManager?.status?.() || {active:false,expiresAt:null});
   ipcMain.handle('jarvis:admin:start', async () => {
-    if (!localOwnerAuthorised()) throw new Error('ADMIN_OWNER_REQUIRED');
+    await requireOwnerPresence({
+      title:'Rendszergazdai diagnosztika',
+      message:'Engedélyezed a Jarvis rendszergazdai diagnosztikai munkamenetét?',
+      detail:'A következő lépésben a Windows UAC is külön engedélyt kér. A munkamenet időkorlátos és csak az engedélyezett diagnosztikai műveleteket használhatja.'
+    });
     return adminDiagnosticsManager.start();
   });
   ipcMain.handle('jarvis:admin:snapshot', async () => {
@@ -1993,7 +2016,11 @@ app.whenReady().then(async () => {
     return { success:true, workspace };
   });
   ipcMain.handle('jarvis:self-repair:auto:run', async (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+    await requireOwnerPresence({
+      title:'Autopilot önfejlesztés',
+      message:'Engedélyezed az Autopilot futtatását?',
+      detail:'Az Autopilot sandboxban tesztelhet és a fejlesztési munkamásolatot módosíthatja. Kiadást továbbra sem publikálhat külön tulajdonosi jóváhagyás nélkül.'
+    });
     return runAutonomousSelfRepair(request);
   });
   ipcMain.handle('jarvis:self-repair:auto:stop', () => {
@@ -2001,8 +2028,12 @@ app.whenReady().then(async () => {
     autonomousRepairStopRequested = true;
     return writeAutonomousRepairState({ status:'STOP_REQUESTED', autoCrashRepair:false });
   });
-  ipcMain.handle('jarvis:self-repair:release:approve', (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('AUTONOMOUS_REPAIR_UNAUTHORISED');
+  ipcMain.handle('jarvis:self-repair:release:approve', async (_e, request={}) => {
+    await requireOwnerPresence({
+      title:'Release jóváhagyása',
+      message:'Engedélyezed ennek a tesztelt release candidate-nek a kiadási jóváhagyását?',
+      detail:'Ez csak a Jarvis belső release-kapuját nyitja meg. GitHub publikálás továbbra is külön, explicit kiadási lépést igényel.'
+    });
     const state = readAutonomousRepairState();
     const candidate = state.releaseCandidate;
     if (!candidate?.id || candidate.id !== String(request.candidateId || '')) {
@@ -2056,8 +2087,12 @@ app.whenReady().then(async () => {
     }
     return {success:true,status:'SANDBOX_VERIFIED',hash,validation,files:entry.plan.patches.map(p=>p.file)};
   });
-  ipcMain.handle('jarvis:developer:approve', (_e, request={}) => {
-    if (!localOwnerAuthorised()) throw new Error('DEV_REPAIR_UNAUTHORISED');
+  ipcMain.handle('jarvis:developer:approve', async (_e, request={}) => {
+    await requireOwnerPresence({
+      title:'Fejlesztői javítás jóváhagyása',
+      message:'Engedélyezed a sandboxban ellenőrzött javítás alkalmazási jóváhagyását?',
+      detail:'A terv csak sikeres sandbox-ellenőrzés után hagyható jóvá, és alkalmazás után ismét teljes validáció fut.'
+    });
     const entry=developerPlans.get(String(request.hash||''));
     if(!entry) throw new Error('DEV_REPAIR_PLAN_NOT_FOUND');
     if(Date.now()-entry.createdAt > 30*60*1000) throw new Error('DEV_REPAIR_PLAN_EXPIRED');
