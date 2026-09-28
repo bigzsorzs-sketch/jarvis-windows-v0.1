@@ -51,6 +51,12 @@ function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
 }
 
+function autonomousSourceRoot() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'self-development-source')
+    : path.join(__dirname, '..');
+}
+
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
 function developerSandboxRoot() { return path.join(app.getPath('userData'),'developer-repair-sandboxes'); }
@@ -175,7 +181,7 @@ async function ensureAutonomousWorkspace() {
 
   if (!fs.existsSync(packagePath)) {
     fs.mkdirSync(target,{recursive:true});
-    const sourceRoot = resourcePath();
+    const sourceRoot = autonomousSourceRoot();
     const entries = [
       'src','electron','security','build','scripts',
       'package.json','package-lock.json','index.html','eslint.config.js',
