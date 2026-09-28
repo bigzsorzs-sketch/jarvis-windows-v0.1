@@ -47,8 +47,8 @@ export function parseVoiceCommand(text, now = new Date()) {
   }
 
   const bloodSugarPatterns = [
-    /(?:vércukor(?:om)?|blood sugar)[,\s]+(?:(reggel|délelőtt|delelott|délután|delutan|este|éjjel|ejjel)[,\s]+)?(\d+(?:[.,]\d+)?)\s*(?:mmol(?:\/l)?)?/i,
-    /(?:ma\s+)?(?:(reggel|délelőtt|delelott|délután|delutan|este|éjjel|ejjel)[,\s]+)?(\d+(?:[.,]\d+)?)\s*(?:mmol(?:\/l)?)?\s+(?:volt\s+)?(?:a\s+)?vércukor(?:om)?/i,
+    /(?:(?:vércukor(?:om)?|vércukrom)|blood sugar)[,\s]+(?:(reggel|délelőtt|delelott|délután|delutan|este|éjjel|ejjel)[,\s]+)?(\d+(?:[.,]\d+)?)\s*(?:mmol(?:\/l)?)?/i,
+    /(?:ma\s+)?(?:(reggel|délelőtt|delelott|délután|delutan|este|éjjel|ejjel)[,\s]+)?(\d+(?:[.,]\d+)?)\s*(?:mmol(?:\/l)?)?\s+(?:volt\s+)?(?:a\s+)?(?:vércukor(?:om)?|vércukrom)/i,
   ];
   for (const pattern of bloodSugarPatterns) {
     const match = t.match(pattern);
