@@ -1,3 +1,5 @@
+import { getVoiceRouteAliases } from '@/lib/capabilityRegistry';
+
 function foldVoiceText(text = '') {
   return String(text)
     .normalize('NFD')
@@ -8,39 +10,7 @@ function foldVoiceText(text = '') {
     .trim();
 }
 
-export const VOICE_ROUTE_ALIASES = [
-  { path: '/', aliases: ['fooldal', 'kezdolap', 'home', 'homepage', 'startseite', 'accueil'] },
-  { path: '/chat', aliases: ['chat', 'asszisztens', 'jarvis chat', 'assistant', 'assistent'] },
-  { path: '/muszerfal', aliases: ['muszerfal', 'dashboard', 'armaturenbrett', 'tableau de bord'] },
-  { path: '/memoria', aliases: ['memoria', 'memory', 'speicher', 'memoire'] },
-  { path: '/eszkozok', aliases: ['eszkozok', 'tools', 'werkzeuge', 'outils'] },
-  { path: '/beallitasok', aliases: ['beallitasok', 'beallitas', 'settings', 'einstellungen', 'parametres'] },
-  { path: '/contacts', aliases: ['kapcsolatok', 'kontaktok', 'contacts', 'kontakte'] },
-  { path: '/reminders', aliases: ['emlekeztetok', 'feladatok', 'tasks', 'reminders', 'erinnerungen', 'rappels'] },
-  { path: '/smarthome', aliases: ['okosotthon', 'okos otthon', 'smart home', 'smarthome', 'maison intelligente'] },
-  { path: '/routines', aliases: ['rutinok', 'routines', 'routinen'] },
-  { path: '/holding', aliases: ['holding', 'cegek', 'vallalkozasok', 'businesses'] },
-  { path: '/legal', aliases: ['jog', 'jogi', 'legal', 'recht', 'juridique'] },
-  { path: '/privacy-terms', aliases: ['adatvedelem', 'privacy', 'privacy terms', 'feltetelek'] },
-  { path: '/release-checklist', aliases: ['release checklist', 'kiadas ellenorzes', 'kiadasi lista'] },
-  { path: '/automotive', aliases: ['auto diagnosztika', 'autodiagnosztika', 'automotive', 'car diagnostics'] },
-  { path: '/retail', aliases: ['retail', 'bolt', 'uzlet', 'store', 'shop'] },
-  { path: '/gmail', aliases: ['gmail', 'emailek', 'email', 'levelek', 'mail'] },
-  { path: '/locations', aliases: ['helyek', 'lokaciok', 'locations', 'saved places', 'mentett helyek'] },
-  { path: '/habits', aliases: ['szokasok', 'habits', 'gewohnheiten'] },
-  { path: '/obd2', aliases: ['obd', 'obd2', 'obd ii', 'obd diagnosztika'] },
-  { path: '/fuel-tracker', aliases: ['uzemanyag', 'tankolas', 'fuel tracker', 'fuel log'] },
-  { path: '/voice-help', aliases: ['hangparancs segitseg', 'voice help', 'hangvezerles segitseg'] },
-  { path: '/ai-feedback-admin', aliases: ['ai feedback', 'visszajelzes admin', 'feedback admin'] },
-  { path: '/system-center', aliases: ['rendszerkozpont', 'rendszer kozpont', 'system center'] },
-  { path: '/jelentesek', aliases: ['jelentesek', 'reports', 'berichte', 'rapports'] },
-  { path: '/tools/finance', aliases: ['penzugy', 'finance', 'finanzen', 'finances'] },
-  { path: '/tools/invoices', aliases: ['szamlak', 'szamlazas', 'invoices', 'rechnungen', 'factures'] },
-  { path: '/tools/calendar', aliases: ['naptar', 'calendar', 'kalender', 'calendrier'] },
-  { path: '/tools/translate', aliases: ['fordito', 'forditas', 'translate', 'translator', 'ubersetzer'] },
-  { path: '/tools/quick', aliases: ['gyors muveletek', 'quick actions', 'schnellaktionen'] },
-  { path: '/tools/image-editor', aliases: ['kepszerkeszto', 'kep szerkeszto', 'image editor', 'bildeditor'] },
-];
+export const VOICE_ROUTE_ALIASES = getVoiceRouteAliases();
 
 const NAVIGATION_WORDS = [
   'nyisd meg', 'nyisd ki', 'menj', 'menj a', 'ugorj', 'mutasd', 'hozd be',
