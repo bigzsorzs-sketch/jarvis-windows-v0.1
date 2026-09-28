@@ -196,14 +196,18 @@ async function ensureAutonomousWorkspace() {
       'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
     ];
     for (const entry of entries) {
-      const source = path.join(sourceRoot,entry);
+      const externalSource = path.join(sourceRoot,entry);
+      const source = fs.existsSync(externalSource) ? externalSource : resourcePath(entry);
       if (!fs.existsSync(source)) continue;
       const destination = path.join(target,entry);
-      if (fs.statSync(source).isDirectory()) {
+      const stat = fs.statSync(source);
+      if (stat.isDirectory()) {
         fs.cpSync(source,destination,{recursive:true});
       } else {
         fs.mkdirSync(path.dirname(destination),{recursive:true});
-        fs.copyFileSync(source,destination);
+        // Reading individual files from app.asar is supported by Electron's fs
+        // patch, while recursive directory copying from app.asar is not.
+        fs.writeFileSync(destination,fs.readFileSync(source));
       }
     }
   }
