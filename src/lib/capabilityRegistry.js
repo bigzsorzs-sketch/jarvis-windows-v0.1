@@ -137,8 +137,26 @@ export function buildCapabilityPrompt() {
     .join('\n');
 }
 
+export function syncDiscoveredTools(toolNames=[]) {
+  for (const rawName of toolNames) {
+    const tool = String(rawName || '').trim();
+    if (!tool || registry.has(`tool:${tool}`)) continue;
+    registerCapability({
+      id:`tool:${tool}`,
+      type:'tool',
+      category:'discovered',
+      title:tool,
+      description:'Auto-discovered Jarvis capability. Owner approval is required until explicitly classified.',
+      tool,
+      approval:'owner',
+      voiceAliases:[tool.replaceAll('_',' ')],
+    });
+  }
+  return listToolCapabilities();
+}
+
 export function getApprovalMode(tool='') {
-  return getCapability(tool)?.approval || 'instant';
+  return getCapability(tool)?.approval || 'owner';
 }
 
 export function capabilityRegistrySnapshot() {
