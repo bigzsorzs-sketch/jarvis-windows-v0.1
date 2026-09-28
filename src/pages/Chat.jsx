@@ -94,22 +94,24 @@ export default function Chat() {
   }, [voice]);
 
   const toggleVoice = useCallback(async () => {
-    if (voice.state.handsFree) {
-      voice.setHandsFree(false);
-      return;
-    }
     const permission = await requestMicrophonePermission();
     if (!permission.ok) {
       setMessages((prev) => [...prev, { role: 'assistant', content: `🎙️ ${permission.message}` }]);
       return;
     }
-    voice.startSingleCycle?.();
+
+    if (voice.state.activationMode === 'push-to-talk') {
+      voice.startSingleCycle?.();
+      return;
+    }
+
+    voice.setHandsFree(!voice.state.handsFree);
   }, [voice]);
 
   // ── Initialise from persisted session ─────────────────────────────────────
   useEffect(() => {
     const saved = sessionPersistence.load();
-    if (saved.handsFree) voice.setHandsFree(true);
+    if (saved.handsFree && voice.state.activationMode !== 'push-to-talk') voice.setHandsFree(true);
     if (saved.detectedLang) setDetectedLang(saved.detectedLang);
   }, []);
 
