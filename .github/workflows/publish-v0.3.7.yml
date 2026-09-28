@@ -1,0 +1,58 @@
+name: Publish Jarvis v0.3.7 owner-approved release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-v0.3.7.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download tested v0.3.7 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Windows-x64
+          path: release
+          run-id: 36407834863
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify expected files and SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f release/Jarvis-Setup-0.3.7-x64.exe
+          test -f release/Jarvis-Setup-0.3.7-x64.exe.sha256
+          test -f release/release-manifest.json
+          cd release
+          sha256sum -c Jarvis-Setup-0.3.7-x64.exe.sha256
+
+      - name: Verify manifest version and tested commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const m = JSON.parse(fs.readFileSync('release/release-manifest.json','utf8'));
+          if (m.version !== '0.3.7') throw new Error('Manifest version mismatch: ' + m.version);
+          if (m.commit !== 'f992e688fd6411005c2cfa933d5fc2b54fad621f') throw new Error('Manifest commit mismatch: ' + m.commit);
+          console.log('Manifest verified:', m.version, m.commit, m.signing?.status);
+          NODE
+
+      - name: Publish immutable v0.3.7 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.3.7 --repo ${{ github.repository }} >/dev/null 2>&1; then
+            echo "Release v0.3.7 already exists; refusing to overwrite."
+            exit 1
+          fi
+          gh release create v0.3.7             release/Jarvis-Setup-0.3.7-x64.exe             release/Jarvis-Setup-0.3.7-x64.exe.sha256             release/release-manifest.json             --repo ${{ github.repository }}             --target f992e688fd6411005c2cfa933d5fc2b54fad621f             --title "Jarvis v0.3.7"             --notes "Windows x64 Jarvis desktop release. Includes audited Autopilot workspace fixes, bundled zero-setup Node/npm toolchain, repaired admin-helper handshake, owner-presence gates, sensitive-data policy enforcement, and Electron navigation hardening. Owner-approved publication after successful main-branch CI, packaged toolchain test, admin-helper handshake test, startup smoke test, and SHA-256 verification."
