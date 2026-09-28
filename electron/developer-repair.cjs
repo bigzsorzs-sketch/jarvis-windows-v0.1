@@ -31,8 +31,8 @@ function proposalHash(plan) {
 function normalizeRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
   if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
-  if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   if (PROTECTED.some(rx => rx.test(rel))) throw new Error('DEV_REPAIR_PROTECTED_PATH');
+  if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
 }
 function resolveInside(root, rel) {
