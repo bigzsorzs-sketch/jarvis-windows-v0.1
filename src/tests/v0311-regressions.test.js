@@ -88,12 +88,11 @@ test('Self-Repair sandbox cleanup tolerates transient Windows file locks', () =>
   assert.equal(repair.includes('.pending-delete-'), true);
 });
 
-test('desktop command center has final alignment override and release version is synchronized', () => {
+test('desktop command center keeps centered alignment and app version stays synchronized', () => {
   const css = read('src/styles/command-center.css');
   const appVersion = read('src/lib/appVersion.js');
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(css.includes('v0.3.11 — desktop command-center alignment'), true);
   assert.equal(css.includes('align-items:center;'), true);
-  assert.equal(appVersion.includes("APP_VERSION = '0.3.11'"), true);
-  assert.equal(pkg.version, '0.3.11');
+  assert.equal(css.includes('jarvis-command-center-hero'), true);
+  assert.equal(appVersion.includes(`APP_VERSION = '${pkg.version}'`), true);
 });
