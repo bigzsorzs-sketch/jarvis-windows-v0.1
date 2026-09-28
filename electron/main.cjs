@@ -39,6 +39,12 @@ const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
 const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
 const FALLBACK_TTS_MODEL = 'google/gemini-3.8-flash-lite-tts';
 const DEFAULT_TTS_VOICE = 'Charon';
+const GOOGLE_TTS_VOICES = new Set([
+  'Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe',
+  'Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi',
+  'Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird',
+  'Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'
+]);
 
 function resourcePath(...parts) {
   return app.isPackaged ? path.join(app.getAppPath(), ...parts) : path.join(__dirname, '..', ...parts);
@@ -157,7 +163,7 @@ async function saveSettingsInternal(patch={}) {
   if (typeof patch.ttsModel === 'string' && patch.ttsModel.trim()) raw.ttsModel = patch.ttsModel.trim();
   if (['male','female'].includes(patch.ttsGender)) {
     raw.ttsGender = patch.ttsGender;
-    if (!patch.ttsVoice) raw.ttsVoice = patch.ttsGender === 'female' ? 'Kore' : 'Charon';
+    if (!patch.ttsVoice && !raw.ttsVoice) raw.ttsVoice = patch.ttsGender === 'female' ? 'Kore' : 'Charon';
   }
   if (typeof patch.ttsVoice === 'string' && patch.ttsVoice.trim()) raw.ttsVoice = patch.ttsVoice.trim();
   if (typeof patch.openRouterApiKey === 'string' && patch.openRouterApiKey.trim()) raw.openRouterKey = protectSecret(patch.openRouterApiKey.trim());
@@ -377,6 +383,26 @@ function getOpenRouterAudioCredentials() {
   return { raw, apiKey };
 }
 
+async function listOpenRouterSpeechModels() {
+  const raw = readJson(settingsPath(), {});
+  const apiKey = unprotectSecret(raw.openRouterKey);
+  const headers = apiKey ? { Authorization:`Bearer ${apiKey}` } : {};
+  const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=speech', { headers });
+  if (!response.ok) throw new Error(`OPENROUTER_SPEECH_MODELS_${response.status}`);
+  const json = await response.json();
+
+  return (json.data || [])
+    .filter((model) => Array.isArray(model?.supported_voices) && model.supported_voices.length > 0)
+    .map((model) => ({
+      id:model.id,
+      name:model.name || model.id,
+      voices:model.supported_voices,
+      pricing:model.pricing || null,
+      context_length:model.context_length || null
+    }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
 function audioFormatFromMimeType(mimeType='') {
   const value = String(mimeType || '').toLowerCase();
   if (value.includes('webm')) return 'webm';
@@ -498,18 +524,29 @@ async function requestOpenRouterSpeech({ apiKey, model, voice, input, responseFo
 async function openRouterSynthesizeVoice(payload={}) {
   const { raw, apiKey } = getOpenRouterAudioCredentials();
   const requestedModel = String(raw.ttsModel || DEFAULT_TTS_MODEL);
-  const voice = String(raw.ttsVoice || DEFAULT_TTS_VOICE);
+  const requestedVoice = String(raw.ttsVoice || DEFAULT_TTS_VOICE);
+  const gender = raw.ttsGender === 'female' ? 'female' : 'male';
+  const defaultGenderVoice = gender === 'female' ? 'Kore' : 'Charon';
   const input = String(payload.text || '').trim();
 
   if (payload.warmup === true) {
-    return { data:{ supported:true, model:requestedModel, voice, audioBase64:null } };
+    return { data:{ supported:true, model:requestedModel, voice:requestedVoice, audioBase64:null } };
   }
   if (!input) throw new Error('VOICE_TEXT_REQUIRED');
 
-  const models = [...new Set([requestedModel, DEFAULT_TTS_MODEL, FALLBACK_TTS_MODEL])];
+  const requestedIsGoogle = requestedModel.startsWith('google/gemini-') && GOOGLE_TTS_VOICES.has(requestedVoice);
+  const fallbackVoice = requestedIsGoogle ? requestedVoice : defaultGenderVoice;
+  const candidates = [
+    { model:requestedModel, voice:requestedVoice },
+    { model:DEFAULT_TTS_MODEL, voice:fallbackVoice },
+    { model:FALLBACK_TTS_MODEL, voice:fallbackVoice }
+  ].filter((candidate, index, all) =>
+    all.findIndex((item) => item.model === candidate.model && item.voice === candidate.voice) === index
+  );
   let lastError = 'MODEL_TTS_UNAVAILABLE';
 
-  for (const model of models) {
+  for (const candidate of candidates) {
+    const { model, voice } = candidate;
     for (const responseFormat of ['mp3', 'pcm']) {
       const attempt = await requestOpenRouterSpeech({ apiKey, model, voice, input, responseFormat });
       if (!attempt.response) {
@@ -1321,6 +1358,7 @@ app.whenReady().then(async () => {
     const json=await res.json();
     return (json.data||[]).map(m=>({id:m.id,name:m.name||m.id,context_length:m.context_length||null,pricing:m.pricing||null}));
   });
+  ipcMain.handle('jarvis:ai:list-speech-models', () => listOpenRouterSpeechModels());
   ipcMain.handle('jarvis:file:select', async (_e, options={}) => dialog.showOpenDialog(mainWindow,{properties:['openFile', ...(options.multiple?['multiSelections']:[]) ]}));
   ipcMain.handle('jarvis:update:one-click', () => guarded(
     { type:'system_file_write', target:process.execPath },
