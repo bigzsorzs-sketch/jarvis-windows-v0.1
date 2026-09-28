@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   saveSettings: (settings) => ipcRenderer.invoke('jarvis:settings:save', settings),
   setTheme: (theme) => ipcRenderer.invoke('jarvis:theme:set', theme),
   listModels: () => ipcRenderer.invoke('jarvis:ai:list-models'),
+  listSpeechModels: () => ipcRenderer.invoke('jarvis:ai:list-speech-models'),
   testAiConnection: (apiKey = '') => ipcRenderer.invoke('jarvis:ai:test-connection', { apiKey }),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
