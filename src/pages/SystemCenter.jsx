@@ -19,6 +19,10 @@ function riskLabel(risk, hu) {
   return hu ? 'Alacsony' : 'Low';
 }
 
+function canonicalAppVersion(value = '') {
+  return String(value || '').trim().replace(/^v/i,'').split('+')[0];
+}
+
 function safeJsonForPrompt(value, maxLength = 12000) {
   const seen = new WeakSet();
   try {
@@ -63,7 +67,7 @@ export default function SystemCenter() {
   const [pendingRepair, setPendingRepair] = useState(null);
   const [manualApplyBusy, setManualApplyBusy] = useState(false);
   const [crashes, setCrashes] = useState([]);
-  const currentVersionCrashes = crashes.filter((item) => String(item?.appVersion || '') === APP_VERSION);
+  const currentVersionCrashes = crashes.filter((item) => canonicalAppVersion(item?.appVersion) === canonicalAppVersion(APP_VERSION));
   const latestCurrentCrash = currentVersionCrashes[0] || null;
 
   useEffect(() => {
