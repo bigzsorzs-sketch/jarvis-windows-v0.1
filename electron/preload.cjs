@@ -17,7 +17,6 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
     status: () => ipcRenderer.invoke('jarvis:admin:status'),
     start: () => ipcRenderer.invoke('jarvis:admin:start'),
     snapshot: () => ipcRenderer.invoke('jarvis:admin:snapshot'),
-    request: (operation, payload = {}) => ipcRenderer.invoke('jarvis:admin:request', { operation, payload }),
     stop: () => ipcRenderer.invoke('jarvis:admin:stop'),
   },
   getSettings: () => ipcRenderer.invoke('jarvis:settings:get'),
