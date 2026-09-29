@@ -35,6 +35,63 @@ function shouldLockVoiceToHungarian(message, source, fallbackLang) {
   return clean.length < 24 || !/[a-z]{3,}\s+[a-z]{3,}/i.test(clean);
 }
 
+function resolveContextScope(message = '') {
+  const text = String(message || '').toLocaleLowerCase('hu-HU');
+  return {
+    memory: /\b(emléksz|emlékezz|emlék|rólam|korábban|előzőleg|szokás|preferencia|kedvenc)\b/i.test(text),
+    health: /\b(egészség|vércukor|cukorbeteg|diabétesz|gyógyszer|metformin|inzulin|kalória|étkezés|vérnyomás|medication|health)\b/i.test(text),
+    contacts: /\b(kontakt|névjegy|telefon|telefonszám|hív|hívás|email|e-mail|cím|contact)\b/i.test(text),
+    finance: /\b(pénz|pénzügy|bevétel|kiadás|egyenleg|tartozás|számla|invoice|költség|ár|font|finance)\b/i.test(text),
+    planning: /\b(feladat|teendő|emlékeztető|határidő|todo|reminder|naptár|terv|tervezés)\b/i.test(text),
+    business: /\b(vállalkozás|vállalkoz|ügyfél|projekt|alkalmazott|cég|business|client|employee|invoice)\b/i.test(text),
+    actions: /\b(művelet|mit csináltál|korábbi művelet|napló|agent|action)\b/i.test(text),
+  };
+}
+
+function scopePromptContext(ctx, message) {
+  if (!ctx) return { scopedCtx:ctx, containsSensitiveContext:false };
+  const scope = resolveContextScope(message);
+  const scopedCtx = {
+    ...ctx,
+    memories: scope.memory ? (ctx.memories || []) : [],
+    meds: scope.health ? (ctx.meds || []) : [],
+    bs: scope.health ? (ctx.bs || []) : [],
+    meals: scope.health ? (ctx.meals || []) : [],
+    contacts: scope.contacts ? (ctx.contacts || []) : [],
+    finance: scope.finance ? (ctx.finance || []) : [],
+    invoices: (scope.finance || scope.business) ? (ctx.invoices || []) : [],
+    todos: scope.planning ? (ctx.todos || []) : [],
+    reminders: scope.planning ? (ctx.reminders || []) : [],
+    businesses: scope.business ? (ctx.businesses || []) : [],
+    projects: scope.business ? (ctx.projects || []) : [],
+    employees: scope.business ? (ctx.employees || []) : [],
+    clients: scope.business ? (ctx.clients || []) : [],
+    ecosystem: scope.business ? (ctx.ecosystem || null) : null,
+    actions: scope.actions ? (ctx.actions || []) : [],
+    agentEpisodes: scope.actions ? (ctx.agentEpisodes || []) : [],
+  };
+
+  const containsSensitiveContext = Boolean(
+    scopedCtx.memories.length
+    || scopedCtx.meds.length
+    || scopedCtx.bs.length
+    || scopedCtx.meals.length
+    || scopedCtx.contacts.length
+    || scopedCtx.finance.length
+    || scopedCtx.invoices.length
+    || scopedCtx.todos.length
+    || scopedCtx.reminders.length
+    || scopedCtx.businesses.length
+    || scopedCtx.projects.length
+    || scopedCtx.employees.length
+    || scopedCtx.clients.length
+    || scopedCtx.actions.length
+    || scopedCtx.agentEpisodes.length
+  );
+
+  return { scopedCtx, containsSensitiveContext };
+}
+
 export async function runAssistantTurn({ message, history, ctx, lang, userMood, attachedFiles = [], source = 'chat' }) {
   const fallbackLang = lang || 'hu';
   const detectedRaw = shouldLockVoiceToHungarian(message, source, fallbackLang) ? 'hu' : await detectLanguage(message, fallbackLang);
@@ -48,7 +105,8 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
   const voiceSpeedInstruction = source === 'voice'
     ? '\nVoice mode is ACTIVE in Jarvis. You can hear the user through speech recognition and Jarvis can speak your reply aloud. Never claim that voice conversation is unavailable or text-only. Answer in Hungarian when input is Hungarian. Use 1 short sentence, maximum 18 words. Emojis may appear visually, but never describe or read emoji names aloud. No English unless the user spoke English.'
     : '\nAnswer concisely by default.';
-  const systemPrompt = `${buildSystemPrompt(ctx, langInstruction, userMood)}${voiceSpeedInstruction}`;
+  const { scopedCtx, containsSensitiveContext: scopedSensitiveContext } = scopePromptContext(ctx, message);
+  const systemPrompt = `${buildSystemPrompt(scopedCtx, langInstruction, userMood)}${voiceSpeedInstruction}`;
 
   const compactHistory = history
     .slice(-12)
@@ -58,14 +116,7 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
 
   const fileAnalysisContext = await buildFileAnalysisContext(attachedFiles);
 
-  const containsSensitiveContext = attachedFiles.length > 0
-    || Boolean(ctx?.memories?.length)
-    || Boolean(ctx?.meds?.length)
-    || Boolean(ctx?.contacts?.length)
-    || Boolean(ctx?.finance?.length)
-    || Boolean(ctx?.bs?.length)
-    || Boolean(ctx?.meals?.length)
-    || Boolean(ctx?.invoices?.length);
+  const containsSensitiveContext = attachedFiles.length > 0 || scopedSensitiveContext;
 
   const llmParams = {
     prompt: `${systemPrompt}\n\nDetected input language: ${detectedLang}\nSelected output language: ${outputLang}\nCRITICAL LANGUAGE RULE: If selected output language is hu, reply ONLY in Hungarian. English words or English sentences are forbidden.\n\n${fileAnalysisContext}\n\nVOICE MODE LATENCY RULES:\n- Default to 1 short sentence, maximum 18 words.\n- For completed actions, confirm in 3-8 words.\n- Do not explain unless the user asks.\n- Ask at most one short follow-up question if needed.\n\n---\n${compactHistory}\nUser: ${safeMessage}\nAssistant:`,
