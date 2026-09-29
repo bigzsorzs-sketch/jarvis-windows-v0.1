@@ -75,10 +75,17 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(toolsSource,/createInvoiceNumber/);
   assert.doesNotMatch(toolsSource,/const inv_number = 'INV-' \+ Math\.random/);
   assert.match(system,/safeJsonForPrompt/);
+  assert.match(system,/canonicalAppVersion/);
+  assert.doesNotMatch(system,/PrivacyTerms\.jsx/);
   assert.doesNotMatch(toolsSource,/quantity: parseFloat\(i\.quantity\) \|\| 1/);
   assert.match(toolsSource,/\.search\(q, getUserFilter\(currentUser\), 1000\)/);
   assert.match(main,/DELETE_VERIFICATION_FAILED/);
   assert.match(main,/developerBackupRoot\(\)/);
+  assert.match(main,/SELF_REPAIR_FINGERPRINT_ENTRIES/);
+  assert.match(main,/sourceState\.sourceFingerprint !== installedSourceFingerprint/);
+  assert.match(main,/sourceFingerprint:selfRepairSourceFingerprint\(selfRepairSourceRoot\(\)\)/);
+  assert.match(main,/if \(isManualRepairRuntime\) return developerRepair\.validateWorkspace\(target\)/);
+  assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);
   assert.match(preload,/apply: \(repairId, reportId\)/);
   assert.match(system,/setRepairPlan\(null\)/);
