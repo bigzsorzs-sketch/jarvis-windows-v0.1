@@ -71,12 +71,14 @@ test('Chromium renderer security sandbox remains enabled independently', () => {
   assert.match(main,/webPreferences:\{[\s\S]*sandbox:true/);
 });
 
-test('v0.3.19 version is synchronized', () => {
+test('release version is synchronized across package, lockfile and app source', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const versionSource = read('src/lib/appVersion.js');
-  assert.equal(pkg.version,'0.3.19');
+  const match = versionSource.match(/APP_VERSION\s*=\s*'([^']+)'/);
+
+  assert.ok(/^\d+\.\d+\.\d+$/.test(pkg.version));
   assert.equal(lock.version,pkg.version);
   assert.equal(lock.packages[''].version,pkg.version);
-  assert.equal(versionSource.includes("APP_VERSION = '0.3.19'"),true);
+  assert.equal(match?.[1],pkg.version);
 });

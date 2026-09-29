@@ -52,8 +52,47 @@ const PageLoader = () => (
   </div>
 );
 
+function AuthFailureScreen({ error, onRetry }) {
+  const type = error?.type || 'local_profile_error';
+  const title = type === 'network_error'
+    ? 'Kapcsolati hiba'
+    : type === 'auth_required'
+      ? 'Hozzáférés szükséges'
+      : 'Jarvis profilhiba';
+  const description = type === 'network_error'
+    ? 'Jarvis nem tudta ellenőrizni a helyi profilt a kapcsolat miatt.'
+    : type === 'auth_required'
+      ? 'A hozzáférés ellenőrzése nem sikerült. Próbáld újra.'
+      : 'Jarvis nem tudta biztonságosan betölteni a helyi tulajdonosi profilt. A belső felületet nem indítom el félállapotban.';
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-background p-6 text-foreground">
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="text-xs font-bold tracking-[0.22em] text-primary/70">JARVIS</div>
+        <h1 className="mt-2 text-xl font-bold">{title}</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">{description}</p>
+        {error?.message && (
+          <div className="mt-4 rounded-xl border border-border bg-background/70 p-3 font-mono text-xs text-muted-foreground break-words">
+            {String(error.message).slice(0, 500)}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-5 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+        >
+          Újrapróbálom
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const {
+    isLoadingAuth, isLoadingPublicSettings, authError,
+    isAuthenticated, authChecked, checkAppState
+  } = useAuth();
   const location = useLocation();
 
   if (isLoadingPublicSettings || isLoadingAuth) {
@@ -66,7 +105,16 @@ const AuthenticatedApp = () => {
 
   if (authError) {
     if (authError.type === 'user_not_registered') return <UserNotRegisteredError />;
-    if (authError.type === 'auth_required') { navigateToLogin(); return null; }
+    return <AuthFailureScreen error={authError} onRetry={checkAppState} />;
+  }
+
+  if (authChecked && !isAuthenticated) {
+    return (
+      <AuthFailureScreen
+        error={{ type:'local_profile_error', message:'LOCAL_OWNER_PROFILE_MISSING' }}
+        onRetry={checkAppState}
+      />
+    );
   }
 
   return (

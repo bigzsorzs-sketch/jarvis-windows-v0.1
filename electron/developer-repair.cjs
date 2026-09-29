@@ -445,6 +445,54 @@ function queryTokens(query='') {
   return [...new Set(String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9_/-]+/).filter((token) => token.length >= 3))].slice(0,24);
 }
 
+function queryRelevantExcerpt(content='', tokens=[], maxChars=10000) {
+  const source = String(content || '');
+  const limit = Math.max(1000, Number(maxChars) || 10000);
+  if (source.length <= limit) return source;
+
+  const lower = source.toLowerCase();
+  const hits = [];
+  for (const token of tokens) {
+    const clean = String(token || '').toLowerCase();
+    if (clean.length < 3) continue;
+    let from = 0;
+    let count = 0;
+    while (count < 4) {
+      const index = lower.indexOf(clean, from);
+      if (index < 0) break;
+      hits.push(index);
+      from = index + clean.length;
+      count += 1;
+    }
+  }
+
+  if (!hits.length) return source.slice(0, limit);
+
+  hits.sort((a,b) => a - b);
+  const windows = [];
+  for (const hit of hits) {
+    const start = Math.max(0, hit - 2200);
+    const end = Math.min(source.length, hit + 3200);
+    const previous = windows[windows.length - 1];
+    if (previous && start <= previous.end + 400) {
+      previous.end = Math.max(previous.end,end);
+    } else {
+      windows.push({start,end});
+    }
+    if (windows.reduce((sum,item)=>sum + (item.end-item.start),0) >= limit) break;
+  }
+
+  let remaining = limit;
+  const chunks = [];
+  for (const window of windows) {
+    if (remaining <= 0) break;
+    const piece = source.slice(window.start, Math.min(window.end, window.start + remaining));
+    chunks.push(piece);
+    remaining -= piece.length;
+  }
+  return chunks.join('\n\n/* ... relevant source gap ... */\n\n');
+}
+
 function buildDiagnosticContext(root, query='', options={}) {
   const inspection = inspectWorkspace(root);
   const tokens = queryTokens(query);
@@ -471,10 +519,32 @@ function buildDiagnosticContext(root, query='', options={}) {
     if (filePath && known.has(filePath) && !selectedPaths.includes(filePath) && selectedPaths.length < maxFiles) selectedPaths.push(filePath);
   };
 
+  const queryLower = String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if (/auth|login|bejelent|hiteles|felhasznal|user_not_registered|auth_required/.test(queryLower)) {
+    addPath('src/lib/AuthContext.jsx');
+    addPath('src/api/jarvisClient.js');
+    addPath('src/App.jsx');
+  }
+  if (/self[- ]?repair|manual_repair|pendingrepair|javitas|javits|repair|elfogad|applypending|plan_not_found/.test(queryLower)) {
+    addPath('src/pages/SystemCenter.jsx');
+    addPath('electron/main.cjs');
+    addPath('electron/preload.cjs');
+    addPath('electron/developer-repair.cjs');
+  }
+  if (/ipc|electron|preload|bridge|hatter|jogosults|rendszer/.test(queryLower)) {
+    addPath('electron/main.cjs');
+    addPath('electron/preload.cjs');
+  }
+  if (/route|utvonal|menu|oldal|page|404|not found/.test(queryLower)) {
+    addPath('src/App.jsx');
+    addPath('src/components/Layout.jsx');
+    addPath('src/lib/PageNotFound.jsx');
+  }
+
   for (const item of scored) {
     if (item.score <= 0 && selectedPaths.length >= 6) break;
     addPath(item.file.path);
-    if (selectedPaths.length >= Math.min(8,maxFiles)) break;
+    if (selectedPaths.length >= Math.min(6,maxFiles)) break;
   }
 
   const seedPaths = [...selectedPaths];
@@ -483,14 +553,10 @@ function buildDiagnosticContext(root, query='', options={}) {
     for (const parent of architecture.dependents[filePath] || []) addPath(parent);
   }
 
-  const queryLower = String(query).toLowerCase();
-  if (/ipc|electron|preload|bridge|háttér|hatter|jogosults|rendszer/.test(queryLower)) {
-    addPath('electron/main.cjs');
-    addPath('electron/preload.cjs');
-  }
-  if (/route|útvonal|utvonal|menü|menu|oldal|page/.test(queryLower)) {
-    addPath('src/App.jsx');
-    addPath('src/components/Layout.jsx');
+  for (const item of scored) {
+    if (selectedPaths.length >= maxFiles) break;
+    if (item.score <= 0 && selectedPaths.length >= 10) break;
+    addPath(item.file.path);
   }
 
   let budget = Number(options.maxChars) || 52000;
@@ -498,7 +564,7 @@ function buildDiagnosticContext(root, query='', options={}) {
   for (const filePath of selectedPaths) {
     if (budget <= 0) break;
     const file = known.get(filePath);
-    const excerpt = file.content.slice(0,Math.min(10000,budget));
+    const excerpt = queryRelevantExcerpt(file.content,tokens,Math.min(10000,budget));
     budget -= excerpt.length;
     excerpts.push({
       path:file.path,

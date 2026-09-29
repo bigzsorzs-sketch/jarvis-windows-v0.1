@@ -237,7 +237,16 @@ export default function SystemCenter() {
         tx(' Jarvis most a javított kóddal indul újra.',' Jarvis is now restarting with the repaired code.')
       );
     } catch (error) {
-      setMessage(tx('Kézi Self-Repair hiba: ','Manual Self-Repair error: ') + (error?.message || error));
+      const errorMessage = String(error?.message || error || '');
+      if (/MANUAL_REPAIR_PLAN_(?:NOT_FOUND|EXPIRED|MUTATED)/.test(errorMessage)) {
+        setPendingRepair(null);
+        setMessage(tx(
+          'A korábbi javítási terv már nem érvényes. Kérd újra a javítást; Jarvis friss tervet készít a jelenlegi forrásból.',
+          'The previous repair plan is no longer valid. Ask for the repair again and Jarvis will prepare a fresh plan from the current source.'
+        ));
+      } else {
+        setMessage(tx('Kézi Self-Repair hiba: ','Manual Self-Repair error: ') + errorMessage);
+      }
     } finally {
       setManualApplyBusy(false);
     }

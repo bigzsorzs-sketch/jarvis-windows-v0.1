@@ -111,6 +111,64 @@ function settingsPath() { return path.join(app.getPath('userData'), 'settings.js
 function developerBackupRoot() { return path.join(app.getPath('userData'),'developer-repair-backups'); }
 function manualRepairRoot() { return path.join(app.getPath('userData'),'manual-self-repair'); }
 function manualRuntimeStatePath() { return path.join(manualRepairRoot(),'runtime.json'); }
+function manualRepairPlanStoreRoot() { return path.join(manualRepairRoot(),'plans'); }
+function manualRepairPlanFile(hash) {
+  const safeHash = String(hash || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(safeHash)) return null;
+  return path.join(manualRepairPlanStoreRoot(), safeHash + '.json');
+}
+function removePersistedManualRepairPlan(hash) {
+  const file = manualRepairPlanFile(hash);
+  if (!file) return;
+  try { fs.rmSync(file,{force:true}); } catch {}
+}
+function persistManualRepairPlan(entry) {
+  const hash = String(entry?.plan?.hash || '').trim().toLowerCase();
+  const file = manualRepairPlanFile(hash);
+  if (!file) throw new Error('MANUAL_REPAIR_INVALID_PLAN_HASH');
+  writeJson(file,{
+    version:String(app.getVersion?.() || ''),
+    sourceFingerprint:selfRepairSourceFingerprint(selfRepairSourceRoot()),
+    createdAt:Number(entry?.createdAt) || Date.now(),
+    plan:entry.plan
+  });
+}
+function loadPersistedManualRepairPlan(hash) {
+  const file = manualRepairPlanFile(hash);
+  if (!file || !fs.existsSync(file)) return null;
+  const saved = readJson(file,null);
+  if (!saved?.plan) {
+    removePersistedManualRepairPlan(hash);
+    return null;
+  }
+
+  const currentVersion = String(app.getVersion?.() || '');
+  const currentFingerprint = selfRepairSourceFingerprint(selfRepairSourceRoot());
+  if (String(saved.version || '') !== currentVersion || String(saved.sourceFingerprint || '') !== currentFingerprint) {
+    removePersistedManualRepairPlan(hash);
+    return null;
+  }
+
+  const approvedPlan = { ...saved.plan };
+  delete approvedPlan.hash;
+  if (developerRepair.proposalHash(approvedPlan) !== String(hash || '').toLowerCase()) {
+    removePersistedManualRepairPlan(hash);
+    return null;
+  }
+
+  try {
+    const workspace = manualRepairWorkspaceRoot();
+    const plan = developerRepair.validateOwnerPlan(workspace,approvedPlan);
+    if (plan.hash !== String(hash || '').toLowerCase()) {
+      removePersistedManualRepairPlan(hash);
+      return null;
+    }
+    return { workspace, plan, createdAt:Number(saved.createdAt) || 0 };
+  } catch {
+    removePersistedManualRepairPlan(hash);
+    return null;
+  }
+}
 function manualRepairWorkspaceRoot() {
   const safeVersion = String(app.getVersion?.() || 'current')
     .replace(/^v/i,'')
@@ -1199,7 +1257,9 @@ ${source}`;
           risk:proposal.risk || 'medium',
           patches:proposal.patches
         });
-        manualRepairPlans.set(plan.hash,{workspace,plan,createdAt:Date.now()});
+        const planEntry = {workspace,plan,createdAt:Date.now()};
+        manualRepairPlans.set(plan.hash,planEntry);
+        persistManualRepairPlan(planEntry);
         pendingRepair = {
           hash:plan.hash,
           goal:plan.goal,
@@ -2087,17 +2147,20 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('jarvis:self-repair:manual:apply', async (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
-    const hash=String(request.hash || '');
-    const entry=manualRepairPlans.get(hash);
+    const hash=String(request.hash || '').trim().toLowerCase();
+    const entry=manualRepairPlans.get(hash) || loadPersistedManualRepairPlan(hash);
     if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
+    manualRepairPlans.set(hash,entry);
     if (Date.now()-entry.createdAt > 60*60*1000) {
       manualRepairPlans.delete(hash);
+      removePersistedManualRepairPlan(hash);
       throw new Error('MANUAL_REPAIR_PLAN_EXPIRED');
     }
     const approvedPlan={...entry.plan};
     delete approvedPlan.hash;
     if (developerRepair.proposalHash(approvedPlan)!==hash) {
       manualRepairPlans.delete(hash);
+      removePersistedManualRepairPlan(hash);
       throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     }
 
@@ -2108,6 +2171,7 @@ app.whenReady().then(async () => {
       if (!validation.ok) {
         developerRepair.rollbackOwner(entry.workspace,backup);
         manualRepairPlans.delete(hash);
+        removePersistedManualRepairPlan(hash);
         return {success:false,status:'ROLLED_BACK',hash,backup,validation};
       }
       const runtime = await ensureManualRuntimeBuilt(entry.workspace);
@@ -2121,6 +2185,7 @@ app.whenReady().then(async () => {
         success:true
       });
       manualRepairPlans.delete(hash);
+      removePersistedManualRepairPlan(hash);
       scheduleManualRuntimeRestart(entry.workspace);
       return {
         success:true,
@@ -2139,6 +2204,7 @@ app.whenReady().then(async () => {
     } catch (error) {
       try { developerRepair.rollbackOwner(entry.workspace,backup); } catch {}
       manualRepairPlans.delete(hash);
+      removePersistedManualRepairPlan(hash);
       throw error;
     }
   });

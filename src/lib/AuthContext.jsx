@@ -4,6 +4,23 @@ import { useUserStore } from '@/lib/appStore';
 
 const AuthContext = createContext();
 
+function normalizeAuthError(error) {
+  const message = String(error?.message || error || 'Unknown authentication error');
+  const status = Number(error?.status ?? error?.response?.status ?? error?.cause?.status);
+  const code = String(error?.code || error?.cause?.code || '');
+
+  if (status === 401 || status === 403 || /not authenticated|authentication required|unauthori[sz]ed/i.test(message)) {
+    return { type:'auth_required', message, status:Number.isFinite(status) ? status : null, code:code || null };
+  }
+  if (/user[^\n]{0,40}(not registered|unregistered|not found)|USER_NOT_REGISTERED/i.test(message)) {
+    return { type:'user_not_registered', message, status:Number.isFinite(status) ? status : null, code:code || null };
+  }
+  if (/ECONNABORTED|ETIMEDOUT|ENETUNREACH|ERR_NETWORK|network error|network request failed|fetch failed|timeout/i.test(`${code} ${message}`)) {
+    return { type:'network_error', message, status:Number.isFinite(status) ? status : null, code:code || null };
+  }
+  return { type:'local_profile_error', message, status:Number.isFinite(status) ? status : null, code:code || null };
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -18,11 +35,16 @@ export const AuthProvider = ({ children }) => {
     try {
       const currentUser = await jarvis.auth.me();
       const authenticated = Boolean(currentUser?.id);
-      setUser(currentUser || null);
-      setIsAuthenticated(authenticated);
-      setUserState({ user:currentUser || null, isAuthenticated:authenticated, authError:null });
+      if (!authenticated) {
+        const missingProfile = new Error('LOCAL_OWNER_PROFILE_MISSING');
+        missingProfile.code = 'LOCAL_OWNER_PROFILE_MISSING';
+        throw missingProfile;
+      }
+      setUser(currentUser);
+      setIsAuthenticated(true);
+      setUserState({ user:currentUser, isAuthenticated:true, authError:null });
     } catch (error) {
-      const nextError = { type:'local_profile_error', message:error?.message || String(error) };
+      const nextError = normalizeAuthError(error);
       setUser(null);
       setIsAuthenticated(false);
       setAuthError(nextError);
@@ -36,7 +58,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => { checkAppState(); }, [checkAppState]);
 
   const logout = useCallback(async () => jarvis.auth.logout(), []);
-  const navigateToLogin = useCallback(() => null, []);
+  const navigateToLogin = useCallback(() => jarvis.auth.redirectToLogin?.() ?? null, []);
 
   return (
     <AuthContext.Provider value={{
