@@ -117,6 +117,40 @@ function manualRepairWorkspaceRoot() {
     .replace(/[^0-9A-Za-z._-]/g,'_');
   return path.join(manualRepairRoot(),`v${safeVersion}`);
 }
+
+const SELF_REPAIR_FINGERPRINT_ENTRIES = [
+  'src','electron','security','scripts','.github',
+  'package.json','package-lock.json','index.html','eslint.config.js',
+  'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
+  'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
+];
+
+function manualWorkspaceSourceStatePath(workspace = manualRepairWorkspaceRoot()) {
+  return path.join(workspace,'.jarvis-source.json');
+}
+
+function selfRepairSourceFingerprint(root = selfRepairSourceRoot()) {
+  const digest = crypto.createHash('sha256');
+  const visit = (full, relative) => {
+    if (!fs.existsSync(full)) return;
+    const stat = fs.statSync(full);
+    if (stat.isDirectory()) {
+      for (const name of fs.readdirSync(full).sort()) {
+        visit(path.join(full,name), path.posix.join(relative,name));
+      }
+      return;
+    }
+    if (!stat.isFile()) return;
+    digest.update(relative.replace(/\\/g,'/'));
+    digest.update('\0');
+    digest.update(fs.readFileSync(full));
+    digest.update('\0');
+  };
+  for (const entry of SELF_REPAIR_FINGERPRINT_ENTRIES) {
+    visit(path.join(root,entry), entry);
+  }
+  return digest.digest('hex');
+}
 async function ensureManualRepairWorkspace() {
   const target = manualRepairWorkspaceRoot();
   const sourceRoot = selfRepairSourceRoot();
@@ -128,7 +162,11 @@ async function ensureManualRepairWorkspace() {
   ];
 
   fs.mkdirSync(target,{recursive:true});
+  if (isManualRepairRuntime) return developerRepair.validateWorkspace(target);
+
   const installedVersion = String(app.getVersion?.() || '');
+  const installedSourceFingerprint = selfRepairSourceFingerprint(sourceRoot);
+  const sourceState = readJson(manualWorkspaceSourceStatePath(target),{});
   let currentVersion = '';
   try {
     currentVersion = String(JSON.parse(fs.readFileSync(path.join(target,'package.json'),'utf8'))?.version || '');
@@ -141,7 +179,8 @@ async function ensureManualRepairWorkspace() {
     'package.json'
   ];
   const incompleteWorkspace = requiredWorkspaceFiles.some((file) => !fs.existsSync(path.join(target,file)));
-  const mustRefresh = incompleteWorkspace || !currentVersion || (installedVersion && currentVersion !== installedVersion);
+  const sourceChanged = !sourceState.sourceFingerprint || sourceState.sourceFingerprint !== installedSourceFingerprint;
+  const mustRefresh = incompleteWorkspace || !currentVersion || (installedVersion && currentVersion !== installedVersion) || sourceChanged;
   if (mustRefresh) {
     for (const entry of entries) {
       const destination = path.join(target,entry);
@@ -156,6 +195,11 @@ async function ensureManualRepairWorkspace() {
       if (stat.isDirectory()) fs.cpSync(source,destination,{recursive:true});
       else fs.copyFileSync(source,destination);
     }
+    writeJson(manualWorkspaceSourceStatePath(target),{
+      version:installedVersion,
+      sourceFingerprint:installedSourceFingerprint,
+      refreshedAt:new Date().toISOString()
+    });
   }
 
   const workspace = developerRepair.validateWorkspace(target);
@@ -214,6 +258,7 @@ async function ensureManualRuntimeBuilt(workspace) {
   const state = {
     enabled:true,
     version:String(app.getVersion?.() || ''),
+    sourceFingerprint:selfRepairSourceFingerprint(selfRepairSourceRoot()),
     workspace,
     electronPath,
     toolchainRoot:toolchain?.root || null,
@@ -250,7 +295,13 @@ function handOffToManualRuntimeIfReady() {
   const expectedWorkspace = path.resolve(manualRepairWorkspaceRoot());
   const workspace = path.resolve(String(state.workspace || ''));
   const version = String(app.getVersion?.() || '');
-  if (workspace !== expectedWorkspace || String(state.version || '') !== version) {
+  const sourceFingerprint = selfRepairSourceFingerprint(selfRepairSourceRoot());
+  if (
+    workspace !== expectedWorkspace
+    || String(state.version || '') !== version
+    || !state.sourceFingerprint
+    || state.sourceFingerprint !== sourceFingerprint
+  ) {
     try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
     return false;
   }
@@ -272,6 +323,9 @@ function handOffToManualRuntimeIfReady() {
 
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
 function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
+function canonicalAppVersion(value='') {
+  return String(value || '').trim().replace(/^v/i,'').split('+')[0];
+}
 
 function appendJsonLine(file, value) {
   try {
@@ -1043,7 +1097,7 @@ async function selfRepairChat(payload={}) {
   }
   const currentAppVersion = String(app.getVersion?.() || 'unknown');
   const crashHistory = readRecentCrashes(20)
-    .filter((item) => String(item?.appVersion || '') === currentAppVersion)
+    .filter((item) => canonicalAppVersion(item?.appVersion) === canonicalAppVersion(currentAppVersion))
     .slice(0,8);
   const crashText = crashHistory.length
     ? JSON.stringify(crashHistory,null,2).slice(0,18000)

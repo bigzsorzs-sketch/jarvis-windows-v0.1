@@ -10,6 +10,51 @@ import { localDateKey } from '@/lib/localDate';
 
 const today = () => localDateKey();
 
+const ACTION_LOG_MAX_CHARS = 50 * 1024;
+
+function truncateText(value, maxLength = ACTION_LOG_MAX_CHARS) {
+  const text = String(value ?? '');
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}…[truncated ${text.length - maxLength} chars]`;
+}
+
+function safeStringify(value, maxLength = ACTION_LOG_MAX_CHARS) {
+  const seen = new WeakSet();
+  try {
+    const serialized = JSON.stringify(value, (_key, current) => {
+      if (typeof current === 'bigint') return `${current.toString()}n`;
+      if (current && typeof current === 'object') {
+        if (seen.has(current)) return '[Circular]';
+        seen.add(current);
+      }
+      return current;
+    });
+    return truncateText(serialized ?? value, maxLength);
+  } catch (error) {
+    const type = Object.prototype.toString.call(value);
+    return truncateText(`[Unserializable ${type}: ${String(error?.message || error)}]`, maxLength);
+  }
+}
+
+function serializeLogValue(value) {
+  if (value !== null && (typeof value === 'object' || typeof value === 'bigint')) return safeStringify(value);
+  return truncateText(value);
+}
+
+function createInvoiceNumber() {
+  const datePart = today().replaceAll('-', '');
+  let token = '';
+  if (globalThis.crypto?.randomUUID) {
+    token = globalThis.crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase();
+  } else if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
+    token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 12).toUpperCase();
+  } else {
+    token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(-12).toUpperCase();
+  }
+  return `INV-${datePart}-${token}`;
+}
+
 async function getCurrentUserOrThrow() {
   const currentUser = await jarvis.auth.me().catch(() => null);
   if (!currentUser?.email) throw new Error('A művelethez be kell jelentkezned.');
@@ -32,8 +77,8 @@ async function logAction(action_type, description, payload, result, status = 'co
     await jarvis.entities.ActionLog.create(withOwner({
       action_type,
       description,
-      payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload || ''),
-      result: typeof result === 'object' ? JSON.stringify(result) : String(result || ''),
+      payload: serializeLogValue(payload),
+      result: serializeLogValue(result),
       status,
     }, currentUser));
   } catch (error) {
@@ -139,7 +184,7 @@ export const TOOLS = {
   create_invoice: async ({ client_name, client_email, items, notes }) => {
     const currentUser = await getCurrentUserOrThrow();
     const cn = requireString(client_name, 'ügyfél neve');
-    const inv_number = 'INV-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    const inv_number = createInvoiceNumber();
     if (!Array.isArray(items) || items.length === 0) throw new Error('A számlához legalább egy tétel szükséges.');
     const processedItems = items.map((item, index) => {
       const quantity = requireStrictNumber(item?.quantity, `tétel ${index + 1} mennyisége`, { min:0.000001, max:1000000 });

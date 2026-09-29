@@ -100,6 +100,6 @@ test('Self-Repair does not diagnose stale crashes from older app versions', () =
 
 test('Self-Repair filters historical crashes inside the model prompt', () => {
   assert.match(main,/currentAppVersion = String\(app\.getVersion/);
-  assert.match(main,/readRecentCrashes\(20\)[\s\S]*?filter\(\(item\) => String\(item\?\.appVersion/);
+  assert.match(main,/readRecentCrashes\(20\)[\s\S]*?filter\(\(item\) => canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/Do not diagnose a historical crash from an older version as a current defect/);
 });

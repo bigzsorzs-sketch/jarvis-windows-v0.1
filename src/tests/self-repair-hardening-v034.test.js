@@ -27,10 +27,12 @@ function makeWorkspace() {
   fs.writeFileSync(path.join(root,'src','App.jsx'),[
     "import Chat from './pages/Chat';",
     "import Layout from './components/Layout';",
-    "export default function App(){return <><Layout/><Route path=\"/chat\" element={<Chat/>}/></>}"
+    "const SystemCenter = lazy(() => import('./pages/SystemCenter'));",
+    "export default function App(){return <><Layout/><Route path=\"/chat\" element={<Chat/>}/><Route path=\"/system-center\" element={<SystemCenter/>}/></>}"
   ].join('\n'));
   fs.writeFileSync(path.join(root,'src','pages','Chat.jsx'),"import X from '../components/Used'; export default function Chat(){return X;}");
   fs.writeFileSync(path.join(root,'src','pages','Dormant.jsx'),"export default function Dormant(){return null;}");
+  fs.writeFileSync(path.join(root,'src','pages','SystemCenter.jsx'),"export default function SystemCenter(){return null;}");
   fs.writeFileSync(path.join(root,'src','components','Layout.jsx'),"export default function Layout(){return null;}");
   fs.writeFileSync(path.join(root,'src','components','Used.jsx'),"export default 1;");
   fs.writeFileSync(path.join(root,'electron','main.cjs'),"const p=require('./preload.cjs'); ipcMain.handle('x:test',()=>p);");
@@ -45,6 +47,8 @@ test('Self-Repair maps reachability, routes, dependencies and IPC', () => {
     assert.equal(inspected.architecture.routes.some(r=>r.route==='/chat' && r.file==='src/pages/Chat.jsx'),true);
     assert.equal(inspected.architecture.reachability['src/pages/Chat.jsx'],'renderer-active');
     assert.equal(inspected.architecture.reachability['src/pages/Dormant.jsx'],'inactive-or-unreferenced');
+    assert.equal(inspected.architecture.routes.some(r=>r.route==='/system-center' && r.file==='src/pages/SystemCenter.jsx'),true);
+    assert.equal(inspected.architecture.reachability['src/pages/SystemCenter.jsx'],'renderer-active');
     assert.equal(inspected.architecture.ipc.some(c=>c.channel==='x:test' && c.connected),true);
     const ctx=repair.buildDiagnosticContext(root,'Chat IPC route',{maxFiles:12,maxChars:20000});
     assert.equal(ctx.excerpts.some(e=>e.path==='src/pages/Chat.jsx'),true);
@@ -67,10 +71,21 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.doesNotMatch(fast,/if \(\/\(hallasz\|hallod/);
   assert.match(fast,/\^\(\?:hallasz\|hallod/);
   assert.match(toolsSource,/requireStrictNumber/);
+  assert.match(toolsSource,/safeStringify/);
+  assert.match(toolsSource,/createInvoiceNumber/);
+  assert.doesNotMatch(toolsSource,/const inv_number = 'INV-' \+ Math\.random/);
+  assert.match(system,/safeJsonForPrompt/);
+  assert.match(system,/canonicalAppVersion/);
+  assert.doesNotMatch(system,/PrivacyTerms\.jsx/);
   assert.doesNotMatch(toolsSource,/quantity: parseFloat\(i\.quantity\) \|\| 1/);
   assert.match(toolsSource,/\.search\(q, getUserFilter\(currentUser\), 1000\)/);
   assert.match(main,/DELETE_VERIFICATION_FAILED/);
   assert.match(main,/developerBackupRoot\(\)/);
+  assert.match(main,/SELF_REPAIR_FINGERPRINT_ENTRIES/);
+  assert.match(main,/sourceState\.sourceFingerprint !== installedSourceFingerprint/);
+  assert.match(main,/sourceFingerprint:selfRepairSourceFingerprint\(selfRepairSourceRoot\(\)\)/);
+  assert.match(main,/if \(isManualRepairRuntime\) return developerRepair\.validateWorkspace\(target\)/);
+  assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);
   assert.match(preload,/apply: \(repairId, reportId\)/);
   assert.match(system,/setRepairPlan\(null\)/);
