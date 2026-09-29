@@ -35,16 +35,20 @@ function shouldLockVoiceToHungarian(message, source, fallbackLang) {
   return clean.length < 24 || !/[a-z]{3,}\s+[a-z]{3,}/i.test(clean);
 }
 
+function includesAny(text, terms) {
+  return terms.some((term) => text.includes(term));
+}
+
 function resolveContextScope(message = '') {
   const text = String(message || '').toLocaleLowerCase('hu-HU');
   return {
-    memory: /\b(emléksz|emlékezz|emlék|rólam|korábban|előzőleg|szokás|preferencia|kedvenc)\b/i.test(text),
-    health: /\b(egészség|vércukor|cukorbeteg|diabétesz|gyógyszer|metformin|inzulin|kalória|étkezés|vérnyomás|medication|health)\b/i.test(text),
-    contacts: /\b(kontakt|névjegy|telefon|telefonszám|hív|hívás|email|e-mail|cím|contact)\b/i.test(text),
-    finance: /\b(pénz|pénzügy|bevétel|kiadás|egyenleg|tartozás|számla|invoice|költség|ár|font|finance)\b/i.test(text),
-    planning: /\b(feladat|teendő|emlékeztető|határidő|todo|reminder|naptár|terv|tervezés)\b/i.test(text),
-    business: /\b(vállalkozás|vállalkoz|ügyfél|projekt|alkalmazott|cég|business|client|employee|invoice)\b/i.test(text),
-    actions: /\b(művelet|mit csináltál|korábbi művelet|napló|agent|action)\b/i.test(text),
+    memory: includesAny(text, ['emléksz', 'emlékezz', 'emlék', 'rólam', 'korábban', 'előzőleg', 'szokás', 'preferencia', 'kedvenc']),
+    health: includesAny(text, ['egészség', 'vércukor', 'cukorbeteg', 'diabétesz', 'gyógyszer', 'metformin', 'inzulin', 'kalória', 'étkezés', 'vérnyomás', 'medication', 'health']),
+    contacts: includesAny(text, ['kontakt', 'névjegy', 'telefon', 'telefonszám', 'hívd', 'hívás', 'email', 'e-mail', 'contact']),
+    finance: includesAny(text, ['pénz', 'pénzügy', 'bevétel', 'kiadás', 'egyenleg', 'tartozás', 'számla', 'invoice', 'költség', 'font', 'finance']),
+    planning: includesAny(text, ['feladat', 'teendő', 'emlékeztető', 'határidő', 'todo', 'reminder', 'naptár', 'tervezés']),
+    business: includesAny(text, ['vállalkozás', 'vállalkoz', 'ügyfél', 'projekt', 'alkalmazott', 'business', 'client', 'employee', 'invoice']),
+    actions: includesAny(text, ['művelet', 'mit csináltál', 'korábbi művelet', 'napló', 'agent', 'action']),
   };
 }
 
