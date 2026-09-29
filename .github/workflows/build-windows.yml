@@ -193,12 +193,12 @@ jobs:
         run: throw "Release publication is allowed only from main."
 
       - name: Verify signer before publication
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.19 combined approved'))
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.20 combined approved'))
         shell: pwsh
         run: |
           $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
           $signature = Get-AuthenticodeSignature -LiteralPath $exe.FullName
-          $oneTimeOwnerApproval = "$env:GITHUB_EVENT_NAME" -eq "push" -and "${{ github.event.head_commit.message }}".StartsWith("Publish v0.3.19 combined approved")
+          $oneTimeOwnerApproval = "$env:GITHUB_EVENT_NAME" -eq "push" -and "${{ github.event.head_commit.message }}".StartsWith("Publish v0.3.20 combined approved")
           $allowUnsigned = ("${{ inputs.allow_unsigned_release }}" -eq "true") -or $oneTimeOwnerApproval
           if ([string]$signature.Status -ne "Valid" -and -not $allowUnsigned) {
             throw "Installer Authenticode status is $($signature.Status). Configure WINDOWS_CSC_LINK / WINDOWS_CSC_KEY_PASSWORD or explicitly approve allow_unsigned_release."
@@ -240,14 +240,14 @@ jobs:
           }
 
       - name: Publish immutable GitHub release
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.19 combined approved'))
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish v0.3.20 combined approved'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if ("$env:GITHUB_EVENT_NAME" -eq "push" -and [string]$pkg.version -ne "0.3.19") {
-            throw "One-time owner-approved push publication is restricted to v0.3.19."
+          if ("$env:GITHUB_EVENT_NAME" -eq "push" -and [string]$pkg.version -ne "0.3.20") {
+            throw "One-time owner-approved push publication is restricted to v0.3.20."
           }
           $tag = "v$($pkg.version)"
           $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1
@@ -256,4 +256,4 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists and will not be overwritten" }
           $global:LASTEXITCODE = 0
-          gh release create $tag $exe.FullName $sha.FullName $manifest.FullName --target "$env:GITHUB_SHA" --title "Jarvis $tag" --notes "Jarvis v0.3.19 hardens Self-Repair source freshness and diagnostics. Same-version builds are now distinguished by a source fingerprint so stale local source is refreshed correctly. Crash version matching is normalized, ActionLog and crash evidence serialization are hardened, invoice IDs are stronger, and regression coverage verifies System Center lazy routing, source freshness, and removal of stale repair output. Includes CodeQL, source tests, lint, typecheck, dependency audit, packaged Self-Repair verification, admin-helper handshake, Windows startup smoke test, SHA-256 checksum, and release manifest."
+          gh release create $tag $exe.FullName $sha.FullName $manifest.FullName --target "$env:GITHUB_SHA" --title "Jarvis $tag" --notes "Jarvis v0.3.20 adds persistent conversation history and cleaner chat sessions. A full app restart now opens a fresh chat while previous conversations remain available in local History, and the current chat is preserved only during the running app session. AI requests now send only context relevant to the current question instead of automatically including unrelated personal data, and chat failures now show actionable causes for API key, authentication, credit, model, rate-limit, timeout and policy errors. Includes CodeQL, source tests, lint, typecheck, dependency audit, packaged Self-Repair verification, admin-helper handshake, Windows startup smoke test, SHA-256 checksum, and release manifest."
