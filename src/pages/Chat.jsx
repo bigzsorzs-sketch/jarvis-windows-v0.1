@@ -24,6 +24,7 @@ import { networkMonitor } from '@/lib/networkMonitor';
 import { sessionPersistence } from '@/lib/sessionPersistence';
 import {
   deleteConversationHistory,
+  getConversationHistory,
   listConversationHistory,
   migrateLegacyChatSnapshotOnce,
   saveConversationHistory,
@@ -50,6 +51,8 @@ import PullToRefresh from '@/components/common/PullToRefresh';
 import VirtualizedMessageList from '@/components/chat/VirtualizedMessageList';
 import DrivingModeBanner from '@/components/chat/DrivingModeBanner';
 import ActiveRouteCard from '@/components/chat/ActiveRouteCard';
+
+const ACTIVE_CHAT_SESSION_KEY = 'jarvis_active_chat_conversation_id';
 
 export default function Chat() {
   const { lang, t } = useLang();
@@ -150,6 +153,7 @@ export default function Chat() {
 
   const startNewConversation = useCallback(() => {
     conversationIdRef.current = null;
+    try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
     setHistoryOpen(false);
     setPendingConfirm(null);
     setInput('');
@@ -161,6 +165,7 @@ export default function Chat() {
   const openConversationFromHistory = useCallback((conversation) => {
     if (!conversation?.id || !Array.isArray(conversation?.messages)) return;
     conversationIdRef.current = conversation.id;
+    try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
     setPendingConfirm(null);
     setInput('');
     setAttachedImages([]);
@@ -183,15 +188,30 @@ export default function Chat() {
       .catch((error) => logger.warn('Chat', 'Legacy chat history migration failed', { message:error?.message }))
       .finally(() => { void refreshConversationHistory(); });
 
-    loadFullContext().then(c => {
+    loadFullContext().then(async (c) => {
       if (!c?.settings) setShowSetup(true);
       setCtx(c);
       setDetectedLang(lang || 'hu');
+
+      let sessionConversationId = '';
+      try { sessionConversationId = sessionStorage.getItem(ACTIVE_CHAT_SESSION_KEY) || ''; } catch {}
+      if (sessionConversationId) {
+        const activeConversation = await getConversationHistory(sessionConversationId);
+        if (activeConversation?.messages?.length) {
+          conversationIdRef.current = activeConversation.id;
+          setDetectedLang(activeConversation?.metadata?.detectedLang || lang || 'hu');
+          setMessages(getWindowedMessages(activeConversation.messages));
+          return;
+        }
+        try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
+      }
+
       conversationIdRef.current = null;
       setMessages([{ role: 'assistant', content: getGreeting(c?.settings?.user_name, lang) }]);
     }).catch(() => {
       setDetectedLang(lang || 'hu');
       conversationIdRef.current = null;
+      try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
       setMessages([{ role: 'assistant', content: getGreeting(undefined, lang || 'hu') }]);
     });
   }, []);
@@ -217,7 +237,10 @@ export default function Chat() {
             messages,
             { detectedLang, handsFree:voice.state.handsFree }
           );
-          if (conversationId) conversationIdRef.current = conversationId;
+          if (conversationId) {
+            conversationIdRef.current = conversationId;
+            try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversationId); } catch {}
+          }
           await refreshConversationHistory();
         })
         .catch((error) => {
@@ -678,6 +701,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
           setShowSetup(false);
           setCtx(prev => ({ ...prev, settings: newSettings }));
           conversationIdRef.current = null;
+          try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
           setDetectedLang(lang || 'hu');
           setMessages([{ role: 'assistant', content: getGreeting(newSettings.user_name, lang) }]);
         }} />
