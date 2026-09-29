@@ -19,6 +19,25 @@ function riskLabel(risk, hu) {
   return hu ? 'Alacsony' : 'Low';
 }
 
+function safeJsonForPrompt(value, maxLength = 12000) {
+  const seen = new WeakSet();
+  try {
+    const json = JSON.stringify(value, (_key, current) => {
+      if (typeof current === 'bigint') return `${current.toString()}n`;
+      if (current && typeof current === 'object') {
+        if (seen.has(current)) return '[Circular]';
+        seen.add(current);
+      }
+      return current;
+    }) ?? '';
+    return json.length > maxLength
+      ? `${json.slice(0, maxLength)}…[truncated ${json.length - maxLength} chars]`
+      : json;
+  } catch (error) {
+    return `[Crash evidence serialization failed: ${String(error?.message || error).slice(0, 500)}]`;
+  }
+}
+
 export default function SystemCenter() {
   const { lang } = useLang();
   const hu = lang === 'hu';
@@ -70,7 +89,7 @@ export default function SystemCenter() {
       }
       return;
     }
-    const evidence = JSON.stringify(latest);
+    const evidence = safeJsonForPrompt(latest);
     sendSelfRepairMessage(tx(
       `Elemezd a jelenlegi ${APP_VERSION} verzió legutóbbi Crash Watchdog eseményét. Azonosítsd a valószínű okot és javasolj vagy készíts biztonságos javítást. Crash: ${evidence}`,
       `Analyze the latest Crash Watchdog event from the current ${APP_VERSION} version. Identify the likely cause and propose or prepare a safe repair. Crash: ${evidence}`
@@ -211,7 +230,7 @@ export default function SystemCenter() {
       setMessage(
         tx('✓ Javítás elfogadva és közvetlenül alkalmazva a Self-Repair fejlesztési forrására. Módosított fájlok: ','✓ Repair accepted and applied directly to the Self-Repair development source. Changed files: ') +
         (result.files || []).join(', ') +
-        tx(' A futó telepítés a következő build/frissítés után használja ezt a kódot.',' The running installation will use this code after the next build/update.')
+        tx(' Jarvis most a javított kóddal indul újra.',' Jarvis is now restarting with the repaired code.')
       );
     } catch (error) {
       setMessage(tx('Kézi Self-Repair hiba: ','Manual Self-Repair error: ') + (error?.message || error));
