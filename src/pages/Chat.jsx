@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { jarvis } from '@/api/jarvisClient';
 import { loadFullContext, TOOLS, executeActions } from '@/lib/assistantTools';
 import { getGreeting } from '@/components/chat/chatGreeting';
-import { getWindowedMessages, buildFileLabel } from '@/components/chat/chatUtils';
+import { getWindowedMessages, buildFileLabel, getChatErrorMessage } from '@/components/chat/chatUtils';
 import { detectLanguage } from '@/lib/languageEngine';
 import { routeUserCommand } from '@/lib/CommandRouter';
 import { useLang } from '@/lib/i18n';
@@ -22,7 +22,14 @@ import { sanitizeAssistantText, summarizeActionResults } from '@/lib/assistantRe
 import { getApprovalMode } from '@/lib/capabilityRegistry';
 import { networkMonitor } from '@/lib/networkMonitor';
 import { sessionPersistence } from '@/lib/sessionPersistence';
-import { loadChatSnapshot, queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
+import {
+  deleteConversationHistory,
+  getConversationHistory,
+  listConversationHistory,
+  migrateLegacyChatSnapshotOnce,
+  saveConversationHistory,
+} from '@/lib/conversationHistory';
+import { queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
 import { startOfflineAutoSync, syncOfflineData } from '@/lib/offlineSyncManager';
 import { selfHealingMonitor } from '@/lib/selfHealingMonitor';
 import { handleSelfAuditCommand } from '@/lib/selfAuditCommand';
@@ -39,10 +46,13 @@ import ChatInputBar from '@/components/chat/ChatInputBar';
 import ChatConfirmBar from '@/components/chat/ChatConfirmBar';
 import ChatNavModal from '@/components/chat/ChatNavModal';
 import ChatFeedbackModal from '@/components/chat/ChatFeedbackModal';
+import ChatHistoryDrawer from '@/components/chat/ChatHistoryDrawer';
 import PullToRefresh from '@/components/common/PullToRefresh';
 import VirtualizedMessageList from '@/components/chat/VirtualizedMessageList';
 import DrivingModeBanner from '@/components/chat/DrivingModeBanner';
 import ActiveRouteCard from '@/components/chat/ActiveRouteCard';
+
+const ACTIVE_CHAT_SESSION_KEY = 'jarvis_active_chat_conversation_id';
 
 export default function Chat() {
   const { lang, t } = useLang();
@@ -65,6 +75,8 @@ export default function Chat() {
   const [attachedImages, setAttachedImages] = useState([]);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState([]);
   const [userMood, setUserMood] = useState('neutral');
   const [isOnline, setIsOnline] = useState(networkMonitor.isOnline());
   const [degradedMode, setDegradedMode] = useState(false);
@@ -78,6 +90,8 @@ export default function Chat() {
   const sendMessageRef = useRef(null);
   const messagesRef = useRef([]);
   const initialMessageRef = useRef('');
+  const conversationIdRef = useRef(null);
+  const persistConversationRef = useRef(Promise.resolve());
 
   // ── Derived voice state from central runtime ───────────────────────────────
   const handsFree = voice.state.handsFree;
@@ -131,20 +145,74 @@ export default function Chat() {
     if (saved.detectedLang) setDetectedLang(saved.detectedLang);
   }, []);
 
-  // ── Boot: load context and greeting ───────────────────────────────────────
-  useEffect(() => {
-    loadChatSnapshot().then((snapshot) => {
-      if (snapshot?.messages?.length) setMessages(getWindowedMessages(snapshot.messages));
-    });
+  const refreshConversationHistory = useCallback(async () => {
+    const rows = await listConversationHistory(80);
+    setConversationHistory(rows);
+    return rows;
+  }, []);
 
-    loadFullContext().then(c => {
+  const startNewConversation = useCallback(() => {
+    conversationIdRef.current = null;
+    try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
+    setHistoryOpen(false);
+    setPendingConfirm(null);
+    setInput('');
+    setAttachedImages([]);
+    setDetectedLang(lang || 'hu');
+    setMessages([{ role:'assistant', content:getGreeting(ctx?.settings?.user_name, lang) }]);
+  }, [ctx?.settings?.user_name, lang]);
+
+  const openConversationFromHistory = useCallback((conversation) => {
+    if (!conversation?.id || !Array.isArray(conversation?.messages)) return;
+    conversationIdRef.current = conversation.id;
+    try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
+    setPendingConfirm(null);
+    setInput('');
+    setAttachedImages([]);
+    setDetectedLang(conversation?.metadata?.detectedLang || lang || 'hu');
+    setMessages(getWindowedMessages(conversation.messages));
+    setHistoryOpen(false);
+  }, [lang]);
+
+  const deleteConversationFromHistory = useCallback(async (conversationId) => {
+    if (!conversationId) return;
+    if (!window.confirm('Biztosan törlöd ezt a beszélgetést az előzményekből?')) return;
+    await deleteConversationHistory(conversationId);
+    if (conversationIdRef.current === conversationId) startNewConversation();
+    await refreshConversationHistory();
+  }, [refreshConversationHistory, startNewConversation]);
+
+  // ── Boot: always start a clean chat; previous sessions live in History ─────
+  useEffect(() => {
+    void migrateLegacyChatSnapshotOnce()
+      .catch((error) => logger.warn('Chat', 'Legacy chat history migration failed', { message:error?.message }))
+      .finally(() => { void refreshConversationHistory(); });
+
+    loadFullContext().then(async (c) => {
       if (!c?.settings) setShowSetup(true);
       setCtx(c);
       setDetectedLang(lang || 'hu');
-      setMessages(prev => prev.length ? prev : [{ role: 'assistant', content: getGreeting(c?.settings?.user_name, lang) }]);
+
+      let sessionConversationId = '';
+      try { sessionConversationId = sessionStorage.getItem(ACTIVE_CHAT_SESSION_KEY) || ''; } catch {}
+      if (sessionConversationId) {
+        const activeConversation = await getConversationHistory(sessionConversationId);
+        if (activeConversation?.messages?.length) {
+          conversationIdRef.current = activeConversation.id;
+          setDetectedLang(activeConversation?.metadata?.detectedLang || lang || 'hu');
+          setMessages(getWindowedMessages(activeConversation.messages));
+          return;
+        }
+        try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
+      }
+
+      conversationIdRef.current = null;
+      setMessages([{ role: 'assistant', content: getGreeting(c?.settings?.user_name, lang) }]);
     }).catch(() => {
       setDetectedLang(lang || 'hu');
-      setMessages(prev => prev.length ? prev : [{ role: 'assistant', content: getGreeting(undefined, lang || 'hu') }]);
+      conversationIdRef.current = null;
+      try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
+      setMessages([{ role: 'assistant', content: getGreeting(undefined, lang || 'hu') }]);
     });
   }, []);
 
@@ -157,8 +225,29 @@ export default function Chat() {
   useEffect(() => {
     messagesRef.current = messages;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    if (messages.length) saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree });
-  }, [messages, loading, detectedLang, voice.state.handsFree]);
+    if (!messages.length) return;
+
+    saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree });
+
+    if (messages.some((message) => message?.role === 'user')) {
+      persistConversationRef.current = persistConversationRef.current
+        .then(async () => {
+          const conversationId = await saveConversationHistory(
+            conversationIdRef.current,
+            messages,
+            { detectedLang, handsFree:voice.state.handsFree }
+          );
+          if (conversationId) {
+            conversationIdRef.current = conversationId;
+            try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversationId); } catch {}
+          }
+          await refreshConversationHistory();
+        })
+        .catch((error) => {
+          logger.warn('Chat', 'Conversation history save failed', { message:error?.message });
+        });
+    }
+  }, [messages, detectedLang, voice.state.handsFree, refreshConversationHistory]);
 
   useEffect(() => {
     const stopAutoSync = startOfflineAutoSync();
@@ -458,18 +547,22 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
     } catch (err) {
       console.error('Chat send error:', err);
-      if (err?.message === 'llm_timeout' || err?.message?.includes('timeout')) {
+      logger.error('Chat', 'sendMessage failed', {
+        message:String(err?.message || err || ''),
+        code:err?.code || null,
+      });
+
+      if (err?.message === 'llm_timeout' || /timeout/i.test(String(err?.message || ''))) {
         telemetry.recordFallback();
         selfHealingMonitor.recordWorkerError();
         setDegradedMode(true);
-        setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: '⏱️ Az AI válasz késett — próbáld újra, vagy egyszerűsítsd a kérést.' }]));
-      logger.warn('Chat', 'LLM timeout during sendMessage');
-      } else if (!networkMonitor.isOnline()) {
-        setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: 'Most offline vagy. Az üzenetet később újra megpróbálhatod.' }]));
-      } else {
-        const userMsg = err?.message?.includes('429') ? '⚠️ Rendszer túlterhelt. Próbáld újra pár másodperc múlva.' : `${t('error_occurred')}. ${t('try_again')}`;
-        setMessages(prev => getWindowedMessages([...prev, { role: 'assistant', content: userMsg }]));
       }
+
+      const fallback = !networkMonitor.isOnline()
+        ? 'Most offline vagy. Az üzenetet később újra megpróbálhatod.'
+        : `${t('error_occurred')}. ${t('try_again')}`;
+      const userMessage = getChatErrorMessage(err, fallback);
+      setMessages(prev => getWindowedMessages([...prev, { role:'assistant', content:userMessage }]));
     } finally {
       setLoading(false);
       setLoadingStep('');
@@ -607,6 +700,8 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         <SetupWizard onComplete={(newSettings) => {
           setShowSetup(false);
           setCtx(prev => ({ ...prev, settings: newSettings }));
+          conversationIdRef.current = null;
+          try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
           setDetectedLang(lang || 'hu');
           setMessages([{ role: 'assistant', content: getGreeting(newSettings.user_name, lang) }]);
         }} />
@@ -644,6 +739,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
                   input={input}
                   setInput={setInput}
                   onSend={sendMessage}
+                  onHistory={() => setHistoryOpen(true)}
                   loading={loading}
                   loadingStep={loadingStep}
                 />
@@ -661,10 +757,8 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
       {!commandCenterHome && <ChatHeader
         aiName={ctx?.settings?.ai_name}
-        onNewChat={() => {
-          setDetectedLang(lang || 'hu');
-          setMessages([{ role: 'assistant', content: getGreeting(ctx?.settings?.user_name, lang) }]);
-        }}
+        onNewChat={startNewConversation}
+        onHistory={() => setHistoryOpen(true)}
         onExport={exportChatToPDF}
         onFeedback={() => setShowFeedback(true)}
         handsFree={handsFree}
@@ -730,6 +824,16 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         feedbackText={feedbackText}
         setFeedbackText={setFeedbackText}
         onSend={sendFeedback}
+      />
+
+      <ChatHistoryDrawer
+        open={historyOpen}
+        conversations={conversationHistory}
+        activeConversationId={conversationIdRef.current}
+        onClose={() => setHistoryOpen(false)}
+        onNewChat={startNewConversation}
+        onOpenConversation={openConversationFromHistory}
+        onDeleteConversation={deleteConversationFromHistory}
       />
     </div>
   );

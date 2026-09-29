@@ -1,10 +1,11 @@
-import { Loader2, Send } from 'lucide-react';
+import { History, Loader2, Send } from 'lucide-react';
 
 export default function CommandCenterChatPanel({
   messages = [],
   input = '',
   setInput,
   onSend,
+  onHistory,
   loading = false,
   loadingStep = '',
 }) {
@@ -20,6 +21,17 @@ export default function CommandCenterChatPanel({
 
   return (
     <section className="jarvis-command-chat" aria-label="Jarvis integrated conversation">
+      <div className="flex items-center justify-end px-3 pt-2">
+        <button
+          type="button"
+          onClick={onHistory}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-[10px] font-semibold text-primary hover:bg-primary/10"
+          title="Beszélgetési előzmények"
+        >
+          <History size={12} />
+          Előzmények
+        </button>
+      </div>
       <div className="jarvis-command-chat-log" aria-live="polite">
         {visibleMessages.length === 0 ? (
           <div className="jarvis-command-chat-empty">Írj nekem bármit. A válaszom itt jelenik meg.</div>
