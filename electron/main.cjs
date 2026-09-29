@@ -323,6 +323,9 @@ function handOffToManualRuntimeIfReady() {
 
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
 function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
+function canonicalAppVersion(value='') {
+  return String(value || '').trim().replace(/^v/i,'').split('+')[0];
+}
 
 function appendJsonLine(file, value) {
   try {
@@ -1094,7 +1097,7 @@ async function selfRepairChat(payload={}) {
   }
   const currentAppVersion = String(app.getVersion?.() || 'unknown');
   const crashHistory = readRecentCrashes(20)
-    .filter((item) => String(item?.appVersion || '') === currentAppVersion)
+    .filter((item) => canonicalAppVersion(item?.appVersion) === canonicalAppVersion(currentAppVersion))
     .slice(0,8);
   const crashText = crashHistory.length
     ? JSON.stringify(crashHistory,null,2).slice(0,18000)
