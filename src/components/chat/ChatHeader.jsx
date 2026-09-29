@@ -1,10 +1,10 @@
 import { memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Download, MessageSquare, Headphones, Volume2, VolumeX } from 'lucide-react';
+import { Plus, Download, MessageSquare, Headphones, Volume2, VolumeX, History } from 'lucide-react';
 import LanguagePicker from '@/components/chat/LanguagePicker';
 import { requestMicrophonePermission } from '@/lib/microphonePermission';
 
-const ChatHeader = memo(function ChatHeader({ aiName, onNewChat, onExport, onFeedback, handsFree, onToggleHandsFree, autoSpeakReplies, onToggleAutoSpeak, speechStats, isOnline, degradedMode, t }) {
+const ChatHeader = memo(function ChatHeader({ aiName, onNewChat, onHistory, onExport, onFeedback, handsFree, onToggleHandsFree, autoSpeakReplies, onToggleAutoSpeak, speechStats, isOnline, degradedMode, t }) {
   const navigate = useNavigate();
 
   const openHandsFree = async () => {
@@ -22,13 +22,23 @@ const ChatHeader = memo(function ChatHeader({ aiName, onNewChat, onExport, onFee
   return (
     <div className="flex flex-col border-b border-border bg-card shrink-0">
       <div className="flex items-center justify-between px-4 py-3">
-        <button
-          onClick={onNewChat}
-          className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center"
-          title={t('new_chat')}
-        >
-          <Plus size={16} className="text-muted-foreground" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onNewChat}
+            className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center"
+            title={t('new_chat')}
+          >
+            <Plus size={16} className="text-muted-foreground" />
+          </button>
+          <button
+            onClick={onHistory}
+            className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center hover:bg-muted"
+            title="Előzmények"
+            aria-label="Beszélgetési előzmények"
+          >
+            <History size={16} className="text-muted-foreground" />
+          </button>
+        </div>
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full animate-pulse ${handsFree ? 'bg-green-400' : 'bg-primary'}`} />
           <h1 className="text-base font-semibold text-foreground">
