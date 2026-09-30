@@ -75,11 +75,31 @@ export async function saveRouteSnapshot(route) {
   return runStore(STORES.routes, 'readwrite', (store) => store.put({ ...route, updatedAt: Date.now() }));
 }
 
+function compactOfflineSnapshotMessages(messages) {
+  return (Array.isArray(messages) ? messages : []).slice(-200).map((message) => {
+    if (!message || typeof message !== 'object') return message;
+    const { attachedFiles, ...textAndState } = message;
+    if (!Array.isArray(attachedFiles) || attachedFiles.length === 0) return textAndState;
+    return {
+      ...textAndState,
+      // Keep attachment identity, not megabytes of raw data URLs in IndexedDB
+      // snapshots or queued sync actions. Files must be re-attached to re-use.
+      attachedFiles: attachedFiles.slice(0,10).map((file) => ({
+        name:String(file?.name || 'Csatolmány').slice(0,120),
+        kind:String(file?.kind || 'document').slice(0,30),
+        type:String(file?.type || '').slice(0,120),
+        size:Number.isFinite(file?.size) ? Math.max(0,Math.floor(file.size)) : null,
+        metadataOnly:true
+      }))
+    };
+  });
+}
+
 export async function saveChatSnapshot(messages, metadata = {}) {
   const snapshot = {
     id: 'active_chat',
     title: metadata.title || 'Mobil beszélgetés',
-    messages: Array.isArray(messages) ? messages.slice(-200) : [],
+    messages: compactOfflineSnapshotMessages(messages),
     metadata,
     updatedAt: Date.now(),
     syncedAt: metadata.syncedAt || null,
