@@ -47,28 +47,36 @@ async function syncConversationSnapshot(item, user) {
     .filter((message) => message?.role && message?.content)
     .map((message) => ({
       role: message.role,
-      content: String(message.content).slice(0, 4000),
+      content: String(message.content),
       timestamp: message.timestamp || new Date(snapshot.updatedAt || Date.now()).toISOString(),
     }));
 
-  if (messages.length === 0) return null;
+  // Don't save an empty greeting as a separate history entry.
+  if (!messages.some((message) => message.role === 'user')) return null;
 
-  const title = snapshot?.title || `Mobil beszélgetés ${new Date().toLocaleDateString('hu-HU')}`;
-  const existing = await jarvis.entities.Conversation.filter({ title }, '-updated_date', 1);
-
-  if (existing?.[0]) {
-    return jarvis.entities.Conversation.update(existing[0].id, {
-      title,
-      messages,
-      is_archived: false,
-    });
-  }
-
-  return jarvis.entities.Conversation.create({
+  const offlineSyncId = String(snapshot?.metadata?.offlineChatId || item.id || '').slice(0,128);
+  if (!offlineSyncId) return null;
+  const firstUserText = messages.find((message) => message.role === 'user')?.content
+    .replace(/\s+/g,' ').trim() || '';
+  const title = firstUserText ? ('Offline: ' + firstUserText.slice(0,60)) : 'Offline beszélgetés';
+  // Never match by title: different conversations can have identical titles.
+  const existing = await jarvis.entities.Conversation.filter(
+    { source:'chat', offline_sync_id:offlineSyncId }, '-updated_date', 1
+  );
+  const patch = {
     title,
     messages,
-    is_archived: false,
-    created_by: user.email,
+    source:'chat',
+    offline_sync_id:offlineSyncId,
+    is_archived:false,
+    metadata:{ ...snapshot.metadata, recoveredFromOffline:true }
+  };
+  if (existing?.[0]) {
+    return jarvis.entities.Conversation.update(existing[0].id,patch);
+  }
+  return jarvis.entities.Conversation.create({
+    ...patch,
+    created_by:user.email,
   });
 }
 

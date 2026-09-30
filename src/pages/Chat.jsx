@@ -91,6 +91,7 @@ export default function Chat() {
   const messagesRef = useRef([]);
   const initialMessageRef = useRef('');
   const conversationIdRef = useRef(null);
+  const offlineChatIdRef = useRef(crypto.randomUUID());
   const persistConversationRef = useRef(Promise.resolve());
 
   // ── Derived voice state from central runtime ───────────────────────────────
@@ -153,6 +154,7 @@ export default function Chat() {
 
   const startNewConversation = useCallback(() => {
     conversationIdRef.current = null;
+    offlineChatIdRef.current = crypto.randomUUID();
     try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
     setHistoryOpen(false);
     setPendingConfirm(null);
@@ -165,6 +167,7 @@ export default function Chat() {
   const openConversationFromHistory = useCallback((conversation) => {
     if (!conversation?.id || !Array.isArray(conversation?.messages)) return;
     conversationIdRef.current = conversation.id;
+    offlineChatIdRef.current = conversation.id;
     try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
     setPendingConfirm(null);
     setInput('');
@@ -199,6 +202,7 @@ export default function Chat() {
         const activeConversation = await getConversationHistory(sessionConversationId);
         if (activeConversation?.messages?.length) {
           conversationIdRef.current = activeConversation.id;
+          offlineChatIdRef.current = activeConversation.id;
           setDetectedLang(activeConversation?.metadata?.detectedLang || lang || 'hu');
           setMessages(getWindowedMessages(activeConversation.messages));
           return;
@@ -264,7 +268,11 @@ export default function Chat() {
       } else {
         setDegradedMode(false);
         telemetry.clearFallback();
-        queueConversationSync(messagesRef.current, { detectedLang, handsFree: voice.state.handsFree });
+        queueConversationSync(messagesRef.current, {
+          detectedLang, handsFree:voice.state.handsFree,
+          offlineChatId:offlineChatIdRef.current,
+          conversationId:conversationIdRef.current || null
+        });
         syncOfflineData();
       }
     });
@@ -423,7 +431,11 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       const offlineReply = { role: 'assistant', content: 'Jelenleg nincs internetkapcsolat. Az üzenetet helyben tárolom, de az AI nem válaszol automatikusan, amikor visszajön a kapcsolat. Ha választ szeretnél, küldd el újra az üzenetet online állapotban.' };
       const offlineMessages = getWindowedMessages([...messages, userMsg, offlineReply]);
       setMessages(offlineMessages);
-      queueConversationSync(offlineMessages, { detectedLang, handsFree: voice.state.handsFree, offline: true });
+      queueConversationSync(offlineMessages, {
+        detectedLang, handsFree:voice.state.handsFree, offline:true,
+        offlineChatId:offlineChatIdRef.current,
+        conversationId:conversationIdRef.current || null
+      });
       return;
     }
 
@@ -701,6 +713,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
           setShowSetup(false);
           setCtx(prev => ({ ...prev, settings: newSettings }));
           conversationIdRef.current = null;
+          offlineChatIdRef.current = crypto.randomUUID();
           try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
           setDetectedLang(lang || 'hu');
           setMessages([{ role: 'assistant', content: getGreeting(newSettings.user_name, lang) }]);

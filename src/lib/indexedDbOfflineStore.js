@@ -109,9 +109,15 @@ export async function enqueueSyncAction(action) {
 
 export async function queueConversationSync(messages, metadata = {}) {
   const snapshot = await saveChatSnapshot(messages, metadata);
+  // Coalesce only snapshots from the SAME conversation. A global active_chat
+  // queue key used to overwrite unrelated offline conversations.
+  const sessionId = String(metadata.offlineChatId || '').trim();
+  const queueId = sessionId
+    ? 'conversation_snapshot_' + sessionId
+    : 'conversation_snapshot_legacy_active';
   return enqueueSyncAction({
     type: 'conversation_snapshot',
-    id: 'conversation_snapshot_active',
+    id: queueId,
     payload: snapshot,
   });
 }
