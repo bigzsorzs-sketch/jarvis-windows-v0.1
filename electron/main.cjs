@@ -2246,8 +2246,11 @@ app.whenReady().then(async () => {
     // Approval is bound to the same unmodified source and still-live proposal.
     if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
-    // Never leave an old local-runtime activation pointing at an unverified build.
-    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+    // Failing to disable the old runtime must abort BEFORE any source is changed.
+    fs.rmSync(manualRuntimeStatePath(),{force:true});
+    if (fs.existsSync(manualRuntimeStatePath())) {
+      throw new Error('MANUAL_REPAIR_DISABLE_RUNTIME_FAILED');
+    }
     try {
       developerRepair.applyOwner(entry.workspace,entry.plan);
       const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
@@ -2262,15 +2265,20 @@ app.whenReady().then(async () => {
         ok:true,
         results:[...(validation.results || []),...(runtime.checks || [])]
       };
-      selfRepairLearning?.recordVerified?.({
-        title:entry.plan.goal || 'Kézi Self-Repair',
-        repairId:hash,
-        files:entry.plan.patches.map((patch)=>patch.file),
-        evidence:entry.plan.rationale || entry.plan.goal || '',
-        validation:fullValidation.results
-          .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
-        success:true
-      });
+      try {
+        selfRepairLearning?.recordVerified?.({
+          title:entry.plan.goal || 'Kézi Self-Repair',
+          repairId:hash,
+          files:entry.plan.patches.map((patch)=>patch.file),
+          evidence:entry.plan.rationale || entry.plan.goal || '',
+          validation:fullValidation.results
+            .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+          success:true
+        });
+      } catch (learningError) {
+        // A telemetry failure must not revert code that passed the full suite.
+        console.warn('Self-Repair learning could not be saved:', learningError);
+      }
       manualRepairPlans.delete(hash);
       removePersistedManualRepairPlan(hash);
       scheduleManualRuntimeRestart(entry.workspace);
@@ -2289,9 +2297,19 @@ app.whenReady().then(async () => {
         }
       };
     } catch (error) {
-      try { developerRepair.rollbackOwner(entry.workspace,backup); } catch {}
+      // Invalidate activation even if the source rollback itself encounters an error.
+      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+      let rollbackFailure=null;
+      try { developerRepair.rollbackOwner(entry.workspace,backup); }
+      catch (rollbackError) { rollbackFailure=rollbackError; }
       manualRepairPlans.delete(hash);
       removePersistedManualRepairPlan(hash);
+      if (rollbackFailure) {
+        throw new Error(
+          'MANUAL_REPAIR_ROLLBACK_FAILED: ' + String(rollbackFailure?.message || rollbackFailure)
+          + ' (original: ' + String(error?.message || error) + ')'
+        );
+      }
       throw error;
     }
   });
