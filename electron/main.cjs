@@ -410,6 +410,8 @@ function scheduleManualRuntimeRestart(workspace) {
       });
       app.exit(0);
     } catch (error) {
+      // Never keep a failed runtime active for the next Jarvis launch.
+      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
       recordCrash('manual-self-repair-restart-failed',{
         message:String(error?.message || error),
         workspace
@@ -444,12 +446,22 @@ function handOffToManualRuntimeIfReady() {
     return false;
   }
 
-  app.relaunch({
-    execPath:electronPath,
-    args:[workspace,'--jarvis-manual-runtime']
-  });
-  app.exit(0);
-  return true;
+  try {
+    app.relaunch({
+      execPath:electronPath,
+      args:[workspace,'--jarvis-manual-runtime']
+    });
+    app.exit(0);
+    return true;
+  } catch (error) {
+    // Fall back to the installed, known-startable package if the handoff fails.
+    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+    recordCrash('manual-runtime-handoff-failed',{
+      message:String(error?.message || error),
+      workspace
+    });
+    return false;
+  }
 }
 
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
