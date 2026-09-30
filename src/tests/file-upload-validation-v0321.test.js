@@ -14,6 +14,9 @@ test('valid FileReader base64 file is accepted with verified byte size', () => {
   assert.equal(result.byte_size, Buffer.byteLength('hello, Jarvis'));
   assert.equal(result.content_type, 'text/plain');
   assert.equal(result.verified, 'data_url_encoding');
+  const withCharset = validateUploadedFileUrl('data:text/plain;charset=utf-8;base64,' + payload);
+  assert.equal(withCharset.valid, true);
+  assert.equal(withCharset.byte_size, Buffer.byteLength('hello, Jarvis'));
 });
 
 test('missing file, unsupported remote URL and other schemes are rejected', () => {
