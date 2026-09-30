@@ -241,7 +241,8 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     if (!messages.length) return;
 
-    saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree });
+    void saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree })
+      .catch((error) => logger.warn('Chat', 'Local snapshot failed', { message:error?.message }));
 
     if (messages.some((message) => message?.role === 'user')) {
       const saveSession = conversationSaveSessionRef.current;
@@ -260,7 +261,8 @@ export default function Chat() {
         (error) => {
           logger.warn('Chat', 'Conversation history save failed', { message:error?.message });
         }
-      ).then(() => refreshConversationHistory());
+      ).then(() => refreshConversationHistory())
+        .catch((error) => logger.warn('Chat', 'History refresh failed', { message:error?.message }));
     }
   }, [messages, detectedLang, voice.state.handsFree, refreshConversationHistory]);
 
