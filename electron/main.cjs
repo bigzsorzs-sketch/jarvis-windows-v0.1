@@ -130,6 +130,7 @@ function persistManualRepairPlan(entry) {
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:selfRepairSourceFingerprint(selfRepairSourceRoot()),
     createdAt:Number(entry?.createdAt) || Date.now(),
+    workspaceSourceFingerprint:selfRepairSourceFingerprint(entry.workspace),
     plan:entry.plan
   });
 }
@@ -145,6 +146,15 @@ function loadPersistedManualRepairPlan(hash) {
   const currentVersion = String(app.getVersion?.() || '');
   const currentFingerprint = selfRepairSourceFingerprint(selfRepairSourceRoot());
   if (String(saved.version || '') !== currentVersion || String(saved.sourceFingerprint || '') !== currentFingerprint) {
+    removePersistedManualRepairPlan(hash);
+    return null;
+  }
+
+  if (
+    !saved.workspaceSourceFingerprint
+    || saved.workspaceSourceFingerprint !== selfRepairSourceFingerprint(manualRepairWorkspaceRoot())
+    || Date.now() - Number(saved.createdAt || 0) > 60 * 60 * 1000
+  ) {
     removePersistedManualRepairPlan(hash);
     return null;
   }
@@ -169,6 +179,37 @@ function loadPersistedManualRepairPlan(hash) {
     return null;
   }
 }
+function clearPendingManualRepairPlans() {
+  manualRepairPlans.clear();
+  const root = manualRepairPlanStoreRoot();
+  if (!fs.existsSync(root)) return;
+  for (const name of fs.readdirSync(root)) {
+    if (/^[a-f0-9]{64}\.json$/.test(name)) {
+      try { fs.rmSync(path.join(root,name),{force:true}); } catch {}
+    }
+  }
+}
+
+function mostRecentPendingManualRepair() {
+  const root = manualRepairPlanStoreRoot();
+  if (!fs.existsSync(root)) return null;
+  let newest = null;
+  for (const name of fs.readdirSync(root)) {
+    if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+    const hash = name.slice(0,-5);
+    const entry = loadPersistedManualRepairPlan(hash);
+    if (entry && (!newest || entry.createdAt > newest.createdAt)) newest = entry;
+  }
+  if (!newest) return null;
+  return {
+    hash:newest.plan.hash,
+    goal:newest.plan.goal,
+    rationale:newest.plan.rationale,
+    risk:newest.plan.risk,
+    files:newest.plan.patches.map((patch)=>patch.file)
+  };
+}
+
 function manualRepairWorkspaceRoot() {
   const safeVersion = String(app.getVersion?.() || 'current')
     .replace(/^v/i,'')
@@ -301,13 +342,35 @@ async function ensureManualRuntimeBuilt(workspace) {
     throw new Error('MANUAL_REPAIR_RUNTIME_DEPENDENCIES_MISSING');
   }
 
-  await runToolchainNpm(['run','build'],{
+  const checks=[];
+  const checkNpm = async (command, timeout=300000) => {
+    await runToolchainNpm(['run',command],{
+      cwd:workspace,
+      windowsHide:true,
+      timeout,
+      shell:false,
+      maxBuffer:16 * 1024 * 1024
+    });
+    checks.push({cmd:'npm run ' + command,ok:true});
+  };
+  await checkNpm('lint');
+  await checkNpm('typecheck');
+  await checkNpm('verify:jarvis');
+  const testDir = path.join(workspace,'src','tests');
+  const testFiles = fs.readdirSync(testDir)
+    .filter((name)=>name.endsWith('.test.js'))
+    .sort()
+    .map((name)=>path.join('src','tests',name));
+  if (!testFiles.length) throw new Error('MANUAL_REPAIR_TESTS_MISSING');
+  await runToolchainNode(['--test',...testFiles],{
     cwd:workspace,
     windowsHide:true,
     timeout:300000,
     shell:false,
     maxBuffer:16 * 1024 * 1024
   });
+  checks.push({cmd:'node --test src/tests/*.test.js',ok:true});
+  await checkNpm('build');
 
   const renderer = path.join(workspace,'dist','index.html');
   if (!fs.existsSync(renderer)) throw new Error('MANUAL_REPAIR_RUNTIME_BUILD_MISSING');
@@ -323,7 +386,7 @@ async function ensureManualRuntimeBuilt(workspace) {
     builtAt:new Date().toISOString()
   };
   writeJson(manualRuntimeStatePath(),state);
-  return state;
+  return {...state,checks};
 }
 
 function scheduleManualRuntimeRestart(workspace) {
@@ -1127,6 +1190,8 @@ async function selfRepairMap(payload={}) {
 async function selfRepairChat(payload={}) {
   const message = String(payload?.message || '').trim();
   if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
+  // A new owner request makes all previous unaccepted proposals obsolete.
+  clearPendingManualRepairPlans();
   const language = String(payload?.language || 'hu').toLowerCase();
   const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
   const workspace = await getSelfRepairRoot();
@@ -2145,10 +2210,14 @@ app.whenReady().then(async () => {
     if (!latestSystemReport?.id || report?.id !== latestSystemReport.id) throw new Error('JARVIS_REPAIR_REPORT_STALE');
     return buildRepairPlan(latestSystemReport);
   });
+  ipcMain.handle('jarvis:self-repair:manual:pending', () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return mostRecentPendingManualRepair();
+  });
   ipcMain.handle('jarvis:self-repair:manual:apply', async (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
     const hash=String(request.hash || '').trim().toLowerCase();
-    const entry=manualRepairPlans.get(hash) || loadPersistedManualRepairPlan(hash);
+    const entry=loadPersistedManualRepairPlan(hash);
     if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
     manualRepairPlans.set(hash,entry);
     if (Date.now()-entry.createdAt > 60*60*1000) {
@@ -2164,7 +2233,21 @@ app.whenReady().then(async () => {
       throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     }
 
+    await requireOwnerPresence({
+      title:'Jarvis Self-Repair jóváhagyása',
+      message:'Engedélyezed a forráskód módosítását és a Jarvis újraindítását?',
+      detail:[
+        'Javítás: ' + String(entry.plan.goal || '').slice(0,500),
+        'Kockázat: ' + String(entry.plan.risk || 'medium'),
+        'Fájlok: ' + entry.plan.patches.map((patch)=>patch.file).join(', ').slice(0,1500),
+        'A művelet egy helyi munkaterületet módosít. Nem teszi közzé a GitHubon.'
+      ].join('\n')
+    });
+    // Approval is bound to the same unmodified source and still-live proposal.
+    if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
+    // Never leave an old local-runtime activation pointing at an unverified build.
+    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
     try {
       developerRepair.applyOwner(entry.workspace,entry.plan);
       const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
@@ -2175,12 +2258,16 @@ app.whenReady().then(async () => {
         return {success:false,status:'ROLLED_BACK',hash,backup,validation};
       }
       const runtime = await ensureManualRuntimeBuilt(entry.workspace);
+      const fullValidation = {
+        ok:true,
+        results:[...(validation.results || []),...(runtime.checks || [])]
+      };
       selfRepairLearning?.recordVerified?.({
         title:entry.plan.goal || 'Kézi Self-Repair',
         repairId:hash,
         files:entry.plan.patches.map((patch)=>patch.file),
         evidence:entry.plan.rationale || entry.plan.goal || '',
-        validation:[...(validation.results || []),{cmd:'npm run build',ok:true}]
+        validation:fullValidation.results
           .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
         success:true
       });
@@ -2194,7 +2281,7 @@ app.whenReady().then(async () => {
         backup,
         workspace:entry.workspace,
         files:entry.plan.patches.map((patch)=>patch.file),
-        validation,
+        validation:fullValidation,
         runtime:{
           version:runtime.version,
           builtAt:runtime.builtAt,
