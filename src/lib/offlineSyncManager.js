@@ -1,7 +1,7 @@
 import { jarvis } from '@/api/jarvisClient';
 import { logger } from '@/lib/logger';
 import { networkMonitor } from '@/lib/networkMonitor';
-import { listSyncActions, removeSyncAction, updateSyncAction } from '@/lib/indexedDbOfflineStore';
+import { listSyncActions, mutateSyncActionIfUnchanged } from '@/lib/indexedDbOfflineStore';
 import { MAX_SYNC_RETRIES, getRetryDelayMs, isReadyForRetry } from '@/lib/offlineSyncRules';
 
 let syncing = false;
@@ -113,6 +113,7 @@ export async function syncOfflineData() {
 
   let synced = 0;
   let failed = 0;
+  let rescanNeeded = false;
 
   try {
     const user = await jarvis.auth.me().catch(() => null);
@@ -124,18 +125,23 @@ export async function syncOfflineData() {
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
     for (const item of items) {
-      await updateSyncAction(item.id, { status: 'syncing' });
+      const claimed = await mutateSyncActionIfUnchanged(item, { status:'syncing' });
+      if (!claimed) {
+        rescanNeeded = true;
+        continue;
+      }
       try {
         if (item.type === 'conversation_snapshot') {
           await syncConversationSnapshot(item, user);
         } else if (item.type?.startsWith('route_')) {
           // Route sync has its own authoritative local queue. Drop legacy
           // IndexedDB route entries so upgrades cannot replay the same action.
-          await removeSyncAction(item.id);
+          if (!await mutateSyncActionIfUnchanged(item)) rescanNeeded = true;
           continue;
         }
-        await removeSyncAction(item.id);
-        synced += 1;
+        const removed = await mutateSyncActionIfUnchanged(item);
+        if (removed) synced += 1;
+        else rescanNeeded = true;
       } catch (error) {
         failed += 1;
         const retryCount = (item.retry_count || 0) + 1;
@@ -147,28 +153,33 @@ export async function syncOfflineData() {
             type: item.type,
             error: error?.message || 'sync_failed',
           });
-          await updateSyncAction(item.id, {
+          if (!await mutateSyncActionIfUnchanged(item, {
             status: 'failed',
             retry_count: retryCount,
             next_retry_at: null,
             requires_manual_retry: true,
             last_error: error?.message || 'sync_failed',
-          });
+          })) rescanNeeded = true;
           continue;
         }
 
-        await updateSyncAction(item.id, {
+        if (!await mutateSyncActionIfUnchanged(item, {
           status: 'failed',
           retry_count: retryCount,
           next_retry_at: Date.now() + getRetryDelayMs(retryCount),
           last_error: error?.message || 'sync_failed',
-        });
+        })) rescanNeeded = true;
       }
     }
   } catch (error) {
     logger.warn('OfflineSyncManager', 'Sync failed', { message: error?.message });
   } finally {
     syncing = false;
+    // A superseding snapshot remains pending. Scan it after releasing the lock
+    // rather than waiting for the next network event.
+    if (rescanNeeded && networkMonitor.isOnline()) {
+      queueMicrotask(() => { void syncOfflineData(); });
+    }
   }
 
   return { synced, failed };
