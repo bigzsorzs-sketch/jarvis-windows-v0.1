@@ -11,6 +11,17 @@ const main = fs.readFileSync('electron/main.cjs','utf8');
 const preload = fs.readFileSync('electron/preload.cjs','utf8');
 const view = fs.readFileSync('src/pages/SystemCenter.jsx','utf8');
 
+test('only one main-process repair apply can run and chat cannot invalidate it mid-flight', () => {
+  assert.match(main, /let manualRepairApplyInFlight = false/);
+  assert.match(main, /async function selfRepairChat\(payload=\{\}\) \{\s*if \(manualRepairApplyInFlight\) throw new Error\('MANUAL_REPAIR_ALREADY_IN_PROGRESS'\)/);
+  const start = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
+  const end = main.indexOf("ipcMain.handle('jarvis:repair:apply'",start);
+  const body = main.slice(start,end);
+  assert.match(body, /if \(manualRepairApplyInFlight\) throw new Error\('MANUAL_REPAIR_ALREADY_IN_PROGRESS'\)/);
+  assert.match(body, /manualRepairApplyInFlight = true;\s*try \{/);
+  assert.match(body, /finally \{\s*manualRepairApplyInFlight = false;\s*\}/);
+});
+
 test('a new self-repair request invalidates old proposals in both layers', () => {
   assert.match(main, /async function selfRepairChat\([\s\S]*?clearPendingManualRepairPlans\(\)/);
   assert.match(main, /function clearPendingManualRepairPlans\(\)\s*\{[\s\S]*?manualRepairPlans\.clear\(\)/);
