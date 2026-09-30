@@ -152,7 +152,9 @@ export async function listSyncActions() {
 export async function mutateSyncActionIfUnchanged(item, updates = null) {
   if (!item?.id) return false;
   const db = await openOfflineDb();
-  if (!db) return false;
+  // A storage failure is NOT a superseded queue revision. Propagate the
+  // error so the sync worker stops instead of rescheduling itself forever.
+  if (!db) throw new Error('OFFLINE_QUEUE_UNAVAILABLE');
   return new Promise((resolve, reject) => {
     let mutated = false;
     const tx = db.transaction(STORES.syncQueue, 'readwrite');
@@ -168,7 +170,8 @@ export async function mutateSyncActionIfUnchanged(item, updates = null) {
         ? current.revision === item.revision
         : !current.revision
           && current.createdAt === item.createdAt
-          && current.payload?.updatedAt === item.payload?.updatedAt;
+          && current.payload?.updatedAt === item.payload?.updatedAt
+          && JSON.stringify(current.payload) === JSON.stringify(item.payload);
       if (!sameRevision) return;
       if (updates === null) store.delete(item.id);
       else store.put({ ...current, ...updates, updatedAt:Date.now() });
@@ -178,7 +181,7 @@ export async function mutateSyncActionIfUnchanged(item, updates = null) {
     logger.warn('IndexedDbOfflineStore', 'Atomic queue mutation failed', {
       message:error?.message || String(error),
     });
-    return false;
+    throw error;
   });
 }
 

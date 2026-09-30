@@ -20,7 +20,9 @@ test('assistant action planning never executes before the chat confirmation gate
   assert.equal(orchestrator.includes('actionResults: []'), true);
   assert.equal(chat.includes('const requiresConfirmation = actions.some'), true);
   assert.equal(chat.includes('actionResults = await executeActions(actions'), true);
-  assert.equal(chat.includes('preapprovedTools:pendingConfirm.preapprovedTools || []'), true);
+  assert.equal(chat.includes('preapprovedTools:confirmation.preapprovedTools || []'), true);
+  assert.equal(chat.includes('const confirmingSession = conversationSaveSessionRef.current'), true);
+  assert.equal(chat.includes('if (!isCurrentConfirmation()) return'), true);
   assert.equal(chat.includes('conversation={('), true);
   assert.equal(chat.includes('<ChatConfirmBar'), true);
   assert.equal(tools.includes("approvalMode === 'confirm' && !preapprovedTools.has"), true);
@@ -129,7 +131,8 @@ test('route actions have a single offline queue and legacy duplicates are discar
   assert.equal(routeQueue.includes('Route actions use this queue as their single source of truth.'), true);
   assert.equal(sync.includes('Route sync has its own authoritative local queue.'), true);
   assert.equal(sync.includes("item.type?.startsWith('route_')"), true);
-  assert.equal(sync.includes('await removeSyncAction(item.id);\n          continue;'), true);
+  assert.equal(sync.includes('if (!await mutateSyncActionIfUnchanged(item)) rescanNeeded = true;\n          continue;'), true);
+  assert.equal(sync.includes('await removeSyncAction(item.id);\n          continue;'), false);
 });
 
 test('obsolete Home page is removed and route state initial messages are consumed once', () => {
