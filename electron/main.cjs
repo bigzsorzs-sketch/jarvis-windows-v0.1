@@ -16,6 +16,7 @@ const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
 const developerRepair = require('./developer-repair.cjs');
+const { validateUploadedFileUrl } = require('./analysis/file-upload-validator.cjs');
 const { SelfRepairLearning } = require('./self-repair-learning.cjs');
 const { parseHelperArgs, startAdminHelper, AdminDiagnosticsManager } = require('./admin-diagnostics.cjs');
 const {
@@ -1401,10 +1402,8 @@ async function invokeJarvisFunction(name, payload={}) {
       const r = await openRouterRequest(payload);
       return { data:{ result:r.data.result, model:r.data.model, usage:r.data.usage } };
     }
-    case 'validateFileUpload': {
-      const fileUrl = payload?.file_url || payload?.url || null;
-      return { data:{ valid:Boolean(fileUrl), allowed:Boolean(fileUrl), file_url:fileUrl } };
-    }
+    case 'validateFileUpload':
+      return { data:validateUploadedFileUrl(payload?.file_url ?? payload?.url) };
     case 'generateImage': return openRouterGenerateImage(payload);
     case 'gmailFetch':
       return { data:{ emails:[], connected:false, configured:false, capabilities:[], reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
