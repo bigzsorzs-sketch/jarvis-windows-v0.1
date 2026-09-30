@@ -19,7 +19,9 @@ test('desktop chat starts clean while previous conversations stay in persistent 
   assert.match(chat, /startNewConversation/);
   assert.match(chat, /ACTIVE_CHAT_SESSION_KEY/);
   assert.match(chat, /sessionStorage\.removeItem\(ACTIVE_CHAT_SESSION_KEY\)/);
-  assert.match(chat, /sessionStorage\.setItem\(ACTIVE_CHAT_SESSION_KEY, conversationId\)/);
+  // The ID is assigned only when the save still belongs to the active chat.
+  assert.match(chat, /sessionStorage\.setItem\(ACTIVE_CHAT_SESSION_KEY, savedId\)/);
+  assert.match(chat, /if \(conversationSaveSessionRef\.current !== savedSession\) return/);
   assert.match(chat, /getConversationHistory\(sessionConversationId\)/);
   assert.match(history, /jarvis\.entities\.Conversation\.create/);
   assert.match(history, /jarvis\.entities\.Conversation\.update/);
