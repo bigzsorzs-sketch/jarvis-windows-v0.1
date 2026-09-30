@@ -116,6 +116,7 @@ export async function loadChatSnapshot() {
 export async function enqueueSyncAction(action) {
   const entry = {
     id: action.id || crypto.randomUUID(),
+    revision: crypto.randomUUID(),
     type: action.type,
     payload: action.payload || {},
     status: 'pending',
@@ -144,6 +145,41 @@ export async function queueConversationSync(messages, metadata = {}) {
 
 export async function listSyncActions() {
   return (await runStore(STORES.syncQueue, 'readonly', (store) => store.getAll())) || [];
+}
+
+// Compare-and-swap within ONE IndexedDB transaction. Never mark a newer
+// payload as failed or remove it when an older worker finishes.
+export async function mutateSyncActionIfUnchanged(item, updates = null) {
+  if (!item?.id) return false;
+  const db = await openOfflineDb();
+  if (!db) return false;
+  return new Promise((resolve, reject) => {
+    let mutated = false;
+    const tx = db.transaction(STORES.syncQueue, 'readwrite');
+    const store = tx.objectStore(STORES.syncQueue);
+    tx.oncomplete = () => resolve(mutated);
+    tx.onerror = () => reject(tx.error || new Error('OFFLINE_QUEUE_TRANSACTION_FAILED'));
+    tx.onabort = () => reject(tx.error || new Error('OFFLINE_QUEUE_TRANSACTION_ABORTED'));
+    const request = store.get(item.id);
+    request.onsuccess = () => {
+      const current = request.result;
+      if (!current) return;
+      const sameRevision = item.revision
+        ? current.revision === item.revision
+        : !current.revision
+          && current.createdAt === item.createdAt
+          && current.payload?.updatedAt === item.payload?.updatedAt;
+      if (!sameRevision) return;
+      if (updates === null) store.delete(item.id);
+      else store.put({ ...current, ...updates, updatedAt:Date.now() });
+      mutated = true;
+    };
+  }).catch((error) => {
+    logger.warn('IndexedDbOfflineStore', 'Atomic queue mutation failed', {
+      message:error?.message || String(error),
+    });
+    return false;
+  });
 }
 
 export async function updateSyncAction(id, updates) {
