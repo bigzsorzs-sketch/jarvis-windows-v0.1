@@ -30,6 +30,7 @@ import {
   saveConversationHistory,
 } from '@/lib/conversationHistory';
 import { queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
+import { createConversationSaveSession, enqueueConversationSave } from '@/lib/chatSessionPersistence';
 import { startOfflineAutoSync, syncOfflineData } from '@/lib/offlineSyncManager';
 import { selfHealingMonitor } from '@/lib/selfHealingMonitor';
 import { handleSelfAuditCommand } from '@/lib/selfAuditCommand';
@@ -92,7 +93,7 @@ export default function Chat() {
   const initialMessageRef = useRef('');
   const conversationIdRef = useRef(null);
   const offlineChatIdRef = useRef(crypto.randomUUID());
-  const persistConversationRef = useRef(Promise.resolve());
+  const conversationSaveSessionRef = useRef(createConversationSaveSession());
 
   // ── Derived voice state from central runtime ───────────────────────────────
   const handsFree = voice.state.handsFree;
@@ -153,6 +154,7 @@ export default function Chat() {
   }, []);
 
   const startNewConversation = useCallback(() => {
+    conversationSaveSessionRef.current = createConversationSaveSession();
     conversationIdRef.current = null;
     offlineChatIdRef.current = crypto.randomUUID();
     try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
@@ -166,6 +168,7 @@ export default function Chat() {
 
   const openConversationFromHistory = useCallback((conversation) => {
     if (!conversation?.id || !Array.isArray(conversation?.messages)) return;
+    conversationSaveSessionRef.current = createConversationSaveSession(conversation.id);
     conversationIdRef.current = conversation.id;
     offlineChatIdRef.current = conversation.id;
     try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
@@ -187,6 +190,7 @@ export default function Chat() {
 
   // ── Boot: always start a clean chat; previous sessions live in History ─────
   useEffect(() => {
+    const bootSaveSession = conversationSaveSessionRef.current;
     void migrateLegacyChatSnapshotOnce()
       .catch((error) => logger.warn('Chat', 'Legacy chat history migration failed', { message:error?.message }))
       .finally(() => { void refreshConversationHistory(); });
@@ -195,12 +199,15 @@ export default function Chat() {
       if (!c?.settings) setShowSetup(true);
       setCtx(c);
       setDetectedLang(lang || 'hu');
+      if (conversationSaveSessionRef.current !== bootSaveSession) return;
 
       let sessionConversationId = '';
       try { sessionConversationId = sessionStorage.getItem(ACTIVE_CHAT_SESSION_KEY) || ''; } catch {}
       if (sessionConversationId) {
         const activeConversation = await getConversationHistory(sessionConversationId);
+        if (conversationSaveSessionRef.current !== bootSaveSession) return;
         if (activeConversation?.messages?.length) {
+          conversationSaveSessionRef.current = createConversationSaveSession(activeConversation.id);
           conversationIdRef.current = activeConversation.id;
           offlineChatIdRef.current = activeConversation.id;
           setDetectedLang(activeConversation?.metadata?.detectedLang || lang || 'hu');
@@ -210,10 +217,13 @@ export default function Chat() {
         try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
       }
 
+      conversationSaveSessionRef.current = createConversationSaveSession();
       conversationIdRef.current = null;
       setMessages([{ role: 'assistant', content: getGreeting(c?.settings?.user_name, lang) }]);
     }).catch(() => {
+      if (conversationSaveSessionRef.current !== bootSaveSession) return;
       setDetectedLang(lang || 'hu');
+      conversationSaveSessionRef.current = createConversationSaveSession();
       conversationIdRef.current = null;
       try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
       setMessages([{ role: 'assistant', content: getGreeting(undefined, lang || 'hu') }]);
@@ -234,22 +244,23 @@ export default function Chat() {
     saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree });
 
     if (messages.some((message) => message?.role === 'user')) {
-      persistConversationRef.current = persistConversationRef.current
-        .then(async () => {
-          const conversationId = await saveConversationHistory(
-            conversationIdRef.current,
-            messages,
-            { detectedLang, handsFree:voice.state.handsFree }
-          );
-          if (conversationId) {
-            conversationIdRef.current = conversationId;
-            try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversationId); } catch {}
-          }
-          await refreshConversationHistory();
-        })
-        .catch((error) => {
+      const saveSession = conversationSaveSessionRef.current;
+      void enqueueConversationSave(
+        saveSession,
+        messages,
+        { detectedLang, handsFree:voice.state.handsFree },
+        saveConversationHistory,
+        (savedId, savedSession) => {
+          // An old conversation may finish saving after the user switched tabs.
+          // Persist it under its own ID without replacing the active chat.
+          if (conversationSaveSessionRef.current !== savedSession) return;
+          conversationIdRef.current = savedId;
+          try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, savedId); } catch {}
+        },
+        (error) => {
           logger.warn('Chat', 'Conversation history save failed', { message:error?.message });
-        });
+        }
+      ).then(() => refreshConversationHistory());
     }
   }, [messages, detectedLang, voice.state.handsFree, refreshConversationHistory]);
 
@@ -712,6 +723,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         <SetupWizard onComplete={(newSettings) => {
           setShowSetup(false);
           setCtx(prev => ({ ...prev, settings: newSettings }));
+          conversationSaveSessionRef.current = createConversationSaveSession();
           conversationIdRef.current = null;
           offlineChatIdRef.current = crypto.randomUUID();
           try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
