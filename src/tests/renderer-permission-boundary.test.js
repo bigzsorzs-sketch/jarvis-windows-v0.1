@@ -62,4 +62,9 @@ test('trusted main WebContents accepts local user operations but denies remote f
   assert.equal(await ask(handlers,own,'media',{mediaTypes:['audio','video']}),false);
   assert.equal(handlers.check(own,'notifications','',{requestingUrl:'https://untrusted.example'}),false);
   assert.equal(await ask(handlers,own,'notifications',{requestingUrl:'https://untrusted.example'}),false);
+  // Remote subframes can share the main WebContents. Never infer their origin
+  // only from the top-level webContents.getURL().
+  assert.equal(handlers.check(own,'geolocation','https://untrusted.example',{}),false);
+  assert.equal(await ask(handlers,own,'geolocation',{securityOrigin:'https://untrusted.example'}),false);
+  assert.equal(handlers.check(own,'geolocation','file://',{}),true);
 });
