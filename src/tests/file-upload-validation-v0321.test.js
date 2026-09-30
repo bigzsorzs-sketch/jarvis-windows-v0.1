@@ -43,6 +43,16 @@ test('oversized FileReader payloads cannot be accepted', () => {
   assert.equal(result.reason,'FILE_TOO_LARGE');
 });
 
+test('upload UI matches the strict 25 MB file and batch limits', () => {
+  const ui = fs.readFileSync('src/components/common/MultiMediaUpload.jsx','utf8');
+  assert.match(ui, /const MAX_FILE_SIZE = 25 \* 1024 \* 1024/);
+  assert.match(ui, /const MAX_TOTAL_SIZE = 25 \* 1024 \* 1024/);
+  assert.match(ui, /alreadySelectedSize \+ totalSelectedSize > MAX_TOTAL_SIZE/);
+  assert.match(ui, /size: file\.size/);
+  assert.match(ui, /max 25 MB összesen/);
+  assert.doesNotMatch(ui, /max 1GB/);
+});
+
 test('upload validation is enforced at the Electron IPC boundary', () => {
   const main = fs.readFileSync('electron/main.cjs','utf8');
   assert.match(main, /const \{ validateUploadedFileUrl \} = require\('\.\/analysis\/file-upload-validator\.cjs'\)/);
