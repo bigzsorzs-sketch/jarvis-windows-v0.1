@@ -119,12 +119,20 @@ export async function syncOfflineData() {
         failed += 1;
         const retryCount = (item.retry_count || 0) + 1;
         if (retryCount >= MAX_SYNC_RETRIES) {
-          logger.warn('OfflineSyncManager', 'Dropping permanently failed sync item', {
+          // Keep the user's unsynced payload for inspection or a manual retry.
+          // Never equate repeated network failures with permission to delete data.
+          logger.warn('OfflineSyncManager', 'Preserving sync item after retry limit', {
             id: item.id,
             type: item.type,
             error: error?.message || 'sync_failed',
           });
-          await removeSyncAction(item.id);
+          await updateSyncAction(item.id, {
+            status: 'failed',
+            retry_count: retryCount,
+            next_retry_at: null,
+            requires_manual_retry: true,
+            last_error: error?.message || 'sync_failed',
+          });
           continue;
         }
 
