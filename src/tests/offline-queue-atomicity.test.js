@@ -94,3 +94,25 @@ test('the real manager claims, removes and retries only matching queue revisions
   assert.match(manager,/const removed = await mutateSyncActionIfUnchanged\(item\)/);
   assert.match(manager,/rescanNeeded && networkMonitor\.isOnline\(\)/);
 });
+
+test('a storage outage propagates instead of triggering endless rescans',async()=>{
+  const unavailable=vm.runInNewContext(method+'; mutateSyncActionIfUnchanged',{
+    openOfflineDb:async()=>null,
+    STORES:{syncQueue:'syncQueue'},
+    logger:{warn:()=>{}},
+    Date,Error,
+  });
+  await assert.rejects(
+    ()=>unavailable({id:'pending',revision:'rev'},null),
+    /OFFLINE_QUEUE_UNAVAILABLE/
+  );
+});
+
+test('legacy replacement in the SAME millisecond is not mistaken for old work',async()=>{
+  const old={id:'legacy-ms',createdAt:100,
+    payload:{updatedAt:100,messages:['original']},status:'pending'};
+  const {fn,data}=harness([old]);
+  data.set(old.id,{...old,payload:{updatedAt:100,messages:['replacement']}});
+  assert.equal(await fn(old),false);
+  assert.deepEqual(data.get(old.id).payload.messages,['replacement']);
+});
