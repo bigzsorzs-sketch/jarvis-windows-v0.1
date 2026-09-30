@@ -58,14 +58,16 @@ export default function PushNotificationManager() {
     if (!user?.email) return [];
     const owner = { created_by:user.email };
     const today = localDateKey();
+    const shownTags = new Set(loadShown().map(entry => entry.tag));
 
     const [reminders, todos] = await Promise.all([
-      jarvis.entities.Reminder.filter({ ...owner, is_done:false }, '-due_date', 30).catch(() => []),
+      jarvis.entities.Reminder.filter({ ...owner, is_done:false }, 'due_date', 5000).catch(() => []),
       jarvis.entities.TodoItem.filter({ ...owner, is_completed:false }, '-created_date', 30).catch(() => []),
     ]);
 
     const dueReminders = reminders
-      .filter((item) => item?.due_date && item.due_date <= today)
+      .filter((item) => !shownTags.has(`reminder:${item.id}`) && item?.due_date && item.due_date <= today
+        && (!item.due_time || new Date(`${item.due_date}T${item.due_time}`).getTime() <= Date.now()))
       .slice(0, 4)
       .map((item) => ({
         tag:`reminder:${item.id}`,
@@ -75,6 +77,7 @@ export default function PushNotificationManager() {
       }));
 
     const importantTodos = todos
+      .filter((item) => !shownTags.has(`todo:${item.id}`))
       .filter((item) => ['magas','surgos','high','urgent'].includes(String(item?.priority || '').toLowerCase()))
       .slice(0, 2)
       .map((item) => ({
@@ -125,9 +128,11 @@ export default function PushNotificationManager() {
       if (document.visibilityState === 'visible') void checkNotifications();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
+    const timer = setInterval(() => { if (!cancelled) void checkNotifications(); }, 1000);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);

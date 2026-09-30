@@ -64,6 +64,12 @@ export default function Chat() {
   const setSystemState = useSystemStore((state) => state.setSystemState);
 
   const [showSetup, setShowSetup] = useState(false);
+  useEffect(() => {
+    if (location.state?.reopenSetup) {
+      setShowSetup(true);
+      navigate(location.pathname, { replace:true, state:null });
+    }
+  }, [location.state, location.pathname, navigate]);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -374,8 +380,9 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
           }
         }
       });
-      const parsed = typeof mc === 'string' ? JSON.parse(mc) : (mc?.data ?? mc);
-      if (!parsed?.save || !parsed?.content || parsed.content.length < 5) return;
+      const envelope = mc?.data?.result ?? mc?.data ?? mc;
+      const parsed = typeof envelope === 'string' ? JSON.parse(envelope) : envelope;
+      if (parsed?.save !== true || typeof parsed.content !== 'string' || parsed.content.length < 5) return;
       // Deduplication: skip if similar memory already exists
       const isDuplicate = existingMemories.some(m =>
         m.content?.toLowerCase().includes(parsed.content.toLowerCase().slice(0, 20))
@@ -575,7 +582,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         if (refreshed) setCtx(refreshed);
       } else {
         // Real-time memory extraction — async, non-blocking, runs on every message
-        if (msg.length > 8 && ctx && !msg.startsWith('?') && !msg.startsWith('/')) {
+        if (msg.length > 8 && ctx && ctx.settings?.learning_memory !== false && !msg.startsWith('?') && !msg.startsWith('/')) {
           extractAndSaveMemory(msg, ctx.memories || []);
         }
       }

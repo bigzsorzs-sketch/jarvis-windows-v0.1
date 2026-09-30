@@ -1,7 +1,7 @@
 {
   "name": "jarvis-desktop",
   "private": true,
-  "version": "0.3.21",
+  "version": "0.3.22",
   "description": "Jarvis local-first multi-AI desktop assistant for Windows 10 and 11",
   "type": "module",
   "main": "electron/main.cjs",
@@ -140,7 +140,8 @@
       "jsconfig.json",
       "components.json",
       "build/installer.nsh",
-      "scripts/**/*"
+      "scripts/**/*",
+      "release-notes/**/*"
     ],
     "directories": {
       "output": "release",
@@ -224,6 +225,10 @@
       {
         "from": "build/self-repair-toolchain",
         "to": "self-repair-toolchain"
+      },
+      {
+        "from": "release-notes",
+        "to": "self-development-source/release-notes"
       }
     ]
   },

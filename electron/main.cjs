@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme, shell } = require('electron');
 const path = require('path');
+const activation = require('./runtime-activation.cjs');
 const { fileURLToPath } = require('url');
 const fs = require('fs');
 const os = require('os');
@@ -67,18 +68,21 @@ function selfRepairSourceRoot() {
     : path.join(__dirname, '..');
 }
 
+let activeSelfRepairToolchainRoot = null;
 function selfRepairToolchainPaths() {
   let root = String(process.env.JARVIS_SELF_REPAIR_TOOLCHAIN || '').trim();
   if (!root && app.isPackaged) root = path.join(process.resourcesPath, 'self-repair-toolchain');
   if (!root) {
     try { root = String(readJson(manualRuntimeStatePath(),{}).toolchainRoot || '').trim(); } catch {}
   }
+  if (!root) root = activeSelfRepairToolchainRoot;
   if (!root) return null;
   const node = path.join(root, process.platform === 'win32' ? 'node.exe' : 'node');
   const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
   if (!fs.existsSync(node) || !fs.existsSync(npmCli)) {
     throw new Error('SELF_REPAIR_TOOLCHAIN_MISSING');
   }
+  activeSelfRepairToolchainRoot = root;
   return { root, node, npmCli };
 }
 
@@ -130,7 +134,8 @@ function persistManualRepairPlan(entry) {
   if (!file) throw new Error('MANUAL_REPAIR_INVALID_PLAN_HASH');
   writeJson(file,{
     version:String(app.getVersion?.() || ''),
-    sourceFingerprint:selfRepairSourceFingerprint(selfRepairSourceRoot()),
+    sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
+      || selfRepairSourceFingerprint(selfRepairSourceRoot()),
     createdAt:Number(entry?.createdAt) || Date.now(),
     workspaceSourceFingerprint:selfRepairSourceFingerprint(entry.workspace),
     plan:entry.plan
@@ -220,7 +225,7 @@ function manualRepairWorkspaceRoot() {
 }
 
 const SELF_REPAIR_FINGERPRINT_ENTRIES = [
-  'src','electron','security','scripts','.github',
+  'src','electron','security','scripts','.github','release-notes',
   'package.json','package-lock.json','index.html','eslint.config.js',
   'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
   'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
@@ -256,7 +261,7 @@ async function ensureManualRepairWorkspace() {
   const target = manualRepairWorkspaceRoot();
   const sourceRoot = selfRepairSourceRoot();
   const entries = [
-    'src','electron','security','build','scripts','.github',
+    'src','electron','security','build','scripts','.github','release-notes',
     'package.json','package-lock.json','index.html','eslint.config.js',
     'postcss.config.js','tailwind.config.js','vite.config.js','tsconfig.json',
     'jsconfig.json','components.json','THIRD_PARTY_NOTICES.md'
@@ -320,6 +325,17 @@ function manualRuntimeElectronPath(workspace) {
     'dist',
     process.platform === 'win32' ? 'electron.exe' : 'electron'
   );
+}
+
+function installedExecutable() {
+  if (app.isPackaged) return process.execPath;
+  const argument = process.argv.find(value => value.startsWith('--jarvis-installed-exe='));
+  const candidate = argument ? argument.slice('--jarvis-installed-exe='.length) : readManualRuntimeState().installedExecPath;
+  if (!candidate || !path.isAbsolute(candidate) || !fs.existsSync(candidate)
+    || path.basename(candidate).toLowerCase() !== 'jarvis.exe') {
+    throw new Error('UPDATE_INSTALLED_EXECUTABLE_UNKNOWN');
+  }
+  return candidate;
 }
 
 function readManualRuntimeState() {
@@ -388,8 +404,10 @@ async function ensureManualRuntimeBuilt(workspace) {
   const toolchain = selfRepairToolchainPaths();
   const state = {
     enabled:true,
+    installedExecPath:installedExecutable(),
     version:String(app.getVersion?.() || ''),
-    sourceFingerprint:selfRepairSourceFingerprint(selfRepairSourceRoot()),
+    sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
+      || selfRepairSourceFingerprint(selfRepairSourceRoot()),
     workspace,
     electronPath,
     toolchainRoot:toolchain?.root || null,
@@ -406,7 +424,7 @@ function scheduleManualRuntimeRestart(workspace) {
     try {
       app.relaunch({
         execPath:electronPath,
-        args:[workspace,'--jarvis-manual-runtime']
+        args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
       });
       app.exit(0);
     } catch (error) {
@@ -449,7 +467,7 @@ function handOffToManualRuntimeIfReady() {
   try {
     app.relaunch({
       execPath:electronPath,
-      args:[workspace,'--jarvis-manual-runtime']
+      args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
     });
     app.exit(0);
     return true;
@@ -1606,7 +1624,7 @@ async function oneClickUpdate() {
   const stamp=new Date().toISOString().replace(/[:.]/g,'-');
   const backupRoot=path.join(app.getPath('documents'),'Jarvis Backups',stamp);
   const helperPath=path.join(tempDir,'install-update.ps1');
-  const appExe=process.execPath;
+  const appExe=installedExecutable();
   const userData=app.getPath('userData');
   const helper=`
 $ErrorActionPreference = 'Stop'
@@ -1667,9 +1685,15 @@ function buildLocalDeviceUrl(baseValue, commandValue='') {
   const base = new URL(baseText.includes('://') ? baseText : `http://${baseText}`);
   if (!['http:', 'https:'].includes(base.protocol)) throw new Error('LOCAL_DEVICE_PROTOCOL_BLOCKED');
 
-  const host = base.hostname.toLowerCase();
-  const privateIpv4 = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
-  const privateIpv6 = host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:');
+  const host = base.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const family = require('node:net').isIP(host);
+  const octets = host.split('.').map(Number);
+  const privateIpv4 = family === 4 && (octets[0] === 127 || octets[0] === 10
+    || (octets[0] === 192 && octets[1] === 168)
+    || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31));
+  const privateIpv6 = family === 6 && (host === '::1'
+    || /^f[cd]/.test(host) || /^fe[89ab]/.test(host));
+  if (base.username || base.password) throw new Error('LOCAL_DEVICE_CREDENTIALS_BLOCKED');
   if (!(host === 'localhost' || privateIpv4 || privateIpv6)) {
     throw new Error('LOCAL_DEVICE_HOST_BLOCKED');
   }
@@ -2280,6 +2304,8 @@ app.whenReady().then(async () => {
     // Approval is bound to the same unmodified source and still-live proposal.
     if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
+    const previousRuntime = activation.snapshotRuntime(entry.workspace, manualRuntimeStatePath(), backup);
+    selfRepairToolchainPaths();
     // Failing to disable the old runtime must abort BEFORE any source is changed.
     fs.rmSync(manualRuntimeStatePath(),{force:true});
     if (fs.existsSync(manualRuntimeStatePath())) {
@@ -2290,6 +2316,7 @@ app.whenReady().then(async () => {
       const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
       if (!validation.ok) {
         developerRepair.rollbackOwner(entry.workspace,backup);
+        activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
         manualRepairPlans.delete(hash);
         removePersistedManualRepairPlan(hash);
         return {success:false,status:'ROLLED_BACK',hash,backup,validation};
@@ -2334,7 +2361,10 @@ app.whenReady().then(async () => {
       // Invalidate activation even if the source rollback itself encounters an error.
       try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
       let rollbackFailure=null;
-      try { developerRepair.rollbackOwner(entry.workspace,backup); }
+      try {
+        developerRepair.rollbackOwner(entry.workspace,backup);
+        activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
+      }
       catch (rollbackError) { rollbackFailure=rollbackError; }
       manualRepairPlans.delete(hash);
       removePersistedManualRepairPlan(hash);

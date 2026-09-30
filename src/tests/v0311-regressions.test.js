@@ -36,14 +36,14 @@ test('voice runtime removes network and visibility subscriptions on destroy', ()
   assert.equal(voice.includes('if (this.cycleTimeoutRef) clearTimeout(this.cycleTimeoutRef);'), true);
 });
 
-test('route queue is single-flight and preserves route starts under pressure', () => {
+test('route queue is single-flight and does not truncate pending actions', () => {
   const route = read('src/lib/routeOfflineQueue.js');
   const queue = read('src/lib/offlineActionQueue.js');
   assert.equal(route.includes('let routeSyncing = false;'), true);
   assert.equal(route.includes('if (!networkMonitor.isOnline() || routeSyncing) return;'), true);
   assert.equal(route.includes('routeSyncing = false;'), true);
-  assert.equal(queue.includes("item?.type === 'route_start'"), true);
-  assert.equal(queue.includes('ROUTE_START_RESERVE'), true);
+  assert.equal(queue.includes('return Array.isArray(queue) ? queue : [];'), true);
+  assert.equal(queue.includes('queue.slice('), false);
 });
 
 test('low-power navigation sessions use the extended timeout', () => {

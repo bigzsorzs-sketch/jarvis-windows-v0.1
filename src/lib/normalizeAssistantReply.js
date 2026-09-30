@@ -4,22 +4,10 @@ export const FALLBACK_ASSISTANT_REPLY = SAFE_ASSISTANT_FALLBACK;
 
 const INTERNAL_KEYS = new Set(['usage', 'tokens', 'token_usage', 'cost', 'estimated_cost', 'latency_ms', 'model']);
 
-function parseJsonString(value) {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) return '';
-  if (!((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) return trimmed;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return trimmed;
-  }
-}
-
 function extractResult(payload, depth = 0) {
   if (depth > 8) return '';
   if (typeof payload === 'string') {
-    const parsed = parseJsonString(payload);
-    return typeof parsed === 'string' ? parsed : extractResult(parsed, depth + 1);
+    return payload;
   }
   if (!payload || typeof payload !== 'object') return '';
 
