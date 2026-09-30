@@ -48,4 +48,8 @@ test('upload validation is enforced at the Electron IPC boundary', () => {
   assert.match(main, /const \{ validateUploadedFileUrl \} = require\('\.\/analysis\/file-upload-validator\.cjs'\)/);
   assert.match(main, /case 'validateFileUpload':\s*return \{ data:validateUploadedFileUrl\(payload\?\.file_url \?\? payload\?\.url\) \}/);
   assert.doesNotMatch(main, /valid:Boolean\(fileUrl\)/);
+  const client = fs.readFileSync('src/api/jarvisClient.js','utf8');
+  const upload = client.slice(client.indexOf('async UploadFile({ file })'), client.indexOf('async GenerateImage('));
+  assert.ok(upload.indexOf("throw new Error('FILE_TOO_LARGE')") > 0);
+  assert.ok(upload.indexOf("throw new Error('FILE_TOO_LARGE')") < upload.indexOf('reader.readAsDataURL(file)'));
 });
