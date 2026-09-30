@@ -420,7 +420,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
     if (networkMonitor.isOffline()) {
-      const offlineReply = { role: 'assistant', content: 'Offline módban elmentettem az üzenetet a telefonodon. Amint visszajön a kapcsolat, automatikusan szinkronizálom.' };
+      const offlineReply = { role: 'assistant', content: 'Jelenleg nincs internetkapcsolat. Az üzenetet helyben tárolom, de az AI nem válaszol automatikusan, amikor visszajön a kapcsolat. Ha választ szeretnél, küldd el újra az üzenetet online állapotban.' };
       const offlineMessages = getWindowedMessages([...messages, userMsg, offlineReply]);
       setMessages(offlineMessages);
       queueConversationSync(offlineMessages, { detectedLang, handsFree: voice.state.handsFree, offline: true });
