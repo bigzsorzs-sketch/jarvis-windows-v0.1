@@ -234,7 +234,19 @@ export const jarvis = {
           reader.onerror = () => reject(reader.error || new Error('FILE_READ_FAILED'));
           reader.readAsDataURL(file);
         });
-        return { file_url:data, name:file.name, size:file.size, type:file.type };
+        // The main-process validator must be on the actual upload path; a
+        // separately callable validator is not an upload security boundary.
+        const result = await invoke('validateFileUpload', { file_url:data });
+        const checked = result?.data;
+        if (checked?.valid !== true || checked?.allowed !== true || !checked?.file_url) {
+          throw new Error(String(checked?.reason || 'FILE_VALIDATION_FAILED'));
+        }
+        return {
+          file_url:checked.file_url,
+          name:file.name,
+          size:checked.byte_size,
+          type:checked.content_type
+        };
       },
       async GenerateImage(params = {}) {
         const response = await invoke('generateImage', params);
