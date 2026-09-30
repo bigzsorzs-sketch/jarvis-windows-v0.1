@@ -31,6 +31,14 @@ test('direct analysis refuses oversized base64 payload before any decode',()=>{
   assert.equal(result.extracted_files.length,0);
 });
 
+test('corrupt base64 is not silently decoded into a different file',()=>{
+  for (const value of ['@@@', 'YQ', 'abcd===', 'YQ==%%']) {
+    const result=analyzeUploadedFiles([{name:'code.txt',url:'data:text/plain;base64,'+value}]).analyses[0];
+    assert.match(result.error,/FILE_ANALYSIS_INVALID_BASE64/,value);
+    assert.equal(result.extracted_files.length,0);
+  }
+});
+
 test('valid small text and ZIP attachments remain readable',()=>{
   const text=inspectFile('hello.txt','Hello, Jarvis!', 'text/plain');
   assert.equal(text.extracted_files[0].content,'Hello, Jarvis!');

@@ -28,9 +28,17 @@ function decodeDataUrl(value) {
   if (match[2] && encoded.length > Math.ceil(MAX_FILE_BYTES / 3) * 4) {
     throw new Error('FILE_ANALYSIS_FILE_TOO_LARGE');
   }
+  // Buffer.from(_, 'base64') silently ignores some invalid characters.
+  // Do not analyze truncated or silently altered file bytes.
+  if (match[2] && (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))) {
+    throw new Error('FILE_ANALYSIS_INVALID_BASE64');
+  }
   const buffer = match[2]
     ? Buffer.from(encoded, 'base64')
     : Buffer.from(decodeURIComponent(encoded), 'utf8');
+  if (match[2] && buffer.toString('base64') !== encoded) {
+    throw new Error('FILE_ANALYSIS_INVALID_BASE64');
+  }
   if (buffer.length > MAX_FILE_BYTES) throw new Error('FILE_ANALYSIS_FILE_TOO_LARGE');
   return { mime, buffer };
 }
