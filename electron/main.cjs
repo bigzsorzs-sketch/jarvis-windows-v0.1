@@ -1995,6 +1995,8 @@ function configureMediaPermissions(win) {
 
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details={}) => {
     const requestingUrl = details.requestingUrl || webContents?.getURL?.() || requestingOrigin || '';
+    const origin = String(requestingOrigin || '');
+    if (origin && origin !== 'null' && origin !== 'file://' && !isTrustedRendererNavigation(origin)) return false;
     // Other Electron permissions must not be globally approved for any
     // untrusted window or origin simply because they are not microphone access.
     if (!trustedRequester(webContents, requestingUrl)) return false;
@@ -2005,7 +2007,9 @@ function configureMediaPermissions(win) {
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details={}) => {
     const requestingUrl = details.requestingUrl || webContents?.getURL?.() || details.securityOrigin || '';
-    if (!trustedRequester(webContents, requestingUrl)) {
+    const origin = String(details.securityOrigin || '');
+    if ((origin && origin !== 'null' && origin !== 'file://' && !isTrustedRendererNavigation(origin))
+      || !trustedRequester(webContents, requestingUrl)) {
       callback(false);
       return;
     }
