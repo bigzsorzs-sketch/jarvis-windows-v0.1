@@ -86,10 +86,17 @@ const ChatMessageBubble = memo(function ChatMessageBubble({ msg, previousUserMes
         {msg.attachedFiles?.length > 0 && (
           <div className="flex flex-col gap-2">
             {msg.attachedFiles.map((f, i) => {
+              if (!f?.url || f.metadataOnly) {
+                return (
+                  <div key={i} className="rounded-xl border border-border bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+                    📎 {f?.name || 'Csatolmány'} — a fájl tartalma nem része a mentett előzményeknek.
+                  </div>
+                );
+              }
               if (f.kind === 'image') return <img key={i} src={f.url} alt={f.name} className="rounded-xl max-w-full border border-border" />;
               if (f.kind === 'video') return <video key={i} src={f.url} controls className="rounded-xl max-w-full border border-border" />;
               if (f.kind === 'audio') return <audio key={i} src={f.url} controls className="w-full rounded-xl" />;
-              return null;
+              return <div key={i} className="rounded-xl border border-border bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">📎 {f.name}</div>;
             })}
           </div>
         )}
