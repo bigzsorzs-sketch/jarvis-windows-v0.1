@@ -20,7 +20,7 @@ function validateUploadedFileUrl(value) {
     return rejected('FILE_TOO_LARGE');
   }
 
-  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)?;base64,([a-z0-9+/]*={0,2})$/i.exec(fileUrl);
+  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)?(?:;charset=[a-z0-9._-]+)?;base64,([a-z0-9+/]*={0,2})$/i.exec(fileUrl);
   if (!match) return rejected('FILE_DATA_URL_REQUIRED');
   const base64 = match[2];
   if (!base64.length || base64.length % 4 !== 0) return rejected('FILE_DATA_INVALID_BASE64');
