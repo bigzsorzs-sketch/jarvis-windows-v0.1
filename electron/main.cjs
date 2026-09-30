@@ -1994,23 +1994,29 @@ function configureMediaPermissions(win) {
   };
 
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details={}) => {
-    if (permission !== 'media') return true;
     const requestingUrl = details.requestingUrl || webContents?.getURL?.() || requestingOrigin || '';
+    // Other Electron permissions must not be globally approved for any
+    // untrusted window or origin simply because they are not microphone access.
+    if (!trustedRequester(webContents, requestingUrl)) return false;
+    if (permission !== 'media') return true;
     const mediaType = details.mediaType || 'unknown';
-    return trustedRequester(webContents, requestingUrl)
-      && (mediaType === 'audio' || mediaType === 'unknown');
+    return mediaType === 'audio' || mediaType === 'unknown';
   });
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details={}) => {
+    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || details.securityOrigin || '';
+    if (!trustedRequester(webContents, requestingUrl)) {
+      callback(false);
+      return;
+    }
     if (permission !== 'media') {
       callback(true);
       return;
     }
     const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
-    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || details.securityOrigin || '';
     const requestsVideo = mediaTypes.includes('video');
     const requestsAudio = mediaTypes.length === 0 || mediaTypes.includes('audio');
-    callback(trustedRequester(webContents, requestingUrl) && requestsAudio && !requestsVideo);
+    callback(requestsAudio && !requestsVideo);
   });
 }
 
