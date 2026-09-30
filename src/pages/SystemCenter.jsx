@@ -185,7 +185,7 @@ export default function SystemCenter() {
 
   const sendSelfRepairMessage = async (preset = '') => {
     const content = String(preset || chatInput).trim();
-    if (!content || chatBusy) return;
+    if (!content || chatBusy || manualApplyBusy) return;
     const userTurn = { role:'user', content };
     const nextHistory = [...conversation, userTurn];
     pendingRequestEpoch.current += 1;
@@ -421,7 +421,7 @@ export default function SystemCenter() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button onClick={analyzeLatestCrash} disabled={!latestCurrentCrash || chatBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
+              <button onClick={analyzeLatestCrash} disabled={!latestCurrentCrash || chatBusy || manualApplyBusy} className="rounded-xl border border-border bg-secondary px-4 py-2.5 text-xs font-semibold disabled:opacity-50">
                 {tx('Legutóbbi crash elemzése','Analyze latest crash')}
               </button>
             </div>
@@ -444,7 +444,7 @@ export default function SystemCenter() {
             </div>
             <button
               onClick={()=>sendSelfRepairMessage(tx('Térképezd fel a programot, keress lehetséges hibákat és mutasd meg őket fontossági sorrendben. Ne módosíts semmit; csak elemezd és magyarázd el a hibákat.','Map the program, find likely bugs and show them in priority order. Do not modify anything; only analyze and explain the issues.'))}
-              disabled={chatBusy}
+              disabled={chatBusy || manualApplyBusy}
               className="rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
             >
               <Bug size={14}/>{tx('Hibák keresése','Find bugs')}
@@ -502,7 +502,7 @@ export default function SystemCenter() {
               placeholder={tx('Írj a Self-Repairnek...','Message Self-Repair...')}
               className="flex-1 rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none resize-none"
             />
-            <button onClick={()=>sendSelfRepairMessage()} disabled={chatBusy || !chatInput.trim()} className="rounded-xl bg-primary text-primary-foreground px-4 flex items-center justify-center disabled:opacity-50" aria-label={tx('Küldés','Send')}>
+            <button onClick={()=>sendSelfRepairMessage()} disabled={chatBusy || manualApplyBusy || !chatInput.trim()} className="rounded-xl bg-primary text-primary-foreground px-4 flex items-center justify-center disabled:opacity-50" aria-label={tx('Küldés','Send')}>
               <Send size={18}/>
             </button>
             <button
