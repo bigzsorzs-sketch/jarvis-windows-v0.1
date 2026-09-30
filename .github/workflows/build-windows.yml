@@ -190,6 +190,25 @@ jobs:
           }
           $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path "release\release-manifest.json" -Encoding utf8
 
+      - name: Verify release candidate manifest and signing status
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $manifest = Get-Content release\release-manifest.json -Raw | ConvertFrom-Json
+          $expected = "Jarvis-Setup-$($pkg.version)-x64.exe"
+          $exePath = Join-Path 'release' $expected
+          if (-not (Test-Path -LiteralPath $exePath)) { throw "RELEASE_CANDIDATE_INSTALLER_MISSING: $expected" }
+          if ([string]$manifest.version -ne [string]$pkg.version) { throw "RELEASE_CANDIDATE_VERSION_MISMATCH" }
+          if ([string]$manifest.commit -ne "$env:GITHUB_SHA") { throw "RELEASE_CANDIDATE_COMMIT_MISMATCH" }
+          if ([string]$manifest.installer -ne $expected) { throw "RELEASE_CANDIDATE_FILENAME_MISMATCH" }
+          $actualHash = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ([string]$manifest.sha256 -ne $actualHash) { throw "RELEASE_CANDIDATE_CHECKSUM_MISMATCH" }
+          $status = [string]$manifest.signing.status
+          Write-Host "Candidate $($pkg.version) commit $env:GITHUB_SHA SHA-256 $actualHash Authenticode $status"
+          if ($status -ne "Valid") {
+            Write-Warning "Release candidate has no verified Authenticode signature. Public release needs signing or a separately approved unsigned override."
+          }
+
       - name: Block release publication outside main
         if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref != 'refs/heads/main'
         shell: pwsh
