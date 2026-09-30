@@ -223,10 +223,15 @@ export const jarvis = {
     Core: {
       async UploadFile({ file }) {
         if (!file) throw new Error('Missing file');
+        // Keep FileReader from allocating an oversized base64 payload before
+        // the Electron-side validator can check it.
+        if (typeof file.size === 'number' && file.size > 25 * 1024 * 1024) {
+          throw new Error('FILE_TOO_LARGE');
+        }
         const data = await new Promise((resolve,reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
+          reader.onerror = () => reject(reader.error || new Error('FILE_READ_FAILED'));
           reader.readAsDataURL(file);
         });
         return { file_url:data, name:file.name, size:file.size, type:file.type };
