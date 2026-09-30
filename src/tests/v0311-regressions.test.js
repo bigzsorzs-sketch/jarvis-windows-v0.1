@@ -84,7 +84,13 @@ test('date-sensitive active modules use local calendar dates', () => {
 test('manual Self-Repair activates accepted source through a local build and restart', () => {
   const main = read('electron/main.cjs');
   assert.equal(main.includes('ensureManualRuntimeBuilt'), true);
-  assert.equal(main.includes("runToolchainNpm(['run','build']"), true);
+  // The build is now routed through the checks runner; verify it is actually
+  // awaited before activating the repaired runtime.
+  const builder = main.slice(main.indexOf('async function ensureManualRuntimeBuilt('),main.indexOf('function scheduleManualRuntimeRestart('));
+  assert.match(builder,/const checkNpm = async/);
+  assert.match(builder,/await runToolchainNpm\(\['run',command\]/);
+  assert.match(builder,/await checkNpm\('build'\)/);
+  assert.ok(builder.indexOf("await checkNpm('build')") < builder.indexOf('writeJson(manualRuntimeStatePath(),state)'));
   assert.equal(main.includes('scheduleManualRuntimeRestart'), true);
   assert.equal(main.includes("'--jarvis-manual-runtime'"), true);
 });

@@ -223,13 +223,30 @@ export const jarvis = {
     Core: {
       async UploadFile({ file }) {
         if (!file) throw new Error('Missing file');
+        // Keep FileReader from allocating an oversized base64 payload before
+        // the Electron-side validator can check it.
+        if (typeof file.size === 'number' && file.size > 25 * 1024 * 1024) {
+          throw new Error('FILE_TOO_LARGE');
+        }
         const data = await new Promise((resolve,reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
+          reader.onerror = () => reject(reader.error || new Error('FILE_READ_FAILED'));
           reader.readAsDataURL(file);
         });
-        return { file_url:data, name:file.name, size:file.size, type:file.type };
+        // The main-process validator must be on the actual upload path; a
+        // separately callable validator is not an upload security boundary.
+        const result = await invoke('validateFileUpload', { file_url:data });
+        const checked = result?.data;
+        if (checked?.valid !== true || checked?.allowed !== true || !checked?.file_url) {
+          throw new Error(String(checked?.reason || 'FILE_VALIDATION_FAILED'));
+        }
+        return {
+          file_url:checked.file_url,
+          name:file.name,
+          size:checked.byte_size,
+          type:checked.content_type
+        };
       },
       async GenerateImage(params = {}) {
         const response = await invoke('generateImage', params);

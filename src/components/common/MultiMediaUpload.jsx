@@ -4,8 +4,8 @@ import { Paperclip, ImageIcon, Film, Music, FileText, Archive, X, Loader2 } from
 import { motion, AnimatePresence } from 'framer-motion';
 
 const MAX_FILES = 10;
-const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
-const MAX_TOTAL_SIZE = 1024 * 1024 * 1024; // 1GB per upload batch
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // Match Electron file validator and FileReader guard
+const MAX_TOTAL_SIZE = 25 * 1024 * 1024; // Avoid excessive base64 in the renderer and IPC
 const SAFE_FILE_NAME = /^[\w\-. ()\[\]]+$/;
 
 const FILE_TYPES = {
@@ -92,8 +92,9 @@ export default function MultiMediaUpload({ files = [], onChange, onError, button
 
     const toUpload = selected.slice(0, remaining);
     const totalSelectedSize = toUpload.reduce((sum, file) => sum + (file.size || 0), 0);
-    if (totalSelectedSize > MAX_TOTAL_SIZE) {
-      onError?.('❌ Too many large files selected at once.');
+    const alreadySelectedSize = files.reduce((sum, entry) => sum + (Number(entry?.size) || 0), 0);
+    if (alreadySelectedSize + totalSelectedSize > MAX_TOTAL_SIZE) {
+      onError?.('❌ A csatolmányok összmérete legfeljebb 25 MB lehet.');
       e.target.value = '';
       return;
     }
@@ -111,14 +112,14 @@ export default function MultiMediaUpload({ files = [], onChange, onError, button
         continue;
       }
       if (file.size > MAX_FILE_SIZE) {
-        onError?.(`❌ ${file.name}: Max 1GB lehet.`);
+        onError?.(`❌ ${file.name}: Egy fájl legfeljebb 25 MB lehet.`);
         continue;
       }
       try {
         const uploaded = await uploadWithRetry(file);
         const fileUrl = uploaded?.file_url;
         if (!fileUrl) throw new Error('No file_url in response');
-        newFiles.push({ url: fileUrl, name: file.name, type: file.type, kind });
+        newFiles.push({ url: fileUrl, name: file.name, type: file.type, kind, size: file.size });
       } catch (error) {
         console.error('Upload failed:', file.name, error?.response?.data || error?.message || error);
         onError?.(`❌ Feltöltési hiba: ${file.name} – ${getUploadErrorMessage(error)}`);
@@ -139,7 +140,7 @@ export default function MultiMediaUpload({ files = [], onChange, onError, button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           className="text-muted-foreground shrink-0 hover:text-foreground transition-colors relative"
-          title={`Fájl csatolása – kép, videó, hang, dokumentum, kód, archív (max 1GB)`}
+          title={`Fájl csatolása – kép, videó, hang, dokumentum, kód, archív (max 25 MB összesen)`}
           disabled={uploading || files.length >= MAX_FILES}
         >
           {uploading

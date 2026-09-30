@@ -92,6 +92,16 @@ function normalizeRelative(input) {
   if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
 }
+// Reject a link at the final file path as well as a link in its parents.
+// Otherwise preflight reads/snapshots could access files outside the writable
+// Self-Repair workspace, even when the parent directory resolves inside it.
+function assertNotSymlink(target) {
+  try {
+    if (fs.lstatSync(target).isSymbolicLink()) throw new Error('DEV_REPAIR_SYMLINK_ESCAPE');
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
 function resolveInside(root, rel) {
   const base = fs.realpathSync(root);
   const target = path.resolve(base, normalizeRelative(rel));
@@ -100,6 +110,7 @@ function resolveInside(root, rel) {
   while (!fs.existsSync(parent)) parent = path.dirname(parent);
   const realParent = fs.realpathSync(parent);
   if (realParent !== base && !realParent.startsWith(base + path.sep)) throw new Error('DEV_REPAIR_SYMLINK_ESCAPE');
+  assertNotSymlink(target);
   return target;
 }
 function normalizeOwnerRelative(input) {
@@ -117,6 +128,7 @@ function resolveOwnerInside(root, rel) {
   while (!fs.existsSync(parent)) parent = path.dirname(parent);
   const realParent = fs.realpathSync(parent);
   if (realParent !== base && !realParent.startsWith(base + path.sep)) throw new Error('DEV_REPAIR_SYMLINK_ESCAPE');
+  assertNotSymlink(target);
   return target;
 }
 function validateWorkspace(root) {
@@ -229,6 +241,8 @@ function listProjectFiles(root) {
   const visit = (dir) => {
     for (const entry of fs.readdirSync(dir,{withFileTypes:true})) {
       if (INSPECT_IGNORED.has(entry.name)) continue;
+      // Never include a linked source file in content sent to AI diagnostics.
+      if (entry.isSymbolicLink()) continue;
       const full = path.join(dir,entry.name);
       const rel = path.relative(base,full).replace(/\\/g,'/');
       if (entry.isDirectory()) {

@@ -16,6 +16,7 @@ const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
 const developerRepair = require('./developer-repair.cjs');
+const { validateUploadedFileUrl } = require('./analysis/file-upload-validator.cjs');
 const { SelfRepairLearning } = require('./self-repair-learning.cjs');
 const { parseHelperArgs, startAdminHelper, AdminDiagnosticsManager } = require('./admin-diagnostics.cjs');
 const {
@@ -42,6 +43,7 @@ if (adminHelperConfig) {
   app.setPath('userData',helperUserData);
 }
 const manualRepairPlans = new Map();
+let manualRepairApplyInFlight = false;
 let latestSystemReport = null;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
@@ -130,6 +132,7 @@ function persistManualRepairPlan(entry) {
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:selfRepairSourceFingerprint(selfRepairSourceRoot()),
     createdAt:Number(entry?.createdAt) || Date.now(),
+    workspaceSourceFingerprint:selfRepairSourceFingerprint(entry.workspace),
     plan:entry.plan
   });
 }
@@ -145,6 +148,15 @@ function loadPersistedManualRepairPlan(hash) {
   const currentVersion = String(app.getVersion?.() || '');
   const currentFingerprint = selfRepairSourceFingerprint(selfRepairSourceRoot());
   if (String(saved.version || '') !== currentVersion || String(saved.sourceFingerprint || '') !== currentFingerprint) {
+    removePersistedManualRepairPlan(hash);
+    return null;
+  }
+
+  if (
+    !saved.workspaceSourceFingerprint
+    || saved.workspaceSourceFingerprint !== selfRepairSourceFingerprint(manualRepairWorkspaceRoot())
+    || Date.now() - Number(saved.createdAt || 0) > 60 * 60 * 1000
+  ) {
     removePersistedManualRepairPlan(hash);
     return null;
   }
@@ -169,6 +181,37 @@ function loadPersistedManualRepairPlan(hash) {
     return null;
   }
 }
+function clearPendingManualRepairPlans() {
+  manualRepairPlans.clear();
+  const root = manualRepairPlanStoreRoot();
+  if (!fs.existsSync(root)) return;
+  for (const name of fs.readdirSync(root)) {
+    if (/^[a-f0-9]{64}\.json$/.test(name)) {
+      try { fs.rmSync(path.join(root,name),{force:true}); } catch {}
+    }
+  }
+}
+
+function mostRecentPendingManualRepair() {
+  const root = manualRepairPlanStoreRoot();
+  if (!fs.existsSync(root)) return null;
+  let newest = null;
+  for (const name of fs.readdirSync(root)) {
+    if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+    const hash = name.slice(0,-5);
+    const entry = loadPersistedManualRepairPlan(hash);
+    if (entry && (!newest || entry.createdAt > newest.createdAt)) newest = entry;
+  }
+  if (!newest) return null;
+  return {
+    hash:newest.plan.hash,
+    goal:newest.plan.goal,
+    rationale:newest.plan.rationale,
+    risk:newest.plan.risk,
+    files:newest.plan.patches.map((patch)=>patch.file)
+  };
+}
+
 function manualRepairWorkspaceRoot() {
   const safeVersion = String(app.getVersion?.() || 'current')
     .replace(/^v/i,'')
@@ -301,13 +344,43 @@ async function ensureManualRuntimeBuilt(workspace) {
     throw new Error('MANUAL_REPAIR_RUNTIME_DEPENDENCIES_MISSING');
   }
 
-  await runToolchainNpm(['run','build'],{
+  const checks=[];
+  const checkNpm = async (command, timeout=300000) => {
+    await runToolchainNpm(['run',command],{
+      cwd:workspace,
+      windowsHide:true,
+      timeout,
+      shell:false,
+      maxBuffer:16 * 1024 * 1024
+    });
+    checks.push({cmd:'npm run ' + command,ok:true});
+  };
+  await runToolchainNode(['scripts/audit-all-source.cjs'], {
     cwd:workspace,
     windowsHide:true,
     timeout:300000,
     shell:false,
     maxBuffer:16 * 1024 * 1024
   });
+  checks.push({cmd:'node scripts/audit-all-source.cjs',ok:true});
+  await checkNpm('lint');
+  await checkNpm('typecheck');
+  await checkNpm('verify:jarvis');
+  const testDir = path.join(workspace,'src','tests');
+  const testFiles = fs.readdirSync(testDir)
+    .filter((name)=>name.endsWith('.test.js'))
+    .sort()
+    .map((name)=>path.join('src','tests',name));
+  if (!testFiles.length) throw new Error('MANUAL_REPAIR_TESTS_MISSING');
+  await runToolchainNode(['--test',...testFiles],{
+    cwd:workspace,
+    windowsHide:true,
+    timeout:300000,
+    shell:false,
+    maxBuffer:16 * 1024 * 1024
+  });
+  checks.push({cmd:'node --test src/tests/*.test.js',ok:true});
+  await checkNpm('build');
 
   const renderer = path.join(workspace,'dist','index.html');
   if (!fs.existsSync(renderer)) throw new Error('MANUAL_REPAIR_RUNTIME_BUILD_MISSING');
@@ -323,7 +396,7 @@ async function ensureManualRuntimeBuilt(workspace) {
     builtAt:new Date().toISOString()
   };
   writeJson(manualRuntimeStatePath(),state);
-  return state;
+  return {...state,checks};
 }
 
 function scheduleManualRuntimeRestart(workspace) {
@@ -337,6 +410,8 @@ function scheduleManualRuntimeRestart(workspace) {
       });
       app.exit(0);
     } catch (error) {
+      // Never keep a failed runtime active for the next Jarvis launch.
+      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
       recordCrash('manual-self-repair-restart-failed',{
         message:String(error?.message || error),
         workspace
@@ -371,12 +446,22 @@ function handOffToManualRuntimeIfReady() {
     return false;
   }
 
-  app.relaunch({
-    execPath:electronPath,
-    args:[workspace,'--jarvis-manual-runtime']
-  });
-  app.exit(0);
-  return true;
+  try {
+    app.relaunch({
+      execPath:electronPath,
+      args:[workspace,'--jarvis-manual-runtime']
+    });
+    app.exit(0);
+    return true;
+  } catch (error) {
+    // Fall back to the installed, known-startable package if the handoff fails.
+    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+    recordCrash('manual-runtime-handoff-failed',{
+      message:String(error?.message || error),
+      workspace
+    });
+    return false;
+  }
 }
 
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
@@ -1125,8 +1210,11 @@ async function selfRepairMap(payload={}) {
 }
 
 async function selfRepairChat(payload={}) {
+  if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
   const message = String(payload?.message || '').trim();
   if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
+  // A new owner request makes all previous unaccepted proposals obsolete.
+  clearPendingManualRepairPlans();
   const language = String(payload?.language || 'hu').toLowerCase();
   const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
   const workspace = await getSelfRepairRoot();
@@ -1328,10 +1416,8 @@ async function invokeJarvisFunction(name, payload={}) {
       const r = await openRouterRequest(payload);
       return { data:{ result:r.data.result, model:r.data.model, usage:r.data.usage } };
     }
-    case 'validateFileUpload': {
-      const fileUrl = payload?.file_url || payload?.url || null;
-      return { data:{ valid:Boolean(fileUrl), allowed:Boolean(fileUrl), file_url:fileUrl } };
-    }
+    case 'validateFileUpload':
+      return { data:validateUploadedFileUrl(payload?.file_url ?? payload?.url) };
     case 'generateImage': return openRouterGenerateImage(payload);
     case 'gmailFetch':
       return { data:{ emails:[], connected:false, configured:false, capabilities:[], reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
@@ -1908,23 +1994,33 @@ function configureMediaPermissions(win) {
   };
 
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details={}) => {
-    if (permission !== 'media') return true;
     const requestingUrl = details.requestingUrl || webContents?.getURL?.() || requestingOrigin || '';
+    const origin = String(requestingOrigin || '');
+    if (origin && origin !== 'null' && origin !== 'file://' && !isTrustedRendererNavigation(origin)) return false;
+    // Other Electron permissions must not be globally approved for any
+    // untrusted window or origin simply because they are not microphone access.
+    if (!trustedRequester(webContents, requestingUrl)) return false;
+    if (permission !== 'media') return true;
     const mediaType = details.mediaType || 'unknown';
-    return trustedRequester(webContents, requestingUrl)
-      && (mediaType === 'audio' || mediaType === 'unknown');
+    return mediaType === 'audio' || mediaType === 'unknown';
   });
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details={}) => {
+    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || details.securityOrigin || '';
+    const origin = String(details.securityOrigin || '');
+    if ((origin && origin !== 'null' && origin !== 'file://' && !isTrustedRendererNavigation(origin))
+      || !trustedRequester(webContents, requestingUrl)) {
+      callback(false);
+      return;
+    }
     if (permission !== 'media') {
       callback(true);
       return;
     }
     const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
-    const requestingUrl = details.requestingUrl || webContents?.getURL?.() || details.securityOrigin || '';
     const requestsVideo = mediaTypes.includes('video');
     const requestsAudio = mediaTypes.length === 0 || mediaTypes.includes('audio');
-    callback(trustedRequester(webContents, requestingUrl) && requestsAudio && !requestsVideo);
+    callback(requestsAudio && !requestsVideo);
   });
 }
 
@@ -2145,10 +2241,17 @@ app.whenReady().then(async () => {
     if (!latestSystemReport?.id || report?.id !== latestSystemReport.id) throw new Error('JARVIS_REPAIR_REPORT_STALE');
     return buildRepairPlan(latestSystemReport);
   });
+  ipcMain.handle('jarvis:self-repair:manual:pending', () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return mostRecentPendingManualRepair();
+  });
   ipcMain.handle('jarvis:self-repair:manual:apply', async (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
+    manualRepairApplyInFlight = true;
+    try {
     const hash=String(request.hash || '').trim().toLowerCase();
-    const entry=manualRepairPlans.get(hash) || loadPersistedManualRepairPlan(hash);
+    const entry=loadPersistedManualRepairPlan(hash);
     if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
     manualRepairPlans.set(hash,entry);
     if (Date.now()-entry.createdAt > 60*60*1000) {
@@ -2164,7 +2267,24 @@ app.whenReady().then(async () => {
       throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     }
 
+    await requireOwnerPresence({
+      title:'Jarvis Self-Repair jóváhagyása',
+      message:'Engedélyezed a forráskód módosítását és a Jarvis újraindítását?',
+      detail:[
+        'Javítás: ' + String(entry.plan.goal || '').slice(0,500),
+        'Kockázat: ' + String(entry.plan.risk || 'medium'),
+        'Fájlok: ' + entry.plan.patches.map((patch)=>patch.file).join(', ').slice(0,1500),
+        'A művelet egy helyi munkaterületet módosít. Nem teszi közzé a GitHubon.'
+      ].join('\n')
+    });
+    // Approval is bound to the same unmodified source and still-live proposal.
+    if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
+    // Failing to disable the old runtime must abort BEFORE any source is changed.
+    fs.rmSync(manualRuntimeStatePath(),{force:true});
+    if (fs.existsSync(manualRuntimeStatePath())) {
+      throw new Error('MANUAL_REPAIR_DISABLE_RUNTIME_FAILED');
+    }
     try {
       developerRepair.applyOwner(entry.workspace,entry.plan);
       const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
@@ -2175,15 +2295,24 @@ app.whenReady().then(async () => {
         return {success:false,status:'ROLLED_BACK',hash,backup,validation};
       }
       const runtime = await ensureManualRuntimeBuilt(entry.workspace);
-      selfRepairLearning?.recordVerified?.({
-        title:entry.plan.goal || 'Kézi Self-Repair',
-        repairId:hash,
-        files:entry.plan.patches.map((patch)=>patch.file),
-        evidence:entry.plan.rationale || entry.plan.goal || '',
-        validation:[...(validation.results || []),{cmd:'npm run build',ok:true}]
-          .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
-        success:true
-      });
+      const fullValidation = {
+        ok:true,
+        results:[...(validation.results || []),...(runtime.checks || [])]
+      };
+      try {
+        selfRepairLearning?.recordVerified?.({
+          title:entry.plan.goal || 'Kézi Self-Repair',
+          repairId:hash,
+          files:entry.plan.patches.map((patch)=>patch.file),
+          evidence:entry.plan.rationale || entry.plan.goal || '',
+          validation:fullValidation.results
+            .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+          success:true
+        });
+      } catch (learningError) {
+        // A telemetry failure must not revert code that passed the full suite.
+        console.warn('Self-Repair learning could not be saved:', learningError);
+      }
       manualRepairPlans.delete(hash);
       removePersistedManualRepairPlan(hash);
       scheduleManualRuntimeRestart(entry.workspace);
@@ -2194,7 +2323,7 @@ app.whenReady().then(async () => {
         backup,
         workspace:entry.workspace,
         files:entry.plan.patches.map((patch)=>patch.file),
-        validation,
+        validation:fullValidation,
         runtime:{
           version:runtime.version,
           builtAt:runtime.builtAt,
@@ -2202,10 +2331,23 @@ app.whenReady().then(async () => {
         }
       };
     } catch (error) {
-      try { developerRepair.rollbackOwner(entry.workspace,backup); } catch {}
+      // Invalidate activation even if the source rollback itself encounters an error.
+      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+      let rollbackFailure=null;
+      try { developerRepair.rollbackOwner(entry.workspace,backup); }
+      catch (rollbackError) { rollbackFailure=rollbackError; }
       manualRepairPlans.delete(hash);
       removePersistedManualRepairPlan(hash);
+      if (rollbackFailure) {
+        throw new Error(
+          'MANUAL_REPAIR_ROLLBACK_FAILED: ' + String(rollbackFailure?.message || rollbackFailure)
+          + ' (original: ' + String(error?.message || error) + ')'
+        );
+      }
       throw error;
+    }
+    } finally {
+      manualRepairApplyInFlight = false;
     }
   });
 

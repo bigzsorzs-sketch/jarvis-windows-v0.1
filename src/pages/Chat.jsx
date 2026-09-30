@@ -30,6 +30,7 @@ import {
   saveConversationHistory,
 } from '@/lib/conversationHistory';
 import { queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
+import { createConversationSaveSession, enqueueConversationSave } from '@/lib/chatSessionPersistence';
 import { startOfflineAutoSync, syncOfflineData } from '@/lib/offlineSyncManager';
 import { selfHealingMonitor } from '@/lib/selfHealingMonitor';
 import { handleSelfAuditCommand } from '@/lib/selfAuditCommand';
@@ -91,7 +92,8 @@ export default function Chat() {
   const messagesRef = useRef([]);
   const initialMessageRef = useRef('');
   const conversationIdRef = useRef(null);
-  const persistConversationRef = useRef(Promise.resolve());
+  const offlineChatIdRef = useRef(crypto.randomUUID());
+  const conversationSaveSessionRef = useRef(createConversationSaveSession());
 
   // ── Derived voice state from central runtime ───────────────────────────────
   const handsFree = voice.state.handsFree;
@@ -152,10 +154,14 @@ export default function Chat() {
   }, []);
 
   const startNewConversation = useCallback(() => {
+    conversationSaveSessionRef.current = createConversationSaveSession();
     conversationIdRef.current = null;
+    offlineChatIdRef.current = crypto.randomUUID();
     try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
     setHistoryOpen(false);
     setPendingConfirm(null);
+    setLoading(false);
+    setLoadingStep('');
     setInput('');
     setAttachedImages([]);
     setDetectedLang(lang || 'hu');
@@ -164,9 +170,13 @@ export default function Chat() {
 
   const openConversationFromHistory = useCallback((conversation) => {
     if (!conversation?.id || !Array.isArray(conversation?.messages)) return;
+    conversationSaveSessionRef.current = createConversationSaveSession(conversation.id);
     conversationIdRef.current = conversation.id;
+    offlineChatIdRef.current = conversation.id;
     try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
     setPendingConfirm(null);
+    setLoading(false);
+    setLoadingStep('');
     setInput('');
     setAttachedImages([]);
     setDetectedLang(conversation?.metadata?.detectedLang || lang || 'hu');
@@ -184,6 +194,7 @@ export default function Chat() {
 
   // ── Boot: always start a clean chat; previous sessions live in History ─────
   useEffect(() => {
+    const bootSaveSession = conversationSaveSessionRef.current;
     void migrateLegacyChatSnapshotOnce()
       .catch((error) => logger.warn('Chat', 'Legacy chat history migration failed', { message:error?.message }))
       .finally(() => { void refreshConversationHistory(); });
@@ -192,13 +203,17 @@ export default function Chat() {
       if (!c?.settings) setShowSetup(true);
       setCtx(c);
       setDetectedLang(lang || 'hu');
+      if (conversationSaveSessionRef.current !== bootSaveSession) return;
 
       let sessionConversationId = '';
       try { sessionConversationId = sessionStorage.getItem(ACTIVE_CHAT_SESSION_KEY) || ''; } catch {}
       if (sessionConversationId) {
         const activeConversation = await getConversationHistory(sessionConversationId);
+        if (conversationSaveSessionRef.current !== bootSaveSession) return;
         if (activeConversation?.messages?.length) {
+          conversationSaveSessionRef.current = createConversationSaveSession(activeConversation.id);
           conversationIdRef.current = activeConversation.id;
+          offlineChatIdRef.current = activeConversation.id;
           setDetectedLang(activeConversation?.metadata?.detectedLang || lang || 'hu');
           setMessages(getWindowedMessages(activeConversation.messages));
           return;
@@ -206,10 +221,13 @@ export default function Chat() {
         try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
       }
 
+      conversationSaveSessionRef.current = createConversationSaveSession();
       conversationIdRef.current = null;
       setMessages([{ role: 'assistant', content: getGreeting(c?.settings?.user_name, lang) }]);
     }).catch(() => {
+      if (conversationSaveSessionRef.current !== bootSaveSession) return;
       setDetectedLang(lang || 'hu');
+      conversationSaveSessionRef.current = createConversationSaveSession();
       conversationIdRef.current = null;
       try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
       setMessages([{ role: 'assistant', content: getGreeting(undefined, lang || 'hu') }]);
@@ -227,25 +245,28 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     if (!messages.length) return;
 
-    saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree });
+    void saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree })
+      .catch((error) => logger.warn('Chat', 'Local snapshot failed', { message:error?.message }));
 
     if (messages.some((message) => message?.role === 'user')) {
-      persistConversationRef.current = persistConversationRef.current
-        .then(async () => {
-          const conversationId = await saveConversationHistory(
-            conversationIdRef.current,
-            messages,
-            { detectedLang, handsFree:voice.state.handsFree }
-          );
-          if (conversationId) {
-            conversationIdRef.current = conversationId;
-            try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversationId); } catch {}
-          }
-          await refreshConversationHistory();
-        })
-        .catch((error) => {
+      const saveSession = conversationSaveSessionRef.current;
+      void enqueueConversationSave(
+        saveSession,
+        messages,
+        { detectedLang, handsFree:voice.state.handsFree, offlineChatId:offlineChatIdRef.current },
+        saveConversationHistory,
+        (savedId, savedSession) => {
+          // An old conversation may finish saving after the user switched tabs.
+          // Persist it under its own ID without replacing the active chat.
+          if (conversationSaveSessionRef.current !== savedSession) return;
+          conversationIdRef.current = savedId;
+          try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, savedId); } catch {}
+        },
+        (error) => {
           logger.warn('Chat', 'Conversation history save failed', { message:error?.message });
-        });
+        }
+      ).then(() => refreshConversationHistory())
+        .catch((error) => logger.warn('Chat', 'History refresh failed', { message:error?.message }));
     }
   }, [messages, detectedLang, voice.state.handsFree, refreshConversationHistory]);
 
@@ -264,7 +285,11 @@ export default function Chat() {
       } else {
         setDegradedMode(false);
         telemetry.clearFallback();
-        queueConversationSync(messagesRef.current, { detectedLang, handsFree: voice.state.handsFree });
+        queueConversationSync(messagesRef.current, {
+          detectedLang, handsFree:voice.state.handsFree,
+          offlineChatId:offlineChatIdRef.current,
+          conversationId:conversationIdRef.current || null
+        });
         syncOfflineData();
       }
     });
@@ -391,12 +416,17 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         : '';
     const msg = resolvedInput.trim();
     if (loading) return;
+    // The generation is a concrete session object; once the user switches
+    // conversations, asynchronous AI results must not mutate the next chat.
+    const sendingSession = conversationSaveSessionRef.current;
+    const isCurrentSession = () => conversationSaveSessionRef.current === sendingSession;
 
     const selfAudit = await handleSelfAuditCommand({
       input: resolvedInput,
       source: typeof overrideText === 'string' ? 'voice' : 'chat',
       getCurrentUser: () => jarvis.auth.me().catch(() => null),
     });
+    if (!isCurrentSession()) return;
     if (selfAudit?.handled) {
       setInput('');
       setAttachedImages([]);
@@ -418,12 +448,17 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
     setAttachedImages([]);
 
     await new Promise((resolve) => requestAnimationFrame(resolve));
+    if (!isCurrentSession()) return;
 
     if (networkMonitor.isOffline()) {
-      const offlineReply = { role: 'assistant', content: 'Offline módban elmentettem az üzenetet a telefonodon. Amint visszajön a kapcsolat, automatikusan szinkronizálom.' };
+      const offlineReply = { role: 'assistant', content: 'Jelenleg nincs internetkapcsolat. Az üzenetet helyben tárolom, de az AI nem válaszol automatikusan, amikor visszajön a kapcsolat. Ha választ szeretnél, küldd el újra az üzenetet online állapotban.' };
       const offlineMessages = getWindowedMessages([...messages, userMsg, offlineReply]);
       setMessages(offlineMessages);
-      queueConversationSync(offlineMessages, { detectedLang, handsFree: voice.state.handsFree, offline: true });
+      queueConversationSync(offlineMessages, {
+        detectedLang, handsFree:voice.state.handsFree, offline:true,
+        offlineChatId:offlineChatIdRef.current,
+        conversationId:conversationIdRef.current || null
+      });
       return;
     }
 
@@ -432,6 +467,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
     try {
       setLoadingStep(t('thinking'));
       const detectedFromMessage = msg.length > 8 ? await detectLanguage(msg, lang || detectedLang || 'hu') : (detectedLang || lang || 'hu');
+      if (!isCurrentSession()) return;
       const routed = await routeUserCommand({
         text: msg,
         source: typeof overrideText === 'string' ? 'voice' : 'chat',
@@ -440,8 +476,12 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         lang: detectedFromMessage,
         userMood,
         attachedFiles: currentFiles,
-        handlers: { onCallContact: handleVoiceCall },
+        handlers: { onCallContact: async (...args) => {
+          if (!isCurrentSession()) return;
+          return handleVoiceCall(...args);
+        } },
       });
+      if (!isCurrentSession()) return;
 
       if (routed.uiAction === 'enable_driving_mode') {
         setDrivingMode(true);
@@ -528,8 +568,10 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
           source:'assistant',
           goal:msg,
         });
+        if (!isCurrentSession()) return;
         finalReply = summarizeActionResults(actionResults, detectedFromMessage);
         const refreshed = await loadFullContext(true).catch(() => turn.nextCtx || ctx);
+        if (!isCurrentSession()) return;
         if (refreshed) setCtx(refreshed);
       } else {
         // Real-time memory extraction — async, non-blocking, runs on every message
@@ -546,6 +588,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       }
 
     } catch (err) {
+      if (!isCurrentSession()) return;
       console.error('Chat send error:', err);
       logger.error('Chat', 'sendMessage failed', {
         message:String(err?.message || err || ''),
@@ -564,8 +607,10 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       const userMessage = getChatErrorMessage(err, fallback);
       setMessages(prev => getWindowedMessages([...prev, { role:'assistant', content:userMessage }]));
     } finally {
-      setLoading(false);
-      setLoadingStep('');
+      if (isCurrentSession()) {
+        setLoading(false);
+        setLoadingStep('');
+      }
     }
   }, [input, loading, messages, ctx, attachedImages, lang, t, detectedLang, userMood, handsFree, speakReply, voice.state.handsFree]);
 
@@ -586,22 +631,26 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
   const confirmAndExecute = async () => {
     if (!pendingConfirm) return;
+    const confirmingSession = conversationSaveSessionRef.current;
+    const isCurrentConfirmation = () => conversationSaveSessionRef.current === confirmingSession;
+    const confirmation = pendingConfirm;
     setLoading(true);
     setLoadingStep('Végrehajtom...');
 
     try {
       let results = [];
-      if (pendingConfirm.workflowType) {
-        results = await runWorkflow(pendingConfirm.workflowType, pendingConfirm.payload);
+      if (confirmation.workflowType) {
+        results = await runWorkflow(confirmation.workflowType, confirmation.payload);
       } else {
-        results = await executeActions(pendingConfirm.actions, {
+        results = await executeActions(confirmation.actions, {
           source:'assistant-confirmed',
-          goal:pendingConfirm.goal || '',
-          preapprovedTools:pendingConfirm.preapprovedTools || [],
+          goal:confirmation.goal || '',
+          preapprovedTools:confirmation.preapprovedTools || [],
         });
       }
+      if (!isCurrentConfirmation()) return;
 
-      const resultLang = pendingConfirm.lang || detectedLang || lang;
+      const resultLang = confirmation.lang || detectedLang || lang;
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `✅ ${summarizeActionResults(results, resultLang)}`,
@@ -609,17 +658,20 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       }]);
       setPendingConfirm(null);
       const refreshed = await loadFullContext(true).catch(() => null);
-      if (refreshed) setCtx(refreshed);
+      if (isCurrentConfirmation() && refreshed) setCtx(refreshed);
     } catch (error) {
+      if (!isCurrentConfirmation()) return;
       setMessages(prev => [...prev, {
         role:'assistant',
-        content:String((pendingConfirm.lang || detectedLang || lang)).startsWith('hu')
+        content:String((confirmation.lang || detectedLang || lang)).startsWith('hu')
           ? `❌ A művelet nem sikerült: ${error?.message || error}`
           : `❌ Action failed: ${error?.message || error}`
       }]);
     } finally {
-      setLoading(false);
-      setLoadingStep('');
+      if (isCurrentConfirmation()) {
+        setLoading(false);
+        setLoadingStep('');
+      }
     }
   };
 
@@ -700,7 +752,9 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         <SetupWizard onComplete={(newSettings) => {
           setShowSetup(false);
           setCtx(prev => ({ ...prev, settings: newSettings }));
+          conversationSaveSessionRef.current = createConversationSaveSession();
           conversationIdRef.current = null;
+          offlineChatIdRef.current = crypto.randomUUID();
           try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
           setDetectedLang(lang || 'hu');
           setMessages([{ role: 'assistant', content: getGreeting(newSettings.user_name, lang) }]);

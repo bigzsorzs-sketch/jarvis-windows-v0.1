@@ -122,8 +122,38 @@ class BackupManager {
     });
     if (confirmation.response !== 1) return { canceled: true };
 
-    this.database.importSnapshot(payload.database);
-    if (payload.settings && typeof payload.settings === 'object') await this.saveSettings(payload.settings, { fromBackup: true });
+    // Database import is transactional, but settings live in another store.
+    // Capture both original states before applying either component of backup.
+    const previousDatabase = this.database.exportSnapshot();
+    const previousSettings = this.getSettings();
+    let settingsAttempted = false;
+    try {
+      this.database.importSnapshot(payload.database);
+      if (payload.settings && typeof payload.settings === 'object') {
+        settingsAttempted = true;
+        await this.saveSettings(payload.settings, { fromBackup: true });
+      }
+    } catch (error) {
+      const rollbackFailures = [];
+      try {
+        this.database.importSnapshot(previousDatabase);
+      } catch (rollbackError) {
+        rollbackFailures.push('database:' + String(rollbackError?.message || rollbackError));
+      }
+      if (settingsAttempted) {
+        try {
+          await this.saveSettings(previousSettings, { fromBackup:true, rollback:true });
+        } catch (rollbackError) {
+          rollbackFailures.push('settings:' + String(rollbackError?.message || rollbackError));
+        }
+      }
+      if (rollbackFailures.length) {
+        throw new Error('BACKUP_RESTORE_ROLLBACK_FAILED: '
+          + rollbackFailures.join('; ')
+          + ' (original: ' + String(error?.message || error) + ')');
+      }
+      throw error;
+    }
 
     return {
       success: true,

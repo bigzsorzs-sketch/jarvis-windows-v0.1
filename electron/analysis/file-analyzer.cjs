@@ -2,10 +2,12 @@
 
 const path = require('path');
 const AdmZip = require('adm-zip');
+const {MAX_FILE_BYTES} = require('./file-upload-validator.cjs');
 
 const MAX_FILES = 300;
 const MAX_ENTRY_BYTES = 512 * 1024;
 const MAX_TEXT_BYTES = 3 * 1024 * 1024;
+const MAX_DOCX_XML_BYTES = 8 * 1024 * 1024;
 const TEXT_EXTENSIONS = new Set([
   '.txt','.md','.markdown','.json','.jsonl','.js','.jsx','.mjs','.cjs','.ts','.tsx',
   '.css','.scss','.html','.htm','.xml','.yml','.yaml','.toml','.ini','.env','.properties',
@@ -14,13 +16,30 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 function decodeDataUrl(value) {
-  const text = String(value || '');
-  const match = text.match(/^data:([^;,]*)(;base64)?,(.*)$/s);
+  // A direct analysis IPC call is not necessarily preceded by UploadFile.
+  // Reject too-large encoded payloads before decoding or allocating buffers.
+  if (typeof value !== 'string') throw new Error('FILE_ANALYSIS_LOCAL_DATA_REQUIRED');
+  const text = value;
+  if (text.length > MAX_FILE_BYTES * 3 + 512) throw new Error('FILE_ANALYSIS_FILE_TOO_LARGE');
+  const match = text.match(/^data:([^;,]*)(?:;charset=[a-z0-9._-]+)?(;base64)?,(.*)$/is);
   if (!match) throw new Error('FILE_ANALYSIS_LOCAL_DATA_REQUIRED');
   const mime = match[1] || 'application/octet-stream';
+  const encoded = match[3];
+  if (match[2] && encoded.length > Math.ceil(MAX_FILE_BYTES / 3) * 4) {
+    throw new Error('FILE_ANALYSIS_FILE_TOO_LARGE');
+  }
+  // Buffer.from(_, 'base64') silently ignores some invalid characters.
+  // Do not analyze truncated or silently altered file bytes.
+  if (match[2] && (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))) {
+    throw new Error('FILE_ANALYSIS_INVALID_BASE64');
+  }
   const buffer = match[2]
-    ? Buffer.from(match[3], 'base64')
-    : Buffer.from(decodeURIComponent(match[3]), 'utf8');
+    ? Buffer.from(encoded, 'base64')
+    : Buffer.from(decodeURIComponent(encoded), 'utf8');
+  if (match[2] && buffer.toString('base64') !== encoded) {
+    throw new Error('FILE_ANALYSIS_INVALID_BASE64');
+  }
+  if (buffer.length > MAX_FILE_BYTES) throw new Error('FILE_ANALYSIS_FILE_TOO_LARGE');
   return { mime, buffer };
 }
 
@@ -65,7 +84,7 @@ function zipAnalysis(name, buffer, kind='archive') {
     const entryName = String(entry.entryName || '');
     if (!looksText(entryName)) continue;
     const declaredSize = Number(entry.header?.size || 0);
-    if (declaredSize > MAX_ENTRY_BYTES) continue;
+    if (!Number.isSafeInteger(declaredSize) || declaredSize < 0 || declaredSize > MAX_ENTRY_BYTES) continue;
     const data = entry.getData();
     if (data.length > MAX_ENTRY_BYTES) continue;
     const text = decodeText(data);
@@ -91,7 +110,13 @@ function zipAnalysis(name, buffer, kind='archive') {
 function docxAnalysis(name, buffer) {
   const zip = new AdmZip(buffer);
   const entry = zip.getEntry('word/document.xml');
-  const text = entry ? stripXml(entry.getData().toString('utf8')) : '';
+  const declaredSize = Number(entry?.header?.size || 0);
+  if (!Number.isSafeInteger(declaredSize) || declaredSize < 0 || declaredSize > MAX_DOCX_XML_BYTES) {
+    throw new Error('FILE_ANALYSIS_DOCX_XML_TOO_LARGE');
+  }
+  const xml = entry ? entry.getData() : Buffer.alloc(0);
+  if (xml.length > MAX_DOCX_XML_BYTES) throw new Error('FILE_ANALYSIS_DOCX_XML_TOO_LARGE');
+  const text = xml.length ? stripXml(xml.toString('utf8')) : '';
   return {
     name,
     kind:'document',
@@ -108,7 +133,6 @@ function analyzeOne(file, index=0) {
   const { mime, buffer } = decodeDataUrl(source);
   const ext = path.extname(name).toLowerCase();
 
-  if (buffer.length > 50 * 1024 * 1024) throw new Error('FILE_ANALYSIS_FILE_TOO_LARGE:' + name);
   if (ext === '.zip') return zipAnalysis(name, buffer, file?.kind || 'archive');
   if (ext === '.docx') return docxAnalysis(name, buffer);
 

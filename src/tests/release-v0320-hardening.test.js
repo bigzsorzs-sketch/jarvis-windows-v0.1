@@ -38,7 +38,12 @@ test('manual Self-Repair plan survives a main-process restart with integrity che
   assert.match(main,/function loadPersistedManualRepairPlan/);
   assert.match(main,/sourceFingerprint:selfRepairSourceFingerprint\(selfRepairSourceRoot\(\)\)/);
   assert.match(main,/developerRepair\.proposalHash\(approvedPlan\)/);
-  assert.match(main,/manualRepairPlans\.get\(hash\) \|\| loadPersistedManualRepairPlan\(hash\)/);
+  // Restart recovery must revalidate the persisted proposal; the in-memory cache
+  // alone must never bypass workspace integrity or expiry checks.
+  assert.match(main,/const entry=loadPersistedManualRepairPlan\(hash\)/);
+  assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(entry\.workspace\)/);
+  assert.match(main,/saved\.workspaceSourceFingerprint !== selfRepairSourceFingerprint\(manualRepairWorkspaceRoot\(\)\)/);
+  assert.doesNotMatch(main,/const entry=manualRepairPlans\.get\(hash\) \|\| loadPersistedManualRepairPlan\(hash\)/);
   assert.match(main,/removePersistedManualRepairPlan\(hash\)/);
   assert.match(system,/MANUAL_REPAIR_PLAN_\(\?:NOT_FOUND\|EXPIRED\|MUTATED\)/);
   assert.match(system,/setPendingRepair\(null\)/);

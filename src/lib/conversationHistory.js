@@ -16,6 +16,17 @@ function normalizeMessages(messages = []) {
       ...(Array.isArray(message.actionResults) && message.actionResults.length
         ? { actionResults: message.actionResults.slice(0, 20) }
         : {}),
+      // Keep the evidence that an attachment existed, not its potentially
+      // multi-megabyte Base64 data URL in every SQLite conversation snapshot.
+      ...(Array.isArray(message.attachedFiles) && message.attachedFiles.length
+        ? { attachedFiles: message.attachedFiles.slice(0, 10).map((file) => ({
+          name:String(file?.name || 'Csatolmány').slice(0, 120),
+          kind:String(file?.kind || 'document').slice(0, 30),
+          type:String(file?.type || '').slice(0, 120),
+          size:Number.isFinite(file?.size) ? Math.max(0,Math.floor(file.size)) : null,
+          metadataOnly:true,
+        })) }
+        : {}),
     }));
 }
 
@@ -49,6 +60,7 @@ export async function saveConversationHistory(conversationId, messages, metadata
   const patch = {
     title: conversationTitle(normalized),
     source: CHAT_SOURCE,
+    ...(metadata.offlineChatId ? { offline_sync_id:String(metadata.offlineChatId) } : {}),
     messages: normalized,
     metadata: {
       ...(metadata || {}),
