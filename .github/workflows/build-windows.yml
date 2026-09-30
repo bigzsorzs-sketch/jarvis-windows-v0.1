@@ -97,6 +97,9 @@ jobs:
           node --check electron/obd/native-obd-bridge.cjs
           node --check electron/analysis/file-analyzer.cjs
 
+      - name: Parse all application source files
+        run: node scripts/audit-all-source.cjs
+
       - name: Run source tests
         run: node --test src/tests/*.test.js
 
