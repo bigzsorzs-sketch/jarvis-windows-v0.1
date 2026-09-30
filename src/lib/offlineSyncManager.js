@@ -59,10 +59,21 @@ async function syncConversationSnapshot(item, user) {
   const firstUserText = messages.find((message) => message.role === 'user')?.content
     .replace(/\s+/g,' ').trim() || '';
   const title = firstUserText ? ('Offline: ' + firstUserText.slice(0,60)) : 'Offline beszélgetés';
-  // Never match by title: different conversations can have identical titles.
-  const existing = await jarvis.entities.Conversation.filter(
-    { source:'chat', offline_sync_id:offlineSyncId }, '-updated_date', 1
-  );
+  // An offline snapshot may be older than an already persisted local chat.
+  // Resolve an explicitly linked SQLite ID first, never by the display title.
+  const linkedId = String(snapshot?.metadata?.conversationId || '').trim();
+  let existing = linkedId
+    ? await jarvis.entities.Conversation.get(linkedId)
+    : null;
+  if (existing && existing.source !== 'chat') {
+    throw new Error('OFFLINE_SYNC_TARGET_INVALID');
+  }
+  if (!existing) {
+    const matching = await jarvis.entities.Conversation.filter(
+      { source:'chat', offline_sync_id:offlineSyncId }, '-updated_date', 1
+    );
+    existing = matching?.[0] || null;
+  }
   const patch = {
     title,
     messages,
@@ -71,8 +82,24 @@ async function syncConversationSnapshot(item, user) {
     is_archived:false,
     metadata:{ ...snapshot.metadata, recoveredFromOffline:true }
   };
-  if (existing?.[0]) {
-    return jarvis.entities.Conversation.update(existing[0].id,patch);
+  if (existing) {
+    const current = Array.isArray(existing.messages) ? existing.messages : [];
+    const samePrefix = (shorter, longer) => shorter.every((message, i) => (
+      message?.role === longer[i]?.role
+      && String(message?.content ?? '') === String(longer[i]?.content ?? '')
+    ));
+    // An older snapshot must not replace later replies or action results.
+    if (messages.length <= current.length && samePrefix(messages,current)) return existing;
+    if (current.length <= messages.length && samePrefix(current,messages)) {
+      return jarvis.entities.Conversation.update(existing.id,{
+        offline_sync_id:offlineSyncId,
+        messages:[...current,...messages.slice(current.length)],
+        metadata:{...(existing.metadata || {}),...snapshot.metadata,recoveredFromOffline:true}
+      });
+    }
+    // Divergent content is preserved in the queue (retry then manual recovery),
+    // not overwritten or silently discarded.
+    throw new Error('OFFLINE_SYNC_CONVERSATION_CONFLICT');
   }
   return jarvis.entities.Conversation.create({
     ...patch,

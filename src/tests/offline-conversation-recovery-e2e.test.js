@@ -11,6 +11,7 @@ function actualSyncFunction(records) {
   const end = syncSource.indexOf('export async function syncOfflineData(',start);
   assert.ok(start>=0 && end>start,'source function exists');
   const jarvis = { entities:{ Conversation:{
+    async get(id) { return records.find(row=>row.id===id) || null; },
     async filter(query) {
       return records.filter(row => Object.entries(query).every(([k,v])=>row[k]===v));
     },
@@ -68,10 +69,23 @@ test('recovery upserts using chat ID rather than title and appears in ordinary h
   assert.equal(records[0].source,'chat');
   assert.equal(records[1].source,'chat');
   assert.notEqual(records[0].offline_sync_id,records[1].offline_sync_id);
-  await sync(item('chat-a','updated chat-a'),{email:'owner@jarvis.local'});
-  assert.equal(records.length,2,'retry remains idempotent');
-  assert.equal(records[0].messages[0].content,'updated chat-a');
+  // A divergent snapshot may NOT overwrite the already persisted chat.
+  await assert.rejects(
+    ()=>sync(item('chat-a','different first message'),{email:'owner@jarvis.local'}),
+    /OFFLINE_SYNC_CONVERSATION_CONFLICT/
+  );
+  assert.equal(records.length,2,'conflict retains both original records');
+  assert.equal(records[0].messages[0].content,'identical title');
   assert.equal(records[1].messages[0].content,'identical title');
+  const extended=item('chat-a','identical title');
+  extended.payload.messages.push({role:'assistant',content:'new offline reply'});
+  await sync(extended,{email:'owner@jarvis.local'});
+  assert.equal(records.length,2,'continuation updates same record');
+  assert.equal(records[0].messages.length,2);
+  assert.equal(records[0].messages[1].content,'new offline reply');
+  // A stale shorter snapshot must never truncate a longer chat.
+  await sync(item('chat-a','identical title'),{email:'owner@jarvis.local'});
+  assert.equal(records[0].messages.length,2);
 });
 
 test('offline recovery preserves complete message content',async()=>{
@@ -102,4 +116,56 @@ test('Chat assigns stable offline IDs when opening, restoring or starting chats'
   assert.match(chat,/offlineChatIdRef\.current = conversation\.id/);
   assert.match(chat,/offlineChatIdRef\.current = activeConversation\.id/);
   assert.match(chat,/offlineChatId:offlineChatIdRef\.current/g);
+});
+
+test('a linked local conversation is recovered without creating duplicates',async()=>{
+  const records=[{
+    id:'original-id',title:'Original chat',source:'chat',
+    messages:[
+      {role:'user',content:'first',actionResults:[{ok:true}]},
+      {role:'assistant',content:'latest reply'}
+    ],
+    metadata:{lastSavedAt:'2026-09-30T11:00:00Z'}
+  }];
+  const sync=actualSyncFunction(records);
+  await sync({
+    id:'conversation_snapshot_local',
+    payload:{
+      metadata:{offlineChatId:'offline-local',conversationId:'original-id'},
+      messages:[{role:'user',content:'first'}]
+    }
+  },{email:'owner@jarvis.local'});
+  assert.equal(records.length,1,'a linked history cannot be duplicated');
+  assert.equal(records[0].messages.length,2,'stale snapshot cannot truncate newer replies');
+  assert.equal(records[0].messages[0].actionResults[0].ok,true,'richer local message data remains');
+});
+
+test('a valid longer offline continuation preserves existing action results',async()=>{
+  const records=[{
+    id:'existing',source:'chat',offline_sync_id:'session',
+    messages:[{role:'user',content:'first',actionResults:[{ok:true}]}],
+    metadata:{detectedLang:'hu'}
+  }];
+  const sync=actualSyncFunction(records);
+  await sync({
+    id:'conversation_snapshot_session',
+    payload:{
+      metadata:{offlineChatId:'session'},
+      messages:[
+        {role:'user',content:'first'},
+        {role:'assistant',content:'offline answer'}
+      ]
+    }
+  },{email:'owner@jarvis.local'});
+  assert.equal(records.length,1);
+  assert.equal(records[0].messages[0].actionResults[0].ok,true);
+  assert.equal(records[0].messages[1].content,'offline answer');
+});
+
+test('ordinary online saves also include the offline chat identity',()=>{
+  const history=fs.readFileSync('src/lib/conversationHistory.js','utf8');
+  const chat=fs.readFileSync('src/pages/Chat.jsx','utf8');
+  assert.match(history,/offline_sync_id:String\(metadata\.offlineChatId\)/);
+  assert.match(chat,/saveConversationHistory,\s*\(savedId, savedSession\)/);
+  assert.match(chat,/offlineChatId:offlineChatIdRef\.current/);
 });

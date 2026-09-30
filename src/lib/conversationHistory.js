@@ -60,6 +60,7 @@ export async function saveConversationHistory(conversationId, messages, metadata
   const patch = {
     title: conversationTitle(normalized),
     source: CHAT_SOURCE,
+    ...(metadata.offlineChatId ? { offline_sync_id:String(metadata.offlineChatId) } : {}),
     messages: normalized,
     metadata: {
       ...(metadata || {}),

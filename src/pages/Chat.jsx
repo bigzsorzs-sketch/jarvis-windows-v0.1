@@ -253,7 +253,7 @@ export default function Chat() {
       void enqueueConversationSave(
         saveSession,
         messages,
-        { detectedLang, handsFree:voice.state.handsFree },
+        { detectedLang, handsFree:voice.state.handsFree, offlineChatId:offlineChatIdRef.current },
         saveConversationHistory,
         (savedId, savedSession) => {
           // An old conversation may finish saving after the user switched tabs.
