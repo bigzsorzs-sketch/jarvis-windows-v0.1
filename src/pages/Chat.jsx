@@ -160,6 +160,8 @@ export default function Chat() {
     try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
     setHistoryOpen(false);
     setPendingConfirm(null);
+    setLoading(false);
+    setLoadingStep('');
     setInput('');
     setAttachedImages([]);
     setDetectedLang(lang || 'hu');
@@ -173,6 +175,8 @@ export default function Chat() {
     offlineChatIdRef.current = conversation.id;
     try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
     setPendingConfirm(null);
+    setLoading(false);
+    setLoadingStep('');
     setInput('');
     setAttachedImages([]);
     setDetectedLang(conversation?.metadata?.detectedLang || lang || 'hu');
@@ -412,12 +416,17 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         : '';
     const msg = resolvedInput.trim();
     if (loading) return;
+    // The generation is a concrete session object; once the user switches
+    // conversations, asynchronous AI results must not mutate the next chat.
+    const sendingSession = conversationSaveSessionRef.current;
+    const isCurrentSession = () => conversationSaveSessionRef.current === sendingSession;
 
     const selfAudit = await handleSelfAuditCommand({
       input: resolvedInput,
       source: typeof overrideText === 'string' ? 'voice' : 'chat',
       getCurrentUser: () => jarvis.auth.me().catch(() => null),
     });
+    if (!isCurrentSession()) return;
     if (selfAudit?.handled) {
       setInput('');
       setAttachedImages([]);
@@ -439,6 +448,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
     setAttachedImages([]);
 
     await new Promise((resolve) => requestAnimationFrame(resolve));
+    if (!isCurrentSession()) return;
 
     if (networkMonitor.isOffline()) {
       const offlineReply = { role: 'assistant', content: 'Jelenleg nincs internetkapcsolat. Az üzenetet helyben tárolom, de az AI nem válaszol automatikusan, amikor visszajön a kapcsolat. Ha választ szeretnél, küldd el újra az üzenetet online állapotban.' };
@@ -457,6 +467,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
     try {
       setLoadingStep(t('thinking'));
       const detectedFromMessage = msg.length > 8 ? await detectLanguage(msg, lang || detectedLang || 'hu') : (detectedLang || lang || 'hu');
+      if (!isCurrentSession()) return;
       const routed = await routeUserCommand({
         text: msg,
         source: typeof overrideText === 'string' ? 'voice' : 'chat',
@@ -465,8 +476,12 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         lang: detectedFromMessage,
         userMood,
         attachedFiles: currentFiles,
-        handlers: { onCallContact: handleVoiceCall },
+        handlers: { onCallContact: async (...args) => {
+          if (!isCurrentSession()) return;
+          return handleVoiceCall(...args);
+        } },
       });
+      if (!isCurrentSession()) return;
 
       if (routed.uiAction === 'enable_driving_mode') {
         setDrivingMode(true);
@@ -553,8 +568,10 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
           source:'assistant',
           goal:msg,
         });
+        if (!isCurrentSession()) return;
         finalReply = summarizeActionResults(actionResults, detectedFromMessage);
         const refreshed = await loadFullContext(true).catch(() => turn.nextCtx || ctx);
+        if (!isCurrentSession()) return;
         if (refreshed) setCtx(refreshed);
       } else {
         // Real-time memory extraction — async, non-blocking, runs on every message
@@ -571,6 +588,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       }
 
     } catch (err) {
+      if (!isCurrentSession()) return;
       console.error('Chat send error:', err);
       logger.error('Chat', 'sendMessage failed', {
         message:String(err?.message || err || ''),
@@ -589,8 +607,10 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       const userMessage = getChatErrorMessage(err, fallback);
       setMessages(prev => getWindowedMessages([...prev, { role:'assistant', content:userMessage }]));
     } finally {
-      setLoading(false);
-      setLoadingStep('');
+      if (isCurrentSession()) {
+        setLoading(false);
+        setLoadingStep('');
+      }
     }
   }, [input, loading, messages, ctx, attachedImages, lang, t, detectedLang, userMood, handsFree, speakReply, voice.state.handsFree]);
 
@@ -611,22 +631,26 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
   const confirmAndExecute = async () => {
     if (!pendingConfirm) return;
+    const confirmingSession = conversationSaveSessionRef.current;
+    const isCurrentConfirmation = () => conversationSaveSessionRef.current === confirmingSession;
+    const confirmation = pendingConfirm;
     setLoading(true);
     setLoadingStep('Végrehajtom...');
 
     try {
       let results = [];
-      if (pendingConfirm.workflowType) {
-        results = await runWorkflow(pendingConfirm.workflowType, pendingConfirm.payload);
+      if (confirmation.workflowType) {
+        results = await runWorkflow(confirmation.workflowType, confirmation.payload);
       } else {
-        results = await executeActions(pendingConfirm.actions, {
+        results = await executeActions(confirmation.actions, {
           source:'assistant-confirmed',
-          goal:pendingConfirm.goal || '',
-          preapprovedTools:pendingConfirm.preapprovedTools || [],
+          goal:confirmation.goal || '',
+          preapprovedTools:confirmation.preapprovedTools || [],
         });
       }
+      if (!isCurrentConfirmation()) return;
 
-      const resultLang = pendingConfirm.lang || detectedLang || lang;
+      const resultLang = confirmation.lang || detectedLang || lang;
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `✅ ${summarizeActionResults(results, resultLang)}`,
@@ -634,17 +658,20 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
       }]);
       setPendingConfirm(null);
       const refreshed = await loadFullContext(true).catch(() => null);
-      if (refreshed) setCtx(refreshed);
+      if (isCurrentConfirmation() && refreshed) setCtx(refreshed);
     } catch (error) {
+      if (!isCurrentConfirmation()) return;
       setMessages(prev => [...prev, {
         role:'assistant',
-        content:String((pendingConfirm.lang || detectedLang || lang)).startsWith('hu')
+        content:String((confirmation.lang || detectedLang || lang)).startsWith('hu')
           ? `❌ A művelet nem sikerült: ${error?.message || error}`
           : `❌ Action failed: ${error?.message || error}`
       }]);
     } finally {
-      setLoading(false);
-      setLoadingStep('');
+      if (isCurrentConfirmation()) {
+        setLoading(false);
+        setLoadingStep('');
+      }
     }
   };
 
