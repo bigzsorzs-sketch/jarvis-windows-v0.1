@@ -43,6 +43,7 @@ if (adminHelperConfig) {
   app.setPath('userData',helperUserData);
 }
 const manualRepairPlans = new Map();
+let manualRepairApplyInFlight = false;
 let latestSystemReport = null;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
@@ -1197,6 +1198,7 @@ async function selfRepairMap(payload={}) {
 }
 
 async function selfRepairChat(payload={}) {
+  if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
   const message = String(payload?.message || '').trim();
   if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
   // A new owner request makes all previous unaccepted proposals obsolete.
@@ -2223,6 +2225,9 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('jarvis:self-repair:manual:apply', async (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
+    manualRepairApplyInFlight = true;
+    try {
     const hash=String(request.hash || '').trim().toLowerCase();
     const entry=loadPersistedManualRepairPlan(hash);
     if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
@@ -2318,6 +2323,9 @@ app.whenReady().then(async () => {
         );
       }
       throw error;
+    }
+    } finally {
+      manualRepairApplyInFlight = false;
     }
   });
 
