@@ -26,7 +26,7 @@ test('retry exhaustion retains the unsynced payload for manual recovery', () => 
   const end = source.indexOf('continue;',start);
   assert.ok(start >= 0 && end > start);
   const exhausted = source.slice(start,end);
-  assert.match(exhausted, /await updateSyncAction\(item\.id/);
+  assert.match(exhausted, /mutateSyncActionIfUnchanged\(item/);
   assert.match(exhausted, /requires_manual_retry: true/);
   assert.doesNotMatch(exhausted, /removeSyncAction\(item\.id\)/);
 });
