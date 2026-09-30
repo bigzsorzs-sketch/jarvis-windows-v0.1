@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity, CheckCircle2, XCircle, AlertTriangle, Database, ShieldCheck, Save, Upload,
   RefreshCw, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2
@@ -65,6 +65,7 @@ export default function SystemCenter() {
   const [adminSnapshot, setAdminSnapshot] = useState(null);
   const [adminBusy, setAdminBusy] = useState(false);
   const [pendingRepair, setPendingRepair] = useState(null);
+  const pendingRequestEpoch = useRef(0);
   const [manualApplyBusy, setManualApplyBusy] = useState(false);
   const [crashes, setCrashes] = useState([]);
   const currentVersionCrashes = crashes.filter((item) => canonicalAppVersion(item?.appVersion) === canonicalAppVersion(APP_VERSION));
@@ -76,6 +77,14 @@ export default function SystemCenter() {
       .catch(() => {});
     window.jarvisDesktop?.getRecentCrashes?.(12)
       .then((items) => setCrashes(Array.isArray(items) ? items : []))
+      .catch(() => {});
+    const epoch = pendingRequestEpoch.current;
+    window.jarvisDesktop?.developerRepair?.getPending?.()
+      .then((plan) => {
+        if (epoch === pendingRequestEpoch.current) {
+          setPendingRepair(plan?.hash ? plan : null);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -179,6 +188,8 @@ export default function SystemCenter() {
     if (!content || chatBusy) return;
     const userTurn = { role:'user', content };
     const nextHistory = [...conversation, userTurn];
+    pendingRequestEpoch.current += 1;
+    setPendingRepair(null);
     setConversation(nextHistory);
     setChatInput('');
     setChatBusy(true);
@@ -213,7 +224,7 @@ export default function SystemCenter() {
 
   const applyPendingRepair = async () => {
     const hash = pendingRepair?.hash;
-    if (!hash || manualApplyBusy) return;
+    if (!hash || manualApplyBusy || chatBusy) return;
     setManualApplyBusy(true);
     setMessage(tx('Javítás alkalmazása, helyi build készítése és Jarvis újraindítása...','Applying repair, building local runtime and restarting Jarvis...'));
     try {
@@ -238,7 +249,9 @@ export default function SystemCenter() {
       );
     } catch (error) {
       const errorMessage = String(error?.message || error || '');
-      if (/MANUAL_REPAIR_PLAN_(?:NOT_FOUND|EXPIRED|MUTATED)/.test(errorMessage)) {
+      if (/JARVIS_OWNER_ACTION_CANCELLED/.test(errorMessage)) {
+        setMessage(tx('A javítást nem alkalmaztam. A terv az érvényességi időn belül újra jóváhagyható.','Repair was not applied. You may approve the same proposal while it remains valid.'));
+      } else if (/MANUAL_REPAIR_PLAN_(?:NOT_FOUND|EXPIRED|MUTATED)/.test(errorMessage)) {
         setPendingRepair(null);
         setMessage(tx(
           'A korábbi javítási terv már nem érvényes. Kérd újra a javítást; Jarvis friss tervet készít a jelenlegi forrásból.',
@@ -459,6 +472,14 @@ export default function SystemCenter() {
             <div className="mt-3 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
               <div className="font-semibold">{tx('Javítás készen áll jóváhagyásra','Repair ready for approval')}</div>
               <div className="text-muted-foreground mt-1">{pendingRepair.goal}</div>
+              <div className="text-muted-foreground mt-1">
+                {tx('Kockázat: ', 'Risk: ')}{riskLabel(pendingRepair.risk, hu)}
+              </div>
+              {pendingRepair.rationale && (
+                <div className="text-muted-foreground mt-1 whitespace-pre-wrap break-words">
+                  {pendingRepair.rationale}
+                </div>
+              )}
               {pendingRepair.files?.length > 0 && (
                 <div className="text-[10px] text-muted-foreground mt-1 break-all">
                   {tx('Módosítandó fájlok: ','Files to change: ')}{pendingRepair.files.join(', ')}
@@ -486,7 +507,7 @@ export default function SystemCenter() {
             </button>
             <button
               onClick={applyPendingRepair}
-              disabled={manualApplyBusy || !pendingRepair?.hash}
+              disabled={manualApplyBusy || chatBusy || !pendingRepair?.hash}
               className="rounded-xl border border-green-500/30 bg-green-500/10 text-green-400 px-4 text-xs font-semibold disabled:opacity-40"
             >
               {manualApplyBusy ? tx('Build + újraindítás...','Build + restart...') : tx('Elfogadom','Accept')}
@@ -494,8 +515,8 @@ export default function SystemCenter() {
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">
             {tx(
-              'A „Hibák keresése” csak elemez és megmutatja a problémákat. Ha a párbeszédben kéred a javítást, Jarvis elkészíti a konkrét módosítást. Az „Elfogadom” gomb után mentést készít, beírja a módosítást a helyi forráskódba, elkészíti a működő buildet, majd automatikusan újraindítja Jarvist a javított kóddal. Az első ilyen újraindítás tovább tarthat, mert a helyi futtatókörnyezetet egyszer elő kell készíteni.',
-              '“Find bugs” only analyzes and shows problems. If you ask for a fix in the conversation, Jarvis prepares the concrete change. After you press “Accept”, it creates a backup, writes the change to the local source, builds the working runtime, then automatically restarts Jarvis with the repaired code. The first such restart can take longer while the local runtime is prepared once.'
+              'A „Hibák keresése” csak elemez. Az „Elfogadom” után egy külön jóváhagyási ablak jelenik meg. Jarvis ezután mentést készít, teszteli az engedélyezett módosítást, és csak sikeres ellenőrzések esetén indítja újra a javított helyi verziót. Sikertelen ellenőrzésnél visszaállítja a forrást. A javítás nem kerül automatikusan a GitHubra.',
+              '“Find bugs” only analyzes. “Accept” opens a separate confirmation dialog. Jarvis then backs up and tests the approved patch and restarts the local repaired version only after checks pass. On failed checks it restores the source. The patch is not automatically committed to GitHub.'
             )}
           </p>
         </section>
