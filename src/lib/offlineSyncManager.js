@@ -2,23 +2,9 @@ import { jarvis } from '@/api/jarvisClient';
 import { logger } from '@/lib/logger';
 import { networkMonitor } from '@/lib/networkMonitor';
 import { listSyncActions, removeSyncAction, updateSyncAction } from '@/lib/indexedDbOfflineStore';
+import { MAX_SYNC_RETRIES, getRetryDelayMs, isReadyForRetry } from '@/lib/offlineSyncRules';
 
 let syncing = false;
-
-const MAX_SYNC_RETRIES = 5;
-const BASE_RETRY_DELAY_MS = 30_000;
-const MAX_RETRY_DELAY_MS = 30 * 60 * 1000;
-
-function getRetryDelayMs(retryCount) {
-  return Math.min(BASE_RETRY_DELAY_MS * (2 ** Math.max(0, retryCount - 1)), MAX_RETRY_DELAY_MS);
-}
-
-function isReadyForRetry(item, now) {
-  if (item.status === 'pending') return true;
-  if (item.status !== 'failed') return false;
-  if ((item.retry_count || 0) >= MAX_SYNC_RETRIES) return false;
-  return !item.next_retry_at || item.next_retry_at <= now;
-}
 
 async function syncRouteAction(item, user) {
   const payload = item.payload || {};
