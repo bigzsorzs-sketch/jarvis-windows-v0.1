@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
     apply: (repairId, reportId) => ipcRenderer.invoke('jarvis:repair:apply', { repairId, reportId }),
   },
   developerRepair: {
+    getPending: () => ipcRenderer.invoke('jarvis:self-repair:manual:pending'),
     applyPending: (hash) => ipcRenderer.invoke('jarvis:self-repair:manual:apply', { hash }),
   },
   obd: {
