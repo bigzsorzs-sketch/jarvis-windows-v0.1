@@ -8,10 +8,12 @@ const path = require('node:path');
 const esbuild = require('esbuild');
 
 const ROOT = path.resolve(__dirname, '..');
-const ROOTS = ['src', 'electron', 'scripts', 'security', 'build', 'upgrade'];
+const ROOTS = ['src', 'electron', 'scripts', 'security', 'build', 'upgrade', 'public'];
 const FILES = ['eslint.config.js', 'vite.config.js', 'tailwind.config.js',
-  'postcss.config.js', 'jsconfig.json', 'tsconfig.json', 'package.json'];
+  'postcss.config.js', 'jsconfig.json', 'tsconfig.json', 'package.json',
+  'components.json', 'package-lock.json'];
 const JS_EXTENSIONS = new Set(['.js', '.jsx', '.cjs', '.mjs', '.ts', '.tsx']);
+const STRUCTURED_EXTENSIONS = new Set(['.json', '.webmanifest']);
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'release', 'coverage', 'self-repair-toolchain']);
 const issues = [];
 let visited = 0;
@@ -19,11 +21,11 @@ let parsed = 0;
 
 function inspectFile(file) {
   const extension = path.extname(file).toLowerCase();
-  if (!JS_EXTENSIONS.has(extension) && extension !== '.json') return;
+  if (!JS_EXTENSIONS.has(extension) && !STRUCTURED_EXTENSIONS.has(extension) && extension !== '.css') return;
   const relative = path.relative(ROOT, file).replace(/\\/g, '/');
   visited += 1;
   const source = fs.readFileSync(file, 'utf8');
-  if (extension === '.json') {
+  if (STRUCTURED_EXTENSIONS.has(extension)) {
     try {
       JSON.parse(source);
       parsed += 1;
@@ -35,6 +37,7 @@ function inspectFile(file) {
   const loader = extension === '.tsx' ? 'tsx'
     : extension === '.ts' ? 'ts'
     : extension === '.jsx' || extension === '.js' ? 'jsx'
+    : extension === '.css' ? 'css'
     : 'js';
   try {
     esbuild.transformSync(source, {
