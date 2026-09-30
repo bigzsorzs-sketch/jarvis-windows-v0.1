@@ -353,6 +353,14 @@ async function ensureManualRuntimeBuilt(workspace) {
     });
     checks.push({cmd:'npm run ' + command,ok:true});
   };
+  await runToolchainNode(['scripts/audit-all-source.cjs'], {
+    cwd:workspace,
+    windowsHide:true,
+    timeout:300000,
+    shell:false,
+    maxBuffer:16 * 1024 * 1024
+  });
+  checks.push({cmd:'node scripts/audit-all-source.cjs',ok:true});
   await checkNpm('lint');
   await checkNpm('typecheck');
   await checkNpm('verify:jarvis');
