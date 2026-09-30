@@ -116,11 +116,11 @@ class LocalDatabase {
 
     const cap = Math.max(1, Math.min(5000, Number(limit) || 500));
     const rows = this.db.prepare(
-      'SELECT json FROM entities WHERE entity = ? ORDER BY created_date DESC LIMIT ?'
-    ).all(String(entity), cap)
+      'SELECT json FROM entities WHERE entity = ? ORDER BY created_date DESC'
+    ).all(String(entity))
       .map((row) => JSON.parse(row.json))
       .filter((row) => Object.entries(query || {}).every(([key, value]) => row?.[key] === value))
-      .filter((row) => JSON.stringify(row).toLocaleLowerCase('hu-HU').includes(needle));
+      .filter((row) => JSON.stringify(row).toLocaleLowerCase('hu-HU').includes(needle)).slice(0, cap);
 
     return clone(rows);
   }

@@ -92,6 +92,9 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   let paused = false;
   let discardCurrent = false;
   let audio = null;
+  let ttsGeneration = 0;
+  let finishPlayback = null;
+  let acquiringStream = null;
   let audioContext = null;
   let analyser = null;
   let mediaSource = null;
@@ -119,13 +122,14 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
     mediaSource = null;
     analyser = null;
     vadSamples = null;
-    if (audioContext && audioContext !== localAckAudioContext) {
-      try { await audioContext.close(); } catch {}
-    }
+    const context = audioContext;
     audioContext = null;
+    if (context && context !== localAckAudioContext) {
+      try { await context.close(); } catch {}
+    }
   };
 
-  const ensureStream = async () => {
+  const acquireStream = async (generation) => {
     if (hasLiveAudioTrack(stream)) return stream;
 
     if (stream) {
@@ -142,6 +146,10 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         channelCount: 1,
       },
     });
+    if (!active || generation !== captureGeneration) {
+      stopStream(nextStream);
+      throw new Error('MICROPHONE_CAPTURE_CANCELLED');
+    }
     stream = nextStream;
 
     for (const track of nextStream.getAudioTracks?.() || []) {
@@ -157,10 +165,15 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
 
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (AudioContextClass) {
-      audioContext = new AudioContextClass();
-      try { await audioContext.resume(); } catch {}
-      mediaSource = audioContext.createMediaStreamSource(nextStream);
-      analyser = audioContext.createAnalyser();
+      const context = new AudioContextClass();
+      audioContext = context;
+      try { await context.resume(); } catch {}
+      if (!active || generation !== captureGeneration) {
+        stopStream(nextStream);
+        throw new Error('MICROPHONE_CAPTURE_CANCELLED');
+      }
+      mediaSource = context.createMediaStreamSource(nextStream);
+      analyser = context.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.25;
       vadSamples = new Uint8Array(analyser.fftSize);
@@ -168,6 +181,16 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
     }
 
     return nextStream;
+  };
+
+  const ensureStream = () => {
+    if (acquiringStream?.generation === captureGeneration) return acquiringStream.promise;
+    const entry = { generation:captureGeneration };
+    entry.promise = acquireStream(entry.generation).finally(() => {
+      if (acquiringStream === entry) acquiringStream = null;
+    });
+    acquiringStream = entry;
+    return entry.promise;
   };
 
   const currentRms = () => {
@@ -261,8 +284,10 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
     if (!active || paused || processing || recorder?.state === 'recording') return;
 
     try {
-      const currentStream = await ensureStream();
       const segmentGeneration = captureGeneration;
+      const currentStream = await ensureStream();
+      if (!active || paused || processing || segmentGeneration !== captureGeneration
+        || recorder?.state === 'recording') return;
       chunks = [];
       discardCurrent = false;
       const mimeType = MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus')
@@ -274,11 +299,14 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
       });
 
+      const segmentRecorder = recorder;
+      const segmentChunks = chunks;
       recorder.ondataavailable = (event) => {
-        if (event.data?.size) chunks.push(event.data);
+        if (event.data?.size) segmentChunks.push(event.data);
       };
 
       recorder.onerror = () => {
+        if (segmentGeneration !== captureGeneration || recorder !== segmentRecorder) return;
         emitError('recording_failed', 'A hangrögzítés megszakadt.');
         active = false;
         paused = false;
@@ -293,9 +321,13 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       };
 
       recorder.onstop = async () => {
+        if (segmentGeneration !== captureGeneration || recorder !== segmentRecorder) {
+          if (recorder === segmentRecorder) recorder = null;
+          return;
+        }
         clearVad();
         const shouldDiscard = discardCurrent || !speechDetected;
-        const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
+        const blob = new Blob(segmentChunks, { type: segmentRecorder.mimeType || 'audio/webm' });
         recorder = null;
         chunks = [];
         discardCurrent = false;
@@ -334,6 +366,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       startVad();
       onStateChange?.({ phase: 'listening', isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
     } catch (error) {
+      if (error?.message === 'MICROPHONE_CAPTURE_CANCELLED') return;
       emitError('microphone_denied', microphoneErrorMessage(error));
       captureGeneration += 1;
       active = false;
@@ -356,6 +389,9 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   };
 
   const cancelTTS = () => {
+    ttsGeneration += 1;
+    finishPlayback?.(false);
+    finishPlayback = null;
     try {
       audio?.pause?.();
       if (audio) audio.currentTime = 0;
@@ -372,6 +408,9 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         return false;
       }
 
+      if (active && acquiringStream?.generation === captureGeneration) {
+        try { await acquiringStream.promise; return active && hasLiveAudioTrack(stream); } catch { return false; }
+      }
       if (active && hasLiveAudioTrack(stream)) {
         if (paused && !processing) resumeCapture();
         return true;
@@ -391,12 +430,15 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       captureGeneration += 1;
       active = true;
       paused = false;
+      const generation = captureGeneration;
       try {
         await ensureStream();
+        if (!active || generation !== captureGeneration) return false;
         if (!hasLiveAudioTrack(stream)) throw new Error('MICROPHONE_STREAM_NOT_LIVE');
         window.setTimeout(startSegment, 180);
         return true;
       } catch (error) {
+        if (generation !== captureGeneration || error?.message === 'MICROPHONE_CAPTURE_CANCELLED') return false;
         active = false;
         paused = false;
         processing = false;
@@ -444,6 +486,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
 
       this.pauseCapture();
       cancelTTS();
+      const generation = ttsGeneration;
       onStateChange?.({ phase: 'tts_pending', isSpeaking: false, isListening: false });
 
       try {
@@ -456,9 +499,11 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         const chunksToSpeak = splitForSpeech(safeText);
         if (chunksToSpeak.length === 0) return false;
 
+        const settings = await window.jarvisDesktop?.getSettings?.();
+        if (generation !== ttsGeneration) return false;
         const fetchChunk = async (chunk) => {
-          const cacheKey = `${lang}:${chunk.toLowerCase()}`;
-          const cached = ttsCache.get(cacheKey);
+          const cacheKey = settings ? JSON.stringify([settings.ttsModel, settings.ttsVoice, settings.ttsGender, lang, chunk]) : null;
+          const cached = cacheKey ? ttsCache.get(cacheKey) : null;
           if (cached) return cached;
 
           const response = await jarvis.functions.invoke('synthesizeVoice', { text: chunk, lang });
@@ -472,16 +517,20 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
             model: response.data?.model || null,
             voice: response.data?.voice || null,
           };
-          ttsCache.set(cacheKey, next);
+          if (cacheKey && generation === ttsGeneration) ttsCache.set(cacheKey, next);
           if (ttsCache.size > TTS_CACHE_LIMIT) ttsCache.delete(ttsCache.keys().next().value);
           return next;
         };
 
-        let nextAudioPromise = fetchChunk(chunksToSpeak[0]);
+        const fetchSafe = chunk => fetchChunk(chunk).then(data => ({ data }), error => ({ error }));
+        let nextAudioPromise = fetchSafe(chunksToSpeak[0]);
         for (let i = 0; i < chunksToSpeak.length; i += 1) {
-          const cached = await nextAudioPromise;
+          const fetched = await nextAudioPromise;
+          if (generation !== ttsGeneration) return false;
+          if (fetched.error) throw fetched.error;
+          const cached = fetched.data;
           nextAudioPromise = chunksToSpeak[i + 1]
-            ? fetchChunk(chunksToSpeak[i + 1])
+            ? fetchSafe(chunksToSpeak[i + 1])
             : Promise.resolve(null);
 
           audio = new Audio(`data:${cached.mimeType};base64,${cached.audioBase64}`);
@@ -490,11 +539,20 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
           onStateChange?.({ phase: 'speaking', isSpeaking: true, isListening: false });
           startLipSyncFromAudioElement(audio);
 
-          await new Promise((resolve, reject) => {
-            audio.onended = resolve;
-            audio.onerror = () => reject(new Error('MODEL_TTS_PLAYBACK_FAILED'));
-            audio.play().catch(reject);
+          const currentAudio = audio;
+          const played = await new Promise((resolve, reject) => {
+            const finish = value => {
+              currentAudio.onended = null;
+              currentAudio.onerror = null;
+              if (finishPlayback === finish) finishPlayback = null;
+              resolve(value);
+            };
+            finishPlayback = finish;
+            currentAudio.onended = () => finish(true);
+            currentAudio.onerror = () => { finish(false); };
+            currentAudio.play().catch(reject);
           });
+          if (!played || generation !== ttsGeneration) return false;
 
           if (i === 0) {
             console.info('[voiceTiming] Model TTS first audio', {
@@ -506,12 +564,15 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         }
         return true;
       } catch (error) {
+        if (generation !== ttsGeneration) return false;
         emitError('tts_failed', `A modellhang lejátszása most nem sikerült. ${error?.message || ''}`.trim());
         return false;
       } finally {
-        cancelTTS();
-        onStateChange?.({ phase: 'idle', isSpeaking: false });
-        if (options.resumeAfter !== false) resumeCapture();
+        if (generation === ttsGeneration) {
+          cancelTTS();
+          onStateChange?.({ phase: 'idle', isSpeaking: false });
+          if (options.resumeAfter !== false) resumeCapture();
+        }
       }
     },
   };

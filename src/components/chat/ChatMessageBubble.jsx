@@ -7,8 +7,8 @@ import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 
 const ChatMessageBubble = memo(function ChatMessageBubble({ msg, previousUserMessage = '', onRateMessage }) {
   const isUser = msg.role === 'user';
-  const rawContent = normalizeAssistantReply(msg.content);
-  const cleanContent = rawContent.replace(/\[ACTION:[^\]]+\]/g, '').trim();
+  const rawContent = isUser ? String(msg.content ?? '') : normalizeAssistantReply(msg.content);
+  const cleanContent = isUser ? rawContent : rawContent.replace(/\[ACTION:[^\]]+\]/g, '').trim();
   const [copied, setCopied] = useState(false);
   const [rated, setRated] = useState(false);
 

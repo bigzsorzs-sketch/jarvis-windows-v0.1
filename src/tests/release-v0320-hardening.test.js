@@ -36,7 +36,7 @@ test('HashRouter 404 uses router navigation instead of replacing the document UR
 test('manual Self-Repair plan survives a main-process restart with integrity checks', () => {
   assert.match(main,/function persistManualRepairPlan/);
   assert.match(main,/function loadPersistedManualRepairPlan/);
-  assert.match(main,/sourceFingerprint:selfRepairSourceFingerprint\(selfRepairSourceRoot\(\)\)/);
+  assert.match(main,/sourceFingerprint:readJson\(manualWorkspaceSourceStatePath\(workspace\), \{\}\)\.sourceFingerprint/);
   assert.match(main,/developerRepair\.proposalHash\(approvedPlan\)/);
   // Restart recovery must revalidate the persisted proposal; the in-memory cache
   // alone must never bypass workspace integrity or expiry checks.

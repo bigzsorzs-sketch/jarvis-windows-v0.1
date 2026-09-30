@@ -5,7 +5,7 @@ import fs from 'node:fs';
 test('published version and dependency lock agree',()=>{
   const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
   const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
-  assert.equal(pkg.version,'0.3.21');
+  assert.equal(pkg.version,'0.3.22');
   assert.equal(lock.version,pkg.version);
   assert.equal(lock.packages[''].version,pkg.version);
 });

@@ -92,9 +92,7 @@ function requireString(val, name) {
   return val.trim();
 }
 function requireNumber(val, name) {
-  const n = parseFloat(val);
-  if (isNaN(n)) throw new Error(`Érvénytelen szám: ${name}`);
-  return n;
+  return requireStrictNumber(val, name);
 }
 
 function requireStrictNumber(val, name, { min = -Infinity, max = Infinity } = {}) {
@@ -267,7 +265,7 @@ export const TOOLS = {
   log_meal: async ({ meal_name, meal_type, calories }) => {
     const currentUser = await getCurrentUserOrThrow();
     const mn = requireString(meal_name, 'étel neve');
-    const cal = calories ? parseFloat(calories) : 0;
+    const cal = calories == null || calories === '' ? 0 : requireStrictNumber(calories, 'kalória', { min:0 });
     const meal = await jarvis.entities.MealLog.create(withOwner({ meal_name: mn, meal_type: meal_type || 'reggeli', calories: cal, date: today() }, currentUser));
     await logAction('log_meal', `Meal: ${mn}`, { meal_name: mn, calories: cal }, meal);
     return { success: true, message: `🍽️ Étkezés rögzítve: ${mn}${cal ? ` (${cal} kcal)` : ''}`, data: meal };

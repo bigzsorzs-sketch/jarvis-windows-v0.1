@@ -1,45 +1,26 @@
 export const SAFE_ASSISTANT_FALLBACK = 'Something went wrong. Please try again.';
 
-const ACTION_BLOCK_PATTERN = /```(?:actions?|json)?\s*([\s\S]*?)```/gi;
+const ACTION_BLOCK_PATTERN = /```([a-z]*)\s*([\s\S]*?)```/gi;
 const LEGACY_ACTION_PATTERN = /\[ACTION:[^\]]+\]/gi;
 
-function looksLikeToolPayload(text = '') {
-  const value = String(text || '').trim();
-  if (!value) return false;
-  const legacyPattern = /\[ACTION:[^\]]+\]/i;
-  return /"?(tool|function|action|params|arguments|tool_calls|actionResults|actions)"?\s*[:=]/i.test(value)
-    || /```actions?/i.test(value)
-    || legacyPattern.test(value);
+function isToolPayload(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.length > 0 && value.every(isToolPayload);
+  return (typeof value.tool === 'string' && ('params' in value || 'arguments' in value))
+    || (value.type === 'function' && typeof value.function?.name === 'string')
+    || Array.isArray(value.tool_calls) || Array.isArray(value.actionResults)
+    || (Array.isArray(value.actions) && value.actions.some(isToolPayload));
 }
-
-function stripActionBlocks(text = '') {
-  return String(text || '').replace(ACTION_BLOCK_PATTERN, (full, inner) => {
-    const header = full.replace('```', '').trim();
-    const body = String(inner || '').trim();
-    const structuredBody = (body.startsWith('{') && body.endsWith('}')) || (body.startsWith('[') && body.endsWith(']'));
-    return looksLikeToolPayload(inner) || /^actions?|^json/i.test(header) || structuredBody ? '' : full;
-  });
-}
-
-function stripStandaloneStructuredPayload(text = '') {
-  const trimmed = String(text || '').trim();
-  if (!trimmed) return '';
-  const startsStructured = (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
-  if (!startsStructured) return trimmed;
-
-  return '';
+function looksLikeToolPayload(text) {
+  try { return isToolPayload(JSON.parse(text)); } catch { return false; }
 }
 
 export function sanitizeAssistantText(value, fallback = SAFE_ASSISTANT_FALLBACK) {
-  let text = typeof value === 'string' ? value : '';
-  text = stripActionBlocks(text);
-  text = text.replace(LEGACY_ACTION_PATTERN, '');
-  text = stripStandaloneStructuredPayload(text);
-  text = text.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '');
-  text = text.trim();
-
-  if (!text || looksLikeToolPayload(text)) return fallback;
-  return text;
+  if (typeof value !== 'string') return fallback;
+  const text = value.replace(ACTION_BLOCK_PATTERN, (full, language, body) => (
+    /^actions?$/i.test(language) || looksLikeToolPayload(body.trim()) ? '' : full
+  )).replace(LEGACY_ACTION_PATTERN, '').trim();
+  return !text || looksLikeToolPayload(text) ? fallback : text;
 }
 
 export function summarizeActionResults(results = [], lang = 'en') {

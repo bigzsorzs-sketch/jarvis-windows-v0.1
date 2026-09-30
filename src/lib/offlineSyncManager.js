@@ -190,5 +190,7 @@ export function startOfflineAutoSync() {
     if (online) syncOfflineData();
   });
   if (networkMonitor.isOnline()) syncOfflineData();
-  return unsubscribe;
+  // Retry while the connection stays online, including items added after startup.
+  const timer = setInterval(() => { void syncOfflineData(); }, 30_000);
+  return () => { clearInterval(timer); unsubscribe(); };
 }

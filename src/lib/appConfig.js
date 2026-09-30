@@ -34,7 +34,7 @@ export const CONFIG = {
   QUEUE_DEBOUNCE_MS:      1500,          // ms — merge rapid transcripts if queue full
 
   // ── Notifications ────────────────────────────────────────────────────────
-  NOTIF_MIN_INTERVAL:   5 * 60 * 1000,  // 5 min minimum between checks
+  NOTIF_MIN_INTERVAL:   30 * 1000,  // 5 min minimum between checks
   NOTIF_MAX_INTERVAL:   30 * 60 * 1000, // 30 min max backoff
   NOTIF_BACKOFF_FACTOR: 2,
   NOTIF_TTL:            24 * 60 * 60 * 1000, // 24h — shown-tag dedup window

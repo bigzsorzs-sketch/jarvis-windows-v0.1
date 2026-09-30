@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { jarvis } from '@/api/jarvisClient';
+import { createAutomotivePdf } from '@/lib/automotivePdf';
 
 export function useAutomotivePDF(lastDiagnosis, lastParts, vehicleProfile, addMessage) {
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -24,16 +24,8 @@ export function useAutomotivePDF(lastDiagnosis, lastParts, vehicleProfile, addMe
         estimatedCost: lastDiagnosis.estimatedCost || 'Szerviz ajánlást követően',
       };
 
-      const response = await jarvis.functions.invoke('generateComprehensiveDiagnosticsPDF', pdfData);
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `autó-diagnosztika-${new Date().toLocaleDateString('hu-HU')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const doc = await createAutomotivePdf(pdfData);
+      doc.save(`auto-diagnosztika-${new Date().toISOString().slice(0,10)}.pdf`);
       addMessage('✅ Diagnosztikai PDF sikeresen letöltve! Megosztható a szervizzel.');
     } catch (error) {
       addMessage(`❌ PDF generálás hiba: ${error?.message || 'Ismeretlen hiba'}`);

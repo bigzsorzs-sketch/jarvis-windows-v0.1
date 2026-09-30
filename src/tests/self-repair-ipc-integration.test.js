@@ -30,12 +30,14 @@ function makeApplyHarness(overrides={}) {
     requireOwnerPresence:async()=>{events.push('consent');},
     developerRepair:repair,
     developerBackupRoot:()=>'/backup',
+    selfRepairToolchainPaths:()=>null,
     manualRuntimeStatePath:()=>'/runtime.json',
     fs:{rmSync:()=>events.push('invalidate'),existsSync:()=>false},
     validateDirectOwnerRepair:async()=>({ok:true,results:[{cmd:'node --check',ok:true}]}),
     ensureManualRuntimeBuilt:async()=>({checks:[{cmd:'npm run build',ok:true}],version:'0.3.20',builtAt:'now'}),
     selfRepairLearning:{recordVerified:()=>events.push('learn')},
     scheduleManualRuntimeRestart:()=>events.push('restart'),
+    activation:{ snapshotRuntime:()=>{events.push('snapshot-runtime');return '/backup/runtime';}, restoreRuntime:()=>events.push('restore-runtime') },
     Date,console
   };
   Object.assign(context,overrides);
@@ -79,15 +81,17 @@ test('failed source validation rolls back without restarting',async()=>{
   assert.equal(result.success,false);
   assert.equal(result.status,'ROLLED_BACK');
   assert.ok(h.events.includes('rollback'));
+  assert.ok(h.events.includes('restore-runtime'));
   assert.equal(h.events.includes('restart'),false);
 });
 
-test('failed toolchain build rolls back source and disables runtime',async()=>{
+test('failed toolchain build rolls back source and restores the previous runtime',async()=>{
   const h=makeApplyHarness({
     ensureManualRuntimeBuilt:async()=>{throw new Error('BUILD_FAILED');}
   });
   await assert.rejects(()=>h.apply(null,{hash}),/BUILD_FAILED/);
   assert.ok(h.events.includes('rollback'));
+  assert.ok(h.events.includes('restore-runtime'));
   assert.ok(h.events.filter(x=>x==='invalidate').length>=2);
   assert.equal(h.events.includes('restart'),false);
 });
@@ -120,6 +124,7 @@ test('a thrown relaunch invalidates the pending runtime so it cannot loop on nex
   const context={
     readManualRuntimeState:()=>({electronPath:'/fake/electron.exe'}),
     manualRuntimeElectronPath:()=>'/fake/electron.exe',
+    selfRepairToolchainPaths:()=>null,
     manualRuntimeStatePath:()=>'/runtime.json',
     fs:{rmSync:()=>{invalidated++;}},
     app:{relaunch:()=>{throw new Error('NO_EXECUTABLE');},exit:()=>{throw new Error('MUST_NOT_EXIT');}},

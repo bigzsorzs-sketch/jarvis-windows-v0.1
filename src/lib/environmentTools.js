@@ -25,6 +25,9 @@ async function callDeviceAPI(device, command, { readOnly = false } = {}) {
 
 export const ENV_TOOLS = {
   control_device: async ({ device_name, command }) => {
+    if (typeof device_name !== 'string' || !device_name.trim() || !['on', 'off'].includes(command)) {
+      return { success:false, message:'Érvénytelen eszköznév vagy parancs. Használd az on/off parancsot.' };
+    }
     const { currentUser, ownerFilter } = await getCurrentUserOwnerFilter();
     const devices = await jarvis.entities.SmartDevice.filter(ownerFilter);
     const device = devices.find(d => d.name.toLowerCase().includes(device_name.toLowerCase()));
@@ -90,12 +93,15 @@ export const ENV_TOOLS = {
     for (const action of (scene.actions || [])) {
       if (action.type === 'device') {
         const r = await ENV_TOOLS.control_device({ device_name: action.device, command: action.command });
-        results.push(r.message);
+        results.push(r);
+      } else {
+        results.push({ success:false, message:`Nem támogatott jelenetlépés: ${action.type}` });
       }
     }
-    await jarvis.entities.Scene.update(scene.id, { last_triggered: new Date().toISOString() });
-    await jarvis.entities.ActionLog.create({ action_type: 'trigger_scene', description: `Scene: ${scene.name}`, status: 'completed', created_by: currentUser.email });
-    return { success: true, message: `🎬 "${scene.name}" jelenet elindítva!\n${results.join('\n')}`, data: { scene, results } };
+    const success = results.length > 0 && results.every(result => result.success === true);
+    if (success) await jarvis.entities.Scene.update(scene.id, { last_triggered: new Date().toISOString() });
+    await jarvis.entities.ActionLog.create({ action_type: 'trigger_scene', description: `Scene: ${scene.name}`, status: success ? 'completed' : 'failed', created_by: currentUser.email });
+    return { success, message: `🎬 "${scene.name}" jelenet: ${success ? 'kész' : 'nem minden lépés sikerült'}.\n${results.map(result => result.message).join('\n')}`, data: { scene, results } };
   },
 
   run_routine: async ({ routine_name }) => {
@@ -107,15 +113,16 @@ export const ENV_TOOLS = {
 
     const results = [];
     for (const step of (routine.steps || [])) {
-      if (step.tool === 'control_device') results.push((await ENV_TOOLS.control_device(step.params)).message);
-      else if (step.tool === 'trigger_scene') results.push((await ENV_TOOLS.trigger_scene(step.params)).message);
-      else results.push(`⚙️ ${step.tool}: ${JSON.stringify(step.params)}`);
+      if (step.tool === 'control_device') results.push(await ENV_TOOLS.control_device(step.params));
+      else if (step.tool === 'trigger_scene') results.push(await ENV_TOOLS.trigger_scene(step.params));
+      else results.push({ success:false, message:`Nem támogatott rutinlépés: ${step.tool}` });
     }
-    await jarvis.entities.Routine.update(routine.id, {
+    const success = results.length > 0 && results.every(result => result.success === true);
+    if (success) await jarvis.entities.Routine.update(routine.id, {
       last_run: new Date().toISOString(),
       run_count: (routine.run_count || 0) + 1
     });
-    await jarvis.entities.ActionLog.create({ action_type: 'run_routine', description: `Routine: ${routine.name}`, status: 'completed', created_by: currentUser.email });
-    return { success: true, message: `🔄 "${routine.name}" rutin lefutott!\n${results.join('\n')}`, data: { routine, results } };
+    await jarvis.entities.ActionLog.create({ action_type: 'run_routine', description: `Routine: ${routine.name}`, status: success ? 'completed' : 'failed', created_by: currentUser.email });
+    return { success, message: `🔄 "${routine.name}" rutin: ${success ? 'kész' : 'nem minden lépés sikerült'}.\n${results.map(result => result.message).join('\n')}`, data: { routine, results } };
   },
 };
