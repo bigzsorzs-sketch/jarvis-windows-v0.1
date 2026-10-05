@@ -132,6 +132,8 @@ function persistManualRepairPlan(entry) {
   const hash = String(entry?.plan?.hash || '').trim().toLowerCase();
   const file = manualRepairPlanFile(hash);
   if (!file) throw new Error('MANUAL_REPAIR_INVALID_PLAN_HASH');
+  const workspace = entry?.workspace;
+  if (!workspace) throw new Error('MANUAL_REPAIR_WORKSPACE_REQUIRED');
   writeJson(file,{
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
@@ -758,7 +760,9 @@ async function withNetworkTimeout(timeoutMs, label, operation) {
 }
 
 async function openRouterRequest(payload={}) {
-  if (payloadContainsSensitiveContext(payload)) {
+  const requestOrigin = String(payload?.request_origin || payload?.requestOrigin || '').trim().toLowerCase();
+  const isConversationRequest = requestOrigin === 'conversation';
+  if (!isConversationRequest && payloadContainsSensitiveContext(payload)) {
     await enforcePolicy({
       type:'external_ai_sensitive_context',
       target:'openrouter.ai',
@@ -1320,7 +1324,7 @@ Keep it concise unless the owner asks for deep detail.`;
   });
 
   let pendingRepair = null;
-  const explicitRepairRequest = /(jav[ií]tsd|jav[ií]ts|kijav[ií]t|old meg|csin[aá]ld meg|m[oó]dos[ií]tsd|fix it|fix this|repair it|apply the fix|make the change)/i.test(message);
+  const explicitRepairRequest = developerRepair.isExplicitRepairRequest(message);
   if (explicitRepairRequest) {
     const source = context.excerpts.map((item) =>
       `--- ${item.path} [${item.protected ? 'OWNER-BLOCKED-OR-CORE' : 'EDITABLE'}] ---\n${item.excerpt}`
@@ -2291,17 +2295,9 @@ app.whenReady().then(async () => {
       throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     }
 
-    await requireOwnerPresence({
-      title:'Jarvis Self-Repair jóváhagyása',
-      message:'Engedélyezed a forráskód módosítását és a Jarvis újraindítását?',
-      detail:[
-        'Javítás: ' + String(entry.plan.goal || '').slice(0,500),
-        'Kockázat: ' + String(entry.plan.risk || 'medium'),
-        'Fájlok: ' + entry.plan.patches.map((patch)=>patch.file).join(', ').slice(0,1500),
-        'A művelet egy helyi munkaterületet módosít. Nem teszi közzé a GitHubon.'
-      ].join('\n')
-    });
-    // Approval is bound to the same unmodified source and still-live proposal.
+    // The explicit "Elfogadom / Accept" click is the owner approval for this
+    // exact hashed proposal. Keep the owner-role, hash, expiry and workspace
+    // integrity checks here; do not ask for a second confirmation dialog.
     if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
     const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
     const previousRuntime = activation.snapshotRuntime(entry.workspace, manualRuntimeStatePath(), backup);

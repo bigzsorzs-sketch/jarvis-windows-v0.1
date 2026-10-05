@@ -43,14 +43,20 @@ test('oversized FileReader payloads cannot be accepted', () => {
   assert.equal(result.reason,'FILE_TOO_LARGE');
 });
 
-test('upload UI matches the strict 25 MB file and batch limits', () => {
+test('shared upload stays strict while conversation mode supports 20 items and 1 GiB selected data', () => {
   const ui = fs.readFileSync('src/components/common/MultiMediaUpload.jsx','utf8');
+  const chatInput = fs.readFileSync('src/components/chat/ChatInputBar.jsx','utf8');
+  const commandChat = fs.readFileSync('src/components/command-center/CommandCenterChatPanel.jsx','utf8');
   assert.match(ui, /const MAX_FILE_SIZE = 25 \* 1024 \* 1024/);
   assert.match(ui, /const MAX_TOTAL_SIZE = 25 \* 1024 \* 1024/);
-  assert.match(ui, /alreadySelectedSize \+ totalSelectedSize > MAX_TOTAL_SIZE/);
-  assert.match(ui, /size: file\.size/);
-  assert.match(ui, /max 25 MB összesen/);
-  assert.doesNotMatch(ui, /max 1GB/);
+  assert.match(ui, /const CHAT_MAX_FILES = 20/);
+  assert.match(ui, /const CHAT_MAX_TOTAL_SIZE = 1024 \* 1024 \* 1024/);
+  assert.match(ui, /const CHAT_MAX_IMAGE_SOURCE_SIZE = 100 \* 1024 \* 1024/);
+  assert.match(ui, /optimizeChatImage/);
+  assert.match(ui, /alreadySelectedSize \+ totalSelectedSize > effectiveMaxTotalSize/);
+  assert.match(ui, /uploadSize: uploadFile\.size/);
+  assert.match(chatInput, /chatMode/);
+  assert.match(commandChat, /chatMode/);
 });
 
 test('upload validation is enforced at the Electron IPC boundary', () => {

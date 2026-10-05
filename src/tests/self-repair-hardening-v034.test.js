@@ -58,6 +58,19 @@ test('Self-Repair maps reachability, routes, dependencies and IPC', () => {
   }
 });
 
+test('Self-Repair recognizes natural Hungarian repair execution requests', () => {
+  const cases = [
+    'nézd meg miért nem tudod végre hajtani a javítást és miért nem működik az elfogadom gomb?',
+    'végezd el a javítást',
+    'készíts konkrét javítási tervet az electron/main.cjs fájlhoz',
+    'javítsd ki ezt a hibát',
+    'apply the fix'
+  ];
+  for (const value of cases) assert.equal(repair.isExplicitRepairRequest(value),true,value);
+  assert.equal(repair.isExplicitRepairRequest('magyarázd el hogyan működik a javítás'),false);
+  assert.equal(repair.isExplicitRepairRequest('mi a javítás állapota?'),false);
+});
+
 test('Self-Repair learning stores only verified local lessons', () => {
   const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-learning-')),'learning.json');
   const learning=new learningModule.SelfRepairLearning(file);
@@ -68,6 +81,7 @@ test('Self-Repair learning stores only verified local lessons', () => {
 
 test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(layout,/currentItem = allDesktopItems\.find\(\(item\) => item\.path === location\.pathname\)/);
+  assert.match(layout,/\['\/muszerfal','\/memoria','\/automotive','\/obd2','\/system-center'\]\.includes\(p\)/);
   assert.doesNotMatch(fast,/if \(\/\(hallasz\|hallod/);
   assert.match(fast,/\^\(\?:hallasz\|hallod/);
   assert.match(toolsSource,/requireStrictNumber/);
@@ -83,7 +97,10 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(main,/developerBackupRoot\(\)/);
   assert.match(main,/SELF_REPAIR_FINGERPRINT_ENTRIES/);
   assert.match(main,/sourceState\.sourceFingerprint !== installedSourceFingerprint/);
+  assert.match(main,/const workspace = entry\?\.workspace/);
+  assert.match(main,/MANUAL_REPAIR_WORKSPACE_REQUIRED/);
   assert.match(main,/sourceFingerprint:readJson\(manualWorkspaceSourceStatePath\(workspace\), \{\}\)\.sourceFingerprint/);
+  assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(entry\.workspace\)/);
   assert.match(main,/if \(isManualRepairRuntime\) return developerRepair\.validateWorkspace\(target\)/);
   assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);

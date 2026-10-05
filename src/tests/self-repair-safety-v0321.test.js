@@ -38,14 +38,13 @@ test('pending approvals can be restored but are bound to the exact workspace sta
   assert.match(view, /developerRepair\?\.getPending\?\.\(\)/);
 });
 
-test('apply demands separate native approval and rechecks plan after the dialog', () => {
+test('Accept is the final owner approval and apply still rechecks the exact plan', () => {
   const start = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
   const end = main.indexOf("ipcMain.handle('jarvis:repair:apply'",start);
   const body = main.slice(start,end);
   assert.ok(start >= 0 && end > start);
   const checks = [
     "loadPersistedManualRepairPlan(hash)",
-    "await requireOwnerPresence({",
     "if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED')",
     "developerRepair.snapshotOwner(",
     "developerRepair.applyOwner(",
@@ -59,6 +58,7 @@ test('apply demands separate native approval and rechecks plan after the dialog'
     assert.ok(index > previous, `Approval or rollback sequence incorrect: ${item}`);
     previous = index;
   }
+  assert.doesNotMatch(body, /requireOwnerPresence/);
   assert.match(body, /fs\.rmSync\(manualRuntimeStatePath\(\),\{force:true\}\)/);
   assert.match(body, /developerRepair\.rollbackOwner\(entry\.workspace,backup\)/);
 });

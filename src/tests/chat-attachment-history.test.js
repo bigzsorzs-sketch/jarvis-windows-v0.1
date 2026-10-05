@@ -34,10 +34,10 @@ test('normal chat history retains attachment identity without duplicating Base64
 test('normalization caps attachment metadata and never saves attacker supplied URLs',()=>{
   const files=Array.from({length:25},(_,i)=>({name:'file-'+i,kind:'document',url:'https://untrusted.example/file-'+i}));
   const [normalized]=normalize([{role:'user',content:'Files',attachedFiles:files}]);
-  assert.equal(normalized.attachedFiles.length,10);
+  assert.equal(normalized.attachedFiles.length,20);
   assert.equal(normalized.attachedFiles.every(file=>!Object.hasOwn(file,'url')),true);
   assert.equal(normalized.attachedFiles[0].name,'file-0');
-  assert.equal(normalized.attachedFiles.at(-1).name,'file-9');
+  assert.equal(normalized.attachedFiles.at(-1).name,'file-19');
 });
 
 test('chat history UI labels unavailable attachments rather than rendering broken media',()=>{

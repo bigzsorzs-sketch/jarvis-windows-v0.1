@@ -1,7 +1,7 @@
 {
   "name": "jarvis-desktop",
   "private": true,
-  "version": "0.3.22",
+  "version": "0.3.23",
   "description": "Jarvis local-first multi-AI desktop assistant for Windows 10 and 11",
   "type": "module",
   "main": "electron/main.cjs",
@@ -82,7 +82,6 @@
     "socket.io-parser": "^4.2.6",
     "sonner": "^2.0.1",
     "tailwind-merge": "^3.0.2",
-    "tailwindcss-animate": "^1.0.7",
     "three": "^0.171.0",
     "uid": "^2.0.2",
     "uuid": "^14.0.0",
@@ -116,7 +115,8 @@
     "vite": "^6.1.0",
     "wait-on": "^8.0.2",
     "@types/leaflet": "^1.9.22",
-    "@types/three": "^0.171.0"
+    "@types/three": "^0.171.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "build": {
     "appId": "com.jarvis.desktop",

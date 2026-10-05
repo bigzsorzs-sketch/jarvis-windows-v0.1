@@ -515,8 +515,8 @@ export default function SystemCenter() {
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">
             {tx(
-              'A „Hibák keresése” csak elemez. Az „Elfogadom” után egy külön jóváhagyási ablak jelenik meg. Jarvis ezután mentést készít, teszteli az engedélyezett módosítást, és csak sikeres ellenőrzések esetén indítja újra a javított helyi verziót. Sikertelen ellenőrzésnél visszaállítja a forrást. A javítás nem kerül automatikusan a GitHubra.',
-              '“Find bugs” only analyzes. “Accept” opens a separate confirmation dialog. Jarvis then backs up and tests the approved patch and restarts the local repaired version only after checks pass. On failed checks it restores the source. The patch is not automatically committed to GitHub.'
+              'A „Hibák keresése” csak elemez. Az „Elfogadom” maga a javítás jóváhagyása: Jarvis mentést készít, alkalmazza és teszteli a módosítást, majd csak sikeres ellenőrzések esetén indítja újra a javított helyi verziót. Sikertelen ellenőrzésnél visszaállítja a forrást. A javítás nem kerül automatikusan a GitHubra.',
+              '“Find bugs” only analyzes. “Accept” is the repair approval: Jarvis backs up, applies and tests the patch, then restarts the repaired local version only after successful checks. On failed checks it restores the source. The patch is not automatically committed to GitHub.'
             )}
           </p>
         </section>

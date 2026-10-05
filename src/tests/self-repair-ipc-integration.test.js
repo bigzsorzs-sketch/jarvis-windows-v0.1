@@ -49,15 +49,21 @@ function makeApplyHarness(overrides={}) {
   return {apply:applyHandler,events,entry,context};
 }
 
-test('owner rejection prevents all source changes and releases IPC lock',async()=>{
-  const h=makeApplyHarness({requireOwnerPresence:async()=>{throw new Error('JARVIS_OWNER_ACTION_CANCELLED');}});
-  await assert.rejects(()=>h.apply(null,{hash}),/JARVIS_OWNER_ACTION_CANCELLED/);
+test('unauthorised local user cannot apply a pending repair',async()=>{
+  const h=makeApplyHarness({localOwnerAuthorised:()=>false});
+  await assert.rejects(()=>h.apply(null,{hash}),/MANUAL_REPAIR_UNAUTHORISED/);
   assert.equal(h.events.includes('backup'),false);
   assert.equal(h.events.includes('apply'),false);
   assert.equal(h.events.includes('restart'),false);
-  h.context.requireOwnerPresence=async()=>{h.events.push('consent');};
+});
+
+test('Accept applies the exact pending plan without a second native consent step',async()=>{
+  const h=makeApplyHarness();
   const result=await h.apply(null,{hash});
-  assert.equal(result.success,true,'lock released after rejected confirmation');
+  assert.equal(result.success,true);
+  assert.equal(h.events.includes('consent'),false);
+  assert.equal(h.events.includes('apply'),true);
+  assert.equal(h.events.includes('restart'),true);
 });
 
 test('simultaneous IPC apply requests cannot write the same plan twice',async()=>{

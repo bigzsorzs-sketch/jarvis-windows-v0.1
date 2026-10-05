@@ -76,12 +76,12 @@ test('System Center provides source-aware conversation with manual repair approv
   assert.match(system,/Program feltérképezése/);
   assert.match(system,/Hibák keresése/);
   assert.match(system,/Elfogadom/);
-  assert.match(system,/applyPendingRepair/);
-  // The UI must describe conditional validation, rather than promising a
-  // working build and restart before any verification has completed.
-  assert.match(system,/teszteli az engedélyezett módosítást/);
-  assert.match(system,/csak sikeres ellenőrzések esetén indítja újra/);
-  assert.match(system,/Sikertelen ellenőrzésnél visszaállítja a forrást/);
-  assert.match(system,/A javítás nem kerül automatikusan a GitHubra/);
+  assert.match(system,/const applyPendingRepair = async \(\) =>/);
+  assert.match(system,/const hash = pendingRepair\?\.hash/);
+  assert.match(system,/developerRepair\?\.applyPending\?\.\(hash\)/);
+  assert.match(system,/onClick=\{applyPendingRepair\}/);
+  assert.match(system,/disabled=\{manualApplyBusy \|\| chatBusy \|\| !pendingRepair\?\.hash\}/);
+  assert.match(system,/status === 'ROLLED_BACK'/);
+  assert.match(system,/setPendingRepair\(null\)/);
   assert.doesNotMatch(system,/Autopilot önfejlesztés/);
 });

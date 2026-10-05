@@ -84,7 +84,7 @@ function compactOfflineSnapshotMessages(messages) {
       ...textAndState,
       // Keep attachment identity, not megabytes of raw data URLs in IndexedDB
       // snapshots or queued sync actions. Files must be re-attached to re-use.
-      attachedFiles: attachedFiles.slice(0,10).map((file) => ({
+      attachedFiles: attachedFiles.slice(0,20).map((file) => ({
         name:String(file?.name || 'Csatolmány').slice(0,120),
         kind:String(file?.kind || 'document').slice(0,30),
         type:String(file?.type || '').slice(0,120),

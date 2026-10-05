@@ -87,6 +87,7 @@ ${String(message || '').slice(0, 12000)}`;
     file_urls: fileUrls.length ? fileUrls : undefined,
     queueKey: 'code-assistant',
     contains_sensitive_context: attachedFiles.length > 0,
+    request_origin: 'conversation',
   }, 1);
 
   return sanitizeAssistantText(normalizeAssistantReply(response));

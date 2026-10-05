@@ -101,11 +101,14 @@
 .jarvis-command-chat-bubble>span{display:block;margin-bottom:2px;font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#58bfff}
 .jarvis-command-chat-bubble p{font-size:11px;line-height:1.42;color:#dcecff;white-space:pre-wrap;overflow-wrap:anywhere}
 .jarvis-command-chat-bubble.is-loading p{display:flex;align-items:center;gap:6px;color:#8ca8c9}
-.jarvis-command-chat-input{display:grid;grid-template-columns:1fr 44px;gap:8px;padding:8px;border-top:1px solid rgba(39,119,226,.16)}
+.jarvis-command-chat-input{display:grid;grid-template-columns:36px 1fr 44px;gap:8px;padding:8px;border-top:1px solid rgba(39,119,226,.16);align-items:end}
 .jarvis-command-chat-input textarea{min-height:44px;max-height:110px;resize:vertical;border:1px solid rgba(52,129,226,.2);border-radius:11px;background:#06172f;color:#e8f3ff;padding:9px 11px;font-size:12px;line-height:1.4;outline:none}
 .jarvis-command-chat-input textarea:focus{border-color:rgba(55,176,255,.62);box-shadow:0 0 0 2px rgba(18,139,255,.08)}
-.jarvis-command-chat-input button{width:44px;height:44px;align-self:end;border-radius:11px;display:grid;place-items:center;background:linear-gradient(180deg,#0d8cff,#0757d8);color:white;box-shadow:0 0 16px rgba(0,118,255,.3)}
-.jarvis-command-chat-input button:disabled{opacity:.45;box-shadow:none}
+.jarvis-command-chat-input>button{width:44px;height:44px;align-self:end;border-radius:11px;display:grid;place-items:center;background:linear-gradient(180deg,#0d8cff,#0757d8);color:white;box-shadow:0 0 16px rgba(0,118,255,.3)}
+.jarvis-command-chat-input>button:disabled{opacity:.45;box-shadow:none}
+.jarvis-command-chat-attach{width:36px;height:44px;display:grid;place-items:center}
+.jarvis-command-chat-attach button{width:36px;height:44px;display:grid;place-items:center;border-radius:10px;background:transparent;color:#8bbde8;box-shadow:none}
+.jarvis-command-chat-attach button:hover{background:rgba(13,140,255,.08);color:#d8efff}
 @media(max-width:560px){.jarvis-command-chat{width:96%}.jarvis-command-chat-log{max-height:130px}}
 @media(min-width:901px){.jarvis-command-stage{justify-content:flex-start;padding-top:34px}.jarvis-command-chat{margin-top:8px}.jarvis-command-chat-log{max-height:128px}}
 

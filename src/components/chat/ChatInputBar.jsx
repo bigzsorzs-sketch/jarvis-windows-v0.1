@@ -43,6 +43,7 @@ const ChatInputBar = memo(function ChatInputBar({
             <MultiMediaUpload
               files={attachedFiles}
               onChange={setAttachedFiles}
+              chatMode
               onError={onMediaError}
             />
           </div>
@@ -51,6 +52,7 @@ const ChatInputBar = memo(function ChatInputBar({
           <MultiMediaUpload
             files={attachedFiles}
             onChange={setAttachedFiles}
+            chatMode
             onError={onMediaError}
             buttonOnly
           />
