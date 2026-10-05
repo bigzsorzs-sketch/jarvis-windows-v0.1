@@ -2406,6 +2406,30 @@ app.whenReady().then(async () => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
     return mostRecentPendingManualRepair();
   });
+  ipcMain.handle('jarvis:self-repair:github:status', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return getGitHubSelfRepairStatus();
+  });
+  ipcMain.handle('jarvis:self-repair:github:connect', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return connectGitHubSelfRepair(request.token);
+  });
+  ipcMain.handle('jarvis:self-repair:github:disconnect', () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return disconnectGitHubSelfRepair();
+  });
+  ipcMain.handle('jarvis:self-repair:github:refresh', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return getGitHubSelfRepairStatus();
+  });
+  ipcMain.handle('jarvis:self-repair:github:merge', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return mergeGitHubSelfRepair();
+  });
+  ipcMain.handle('jarvis:self-repair:github:publish', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return publishGitHubSelfRepairRelease(request.allowUnsigned === true);
+  });
   ipcMain.handle('jarvis:self-repair:manual:apply', async (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
     if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
