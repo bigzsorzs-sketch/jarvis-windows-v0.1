@@ -19,7 +19,7 @@ function normalizeMessages(messages = []) {
       // Keep the evidence that an attachment existed, not its potentially
       // multi-megabyte Base64 data URL in every SQLite conversation snapshot.
       ...(Array.isArray(message.attachedFiles) && message.attachedFiles.length
-        ? { attachedFiles: message.attachedFiles.slice(0, 10).map((file) => ({
+        ? { attachedFiles: message.attachedFiles.slice(0, 20).map((file) => ({
           name:String(file?.name || 'Csatolmány').slice(0, 120),
           kind:String(file?.kind || 'document').slice(0, 30),
           type:String(file?.type || '').slice(0, 120),
