@@ -139,7 +139,7 @@ function persistManualRepairPlan(entry) {
     sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
       || selfRepairSourceFingerprint(selfRepairSourceRoot()),
     createdAt:Number(entry?.createdAt) || Date.now(),
-    workspaceSourceFingerprint:selfRepairSourceFingerprint(workspace),
+    workspaceSourceFingerprint:selfRepairSourceFingerprint(entry.workspace),
     plan:entry.plan
   });
 }
