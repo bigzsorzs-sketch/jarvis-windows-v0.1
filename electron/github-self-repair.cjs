@@ -138,7 +138,8 @@ function createGitHubSelfRepairClient(options={}) {
           Accept:accept,
           Authorization:`Bearer ${token}`,
           'X-GitHub-Api-Version':'2022-11-28',
-          'User-Agent':'Jarvis-Self-Repair'
+          'User-Agent':'Jarvis-Self-Repair',
+          ...(body === undefined ? {} : {'Content-Type':'application/json'})
         },
         ...(body === undefined ? {} : { body:JSON.stringify(body) })
       });
@@ -184,8 +185,9 @@ function createGitHubSelfRepairClient(options={}) {
     };
   }
   async function getRef(branch) {
-    const encoded = encodeURIComponent(`heads/${String(branch || '')}`);
-    return request(`/repos/${repo}/git/ref/${encoded}`,{allow404:true});
+    const branchPath = String(branch || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    if (!branchPath) throw new Error('GITHUB_BRANCH_INVALID');
+    return request(`/repos/${repo}/git/ref/heads/${branchPath}`,{allow404:true});
   }
   async function getCommit(sha) {
     return request(`/repos/${repo}/git/commits/${assertSha(sha)}`);
@@ -404,22 +406,27 @@ This pull request was created only after the exact owner-approved patch passed J
       };
     } catch (error) {
       try {
-        await request(`/repos/${repo}/git/refs/${encodeURIComponent(`heads/${branch}`)}`,{method:'DELETE'});
+        const branchPath = branch.split('/').map(encodeURIComponent).join('/');
+        await request(`/repos/${repo}/git/refs/heads/${branchPath}`,{method:'DELETE'});
       } catch {}
       throw error;
     }
   }
   async function getCommitCiStatus(commitSha,branch) {
     const sha = assertSha(commitSha);
-    const [checksPayload,runsPayload] = await Promise.all([
-      request(`/repos/${repo}/commits/${sha}/check-runs?per_page=100`,{accept:'application/vnd.github+json'}),
-      request(`/repos/${repo}/actions/runs?head_sha=${sha}&branch=${encodeURIComponent(String(branch || ''))}&per_page=30`)
-    ]);
-    const requiredChecks = summarizeChecks(checksPayload?.check_runs || []);
+    const runsPayload = await request(
+      `/repos/${repo}/actions/runs?head_sha=${sha}&branch=${encodeURIComponent(String(branch || ''))}&per_page=30`
+    );
     const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
     const workflowRun = runs
       .filter((run)=>run?.name === WORKFLOW_NAME && run?.head_sha === sha && run?.head_branch === branch && run?.event === 'push')
       .sort((a,b)=>Number(b?.run_number || 0)-Number(a?.run_number || 0))[0] || null;
+    let jobs = [];
+    if (workflowRun?.id) {
+      const jobsPayload = await request(`/repos/${repo}/actions/runs/${workflowRun.id}/jobs?per_page=100`);
+      jobs = Array.isArray(jobsPayload?.jobs) ? jobsPayload.jobs : [];
+    }
+    const requiredChecks = summarizeChecks(jobs);
     return {
       state:deriveCiState(requiredChecks,workflowRun),
       requiredChecks,
@@ -490,7 +497,7 @@ This pull request was created only after the exact owner-approved patch passed J
     if (await getRelease(releaseVersion)) return {alreadyReleased:true,version:releaseVersion};
     await request(`/repos/${repo}/actions/workflows/build-windows.yml/dispatches`,{
       method:'POST',
-      body:{ref:'main',inputs:{publish_release:true,allow_unsigned_release:Boolean(allowUnsigned)}}
+      body:{ref:'main',inputs:{publish_release:'true',allow_unsigned_release:allowUnsigned ? 'true' : 'false'}}
     });
     return {alreadyReleased:false,dispatched:true,version:releaseVersion,allowUnsigned:Boolean(allowUnsigned),dispatchedAt:new Date().toISOString()};
   }
