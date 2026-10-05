@@ -12,7 +12,7 @@ const PROTECTED = [
   /^electron[\\/]github-self-repair\.cjs$/i,
   /^electron[\\/]preload\.cjs$/i,
   /^electron[\\/]admin-diagnostics\.cjs$/i,
-  /^\.github[\\/]workflows[\\/]/i,
+  /^\.github[\\/]/i,
   /^scripts[\\/]/i,
   /^package\.json$/i,
   /^package-lock\.json$/i,
@@ -30,7 +30,7 @@ const OWNER_BLOCKED = [
   /^electron[\\/]github-self-repair\.cjs$/i,
   /^electron[\\/]preload\.cjs$/i,
   /^electron[\\/]admin-diagnostics\.cjs$/i,
-  /^\.github[\\/]workflows[\\/]/i,
+  /^\.github[\\/]/i,
   /^scripts[\\/]/i,
   /^package\.json$/i,
   /^package-lock\.json$/i,
@@ -39,6 +39,7 @@ const OWNER_BLOCKED = [
   /^eslint\.config\.js$/i,
   /^tsconfig\.json$/i,
   /^vite\.config\.js$/i,
+  /^src[\\/]tests[\\/]/i,
 ];
 const ALLOWED_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
