@@ -146,6 +146,25 @@ export default function SystemCenter() {
     }
   };
 
+  const abandonGitHubRepair = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.abandon) return;
+    const approved = window.confirm(tx(
+      'Elveted ezt a Self-Repair PR-t? A PR bezárul, a javítási ág törlődik, és új javítás készíthető.',
+      'Abandon this Self-Repair PR? The PR will be closed, its repair branch deleted, and a new repair may be created.'
+    ));
+    if (!approved) return;
+    setGithubBusy('abandon');
+    try {
+      await window.jarvisDesktop.developerRepair.github.abandon();
+      setGithubStatus(prev=>({ ...prev, repair:null }));
+      setMessage(tx('Self-Repair PR elvetve. Új javítás készíthető.','Self-Repair PR abandoned. A new repair can be created.'));
+    } catch (error) {
+      setMessage(tx('GitHub elvetési hiba: ','GitHub abandon error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
   const mergeGitHubRepair = async () => {
     if (!window.jarvisDesktop?.developerRepair?.github?.merge) return;
     setGithubBusy('merge');
@@ -363,6 +382,11 @@ export default function SystemCenter() {
         setMessage(tx(
           'A korábbi javítási terv már nem érvényes. Kérd újra a javítást; Jarvis friss tervet készít a jelenlegi forrásból.',
           'The previous repair plan is no longer valid. Ask for the repair again and Jarvis will prepare a fresh plan from the current source.'
+        ));
+      } else if (/GITHUB_REPAIR_ALREADY_ACTIVE/.test(errorMessage)) {
+        setMessage(tx(
+          'Már van aktív GitHub Self-Repair folyamat. Előbb ellenőrizd, merge-eld, add ki vagy vesd el azt a PR-t.',
+          'A GitHub Self-Repair flow is already active. Verify, merge, publish or abandon that PR before starting another repair.'
         ));
       } else {
         setMessage(tx('Kézi Self-Repair hiba: ','Manual Self-Repair error: ') + errorMessage);
@@ -660,6 +684,15 @@ export default function SystemCenter() {
                     >
                       <GitMerge size={14}/>{githubBusy === 'merge' ? tx('Merge...','Merging...') : tx('Ellenőrzött PR merge','Merge verified PR')}
                     </button>
+                    {!githubRepair?.mergeSha && (
+                      <button
+                        onClick={abandonGitHubRepair}
+                        disabled={Boolean(githubBusy)}
+                        className="rounded-xl border border-red-500/25 bg-red-500/10 text-red-400 px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                      >
+                        {githubBusy === 'abandon' ? tx('Elvetés...','Abandoning...') : tx('PR elvetése','Abandon PR')}
+                      </button>
+                    )}
                   </div>
 
                   {githubRepair.mergeSha && (
