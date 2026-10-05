@@ -215,3 +215,56 @@ test('GitHub repair transaction refuses to overwrite source when main changed af
   );
   assert.equal(mock.calls.some((call)=>call.method === 'POST'),false);
 });
+
+
+test('commit CI status is derived from the exact push workflow and its required jobs, not a generic green badge', async () => {
+  const sha='9'.repeat(40);
+  const branchName='fix/jarvis-self-repair-v0-3-24-deadbeef00';
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'e'.repeat(40),
+    fetchImpl:async(url)=>{
+      const parsed=new URL(url);
+      if (parsed.pathname.endsWith('/actions/runs')) {
+        assert.equal(parsed.searchParams.get('head_sha'),sha);
+        assert.equal(parsed.searchParams.get('branch'),branchName);
+        return reply(200,{workflow_runs:[{
+          id:77,name:github.WORKFLOW_NAME,head_sha:sha,head_branch:branchName,event:'push',
+          run_number:12,status:'completed',conclusion:'success',html_url:'https://github.com/example/run/77'
+        }]});
+      }
+      if (parsed.pathname.endsWith('/actions/runs/77/jobs')) {
+        return reply(200,{jobs:[
+          {id:1,name:'CodeQL security scan',status:'completed',conclusion:'success'},
+          {id:2,name:'windows-installer',status:'completed',conclusion:'success'}
+        ]});
+      }
+      return reply(500,{message:'unexpected '+parsed.pathname});
+    }
+  });
+  const status=await client.getCommitCiStatus(sha,branchName);
+  assert.equal(status.state,'passed');
+  assert.deepEqual(status.requiredChecks.map(item=>item.name),github.REQUIRED_CHECKS);
+  assert.equal(status.workflowRun.id,77);
+});
+
+test('commit CI status cannot pass when the workflow is green but a required job is absent', async () => {
+  const sha='8'.repeat(40);
+  const branchName='fix/jarvis-self-repair-v0-3-24-feedface00';
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'f'.repeat(40),
+    fetchImpl:async(url)=>{
+      const parsed=new URL(url);
+      if (parsed.pathname.endsWith('/actions/runs')) return reply(200,{workflow_runs:[{
+        id:78,name:github.WORKFLOW_NAME,head_sha:sha,head_branch:branchName,event:'push',
+        run_number:13,status:'completed',conclusion:'success'
+      }]});
+      if (parsed.pathname.endsWith('/actions/runs/78/jobs')) return reply(200,{jobs:[
+        {id:1,name:'CodeQL security scan',status:'completed',conclusion:'success'}
+      ]});
+      return reply(500,{message:'unexpected'});
+    }
+  });
+  const status=await client.getCommitCiStatus(sha,branchName);
+  assert.notEqual(status.state,'passed');
+  assert.equal(status.requiredChecks.find(item=>item.name==='windows-installer').status,'missing');
+});
