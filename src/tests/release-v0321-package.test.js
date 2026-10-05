@@ -9,7 +9,7 @@ test('published version and dependency lock agree',()=>{
   assert.match(pkg.version,/^\d+\.\d+\.\d+$/);
   assert.equal(lock.version,pkg.version);
   assert.equal(lock.packages[''].version,pkg.version);
-  assert.match(appVersionSource,new RegExp("APP_VERSION\\s*=\\s*['\"]"+pkg.version.replace(/\./g,'\\\\.')+"['\"]"));
+  assert.match(appVersionSource,new RegExp("APP_VERSION\\s*=\\s*['\"]"+pkg.version.replace(/\./g,'\\.')+"['\"]"));
 });
 
 test('release notes exist for exact package version',()=>{
