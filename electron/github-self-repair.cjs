@@ -233,6 +233,9 @@ function createGitHubSelfRepairClient(options={}) {
     const lock = JSON.parse(lockSource);
     const currentVersion = String(pkg.version || '');
     if (!/^\d+\.\d+\.\d+$/.test(currentVersion)) throw new Error('GITHUB_RELEASE_VERSION_INVALID');
+    const installedVersion = String(repair.installedVersion || '');
+    if (!/^\d+\.\d+\.\d+$/.test(installedVersion)) throw new Error('GITHUB_INSTALLED_VERSION_REQUIRED');
+    if (installedVersion !== currentVersion) throw new Error('GITHUB_INSTALLED_VERSION_NOT_LATEST');
     if (String(lock.version || '') !== currentVersion || String(lock.packages?.['']?.version || '') !== currentVersion) {
       throw new Error('GITHUB_RELEASE_LOCK_VERSION_MISMATCH');
     }
@@ -312,7 +315,7 @@ Publication remains a separate owner action. Unsigned publication requires an ex
     const baseRef = await getRef('main');
     const baseSha = assertSha(baseRef?.object?.sha);
     await verifyRemoteBase(expectedBaseFiles,baseSha);
-    const release = await buildReleaseMetadata(baseSha,{hash,goal,risk,files});
+    const release = await buildReleaseMetadata(baseSha,{hash,goal,risk,files,installedVersion:input.installedVersion});
     const allFiles = [...files,...release.files];
     if (new Set(allFiles.map((item)=>item.path)).size !== allFiles.length) throw new Error('GITHUB_REPAIR_RELEASE_PATH_COLLISION');
 
