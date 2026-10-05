@@ -23,6 +23,7 @@ async function enforceHungarianReply(reply) {
   const translated = await invokeWithRetry({
     prompt: `Fordítsd le természetes, rövid magyar válaszra. Csak a magyar szöveget add vissza, magyarázat nélkül:\n\n${cleanReply}`,
     task_type: 'translation',
+    request_origin: 'conversation',
   }, 1).catch(() => null);
 
   return normalizeAssistantReply(translated) || cleanReply;
@@ -98,7 +99,7 @@ function scopePromptContext(ctx, message) {
 
 export async function runAssistantTurn({ message, history, ctx, lang, userMood, attachedFiles = [], source = 'chat' }) {
   const fallbackLang = lang || 'hu';
-  const detectedRaw = shouldLockVoiceToHungarian(message, source, fallbackLang) ? 'hu' : await detectLanguage(message, fallbackLang);
+  const detectedRaw = shouldLockVoiceToHungarian(message, source, fallbackLang) ? 'hu' : await detectLanguage(message, fallbackLang, { requestOrigin:'conversation' });
   const detectedLang = looksHungarian(message) ? 'hu' : detectedRaw;
   const forceHungarian = detectedLang === 'hu' || detectedLang === 'hu-HU';
   const outputLang = forceHungarian ? 'hu' : detectedLang;
@@ -127,6 +128,7 @@ export async function runAssistantTurn({ message, history, ctx, lang, userMood, 
     task_type: 'general',
     queueKey: 'assistant-turn',
     contains_sensitive_context: containsSensitiveContext,
+    request_origin: 'conversation',
   };
 
   const mediaUrls = attachedFiles.filter(f => f.kind === 'image' || f.kind === 'video').map(f => f.url);
