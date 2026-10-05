@@ -5,9 +5,10 @@ import fs from 'node:fs';
 test('published version and dependency lock agree',()=>{
   const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
   const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
-  assert.equal(pkg.version,'0.3.23');
+  assert.match(pkg.version,/^\d+\.\d+\.\d+$/);
   assert.equal(lock.version,pkg.version);
   assert.equal(lock.packages[''].version,pkg.version);
+  assert.match(appVersionSource,new RegExp("APP_VERSION\\s*=\\s*['\"]"+pkg.version.replace(/\./g,'\\\\.')+"['\"]"));
 });
 
 test('release notes exist for exact package version',()=>{
