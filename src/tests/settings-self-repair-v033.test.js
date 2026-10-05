@@ -9,6 +9,7 @@ const layout = fs.readFileSync('src/components/Layout.jsx','utf8');
 const main = fs.readFileSync('electron/main.cjs','utf8');
 const preload = fs.readFileSync('electron/preload.cjs','utf8');
 const repair = fs.readFileSync('electron/developer-repair.cjs','utf8');
+const githubRepair = fs.readFileSync('electron/github-self-repair.cjs','utf8');
 const system = fs.readFileSync('src/pages/SystemCenter.jsx','utf8');
 const app = fs.readFileSync('src/App.jsx','utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
@@ -102,4 +103,37 @@ test('Self-Repair filters historical crashes inside the model prompt', () => {
   assert.match(main,/currentAppVersion = String\(app\.getVersion/);
   assert.match(main,/readRecentCrashes\(20\)[\s\S]*?filter\(\(item\) => canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/Do not diagnose a historical crash from an older version as a current defect/);
+});
+
+
+test('GitHub Self-Repair token is encrypted locally and never exposed through renderer settings', () => {
+  assert.match(main,/githubSelfRepairToken/);
+  assert.match(main,/protectSecret\(token\)/);
+  assert.match(main,/unprotectSecret\(raw\.githubSelfRepairToken\)/);
+  assert.match(main,/hasGitHubSelfRepairToken/);
+  assert.doesNotMatch(preload,/githubSelfRepairToken/);
+  assert.match(preload,/jarvis:self-repair:github:connect/);
+  assert.match(preload,/jarvis:self-repair:github:disconnect/);
+});
+
+test('GitHub Self-Repair only targets the pinned Jarvis repository and protects release infrastructure from AI patches', () => {
+  assert.match(githubRepair,/DEFAULT_REPO = 'bigzsorzs-sketch\/jarvis-windows-v0\.1'/);
+  assert.match(githubRepair,/GITHUB_REPOSITORY_NOT_ALLOWED/);
+  assert.match(githubRepair,/GITHUB_REPAIR_PATH_BLOCKED/);
+  assert.match(githubRepair,/\.github\\\/workflows/);
+  assert.match(githubRepair,/scripts\\\//);
+  assert.match(githubRepair,/GITHUB_REPAIR_REMOTE_SOURCE_CHANGED/);
+});
+
+test('Self-Repair requires local full validation before GitHub PR creation and keeps merge and release as owner actions', () => {
+  const start = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
+  const end = main.indexOf("ipcMain.handle('jarvis:repair:apply'",start);
+  const body = main.slice(start,end);
+  assert.ok(start >= 0 && end > start);
+  assert.ok(body.indexOf('await ensureManualRuntimeBuilt') < body.indexOf('await client.createRepairPullRequest'));
+  assert.ok(body.indexOf('developerRepair.rollbackOwner(entry.workspace,backup)') < body.indexOf('await client.createRepairPullRequest'));
+  assert.match(main,/async function mergeGitHubSelfRepair/);
+  assert.match(main,/async function publishGitHubSelfRepairRelease/);
+  assert.match(githubRepair,/GITHUB_REPAIR_CI_NOT_PASSED/);
+  assert.match(githubRepair,/GITHUB_RELEASE_MAIN_CI_NOT_PASSED/);
 });
