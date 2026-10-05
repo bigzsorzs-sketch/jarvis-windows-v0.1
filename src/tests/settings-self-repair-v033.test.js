@@ -137,3 +137,21 @@ test('Self-Repair requires local full validation before GitHub PR creation and k
   assert.match(githubRepair,/GITHUB_REPAIR_CI_NOT_PASSED/);
   assert.match(githubRepair,/GITHUB_RELEASE_MAIN_CI_NOT_PASSED/);
 });
+
+
+test('GitHub merge release and abandon require native owner presence only after their verification preconditions', () => {
+  for (const [name,gate] of [
+    ['mergeGitHubSelfRepair',"state.prStatus?.ci?.state !== 'passed'"],
+    ['publishGitHubSelfRepairRelease',"state.mainStatus?.state !== 'current'"],
+    ['abandonGitHubSelfRepair',"state.mergeSha || state.phase === 'merged'"]
+  ]) {
+    const start=main.indexOf(`async function ${name}`);
+    assert.ok(start>=0,name);
+    const next=main.indexOf('\nasync function ',start+20);
+    const body=main.slice(start,next>start?next:main.length);
+    const gateIndex=body.indexOf(gate);
+    const confirmIndex=body.indexOf('await requireOwnerPresence');
+    assert.ok(gateIndex>=0,`${name}: missing verification gate`);
+    assert.ok(confirmIndex>gateIndex,`${name}: native confirmation must follow verification gate`);
+  }
+});
