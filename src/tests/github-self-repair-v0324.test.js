@@ -389,6 +389,7 @@ test('GitHub client independently blocks Self-Repair trust-core files even if up
     'electron/developer-repair.cjs',
     'electron/github-self-repair.cjs',
     'electron/preload.cjs',
+    'src/pages/SystemCenter.jsx',
     'electron/admin-diagnostics.cjs',
     'src/lib/appVersion.js',
     'release-notes/v0.3.24.md',
