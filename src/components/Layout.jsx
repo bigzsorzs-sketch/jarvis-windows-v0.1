@@ -92,7 +92,7 @@ export default function Layout() {
       p.startsWith('/eszkozok') ||
       p.startsWith('/tools/') ||
       toolPaths.has(p) ||
-      ['/muszerfal','/memoria','/automotive','/obd2'].includes(p)
+      ['/muszerfal','/memoria','/automotive','/obd2','/system-center'].includes(p)
     ) return '/eszkozok';
     return p;
   })();
