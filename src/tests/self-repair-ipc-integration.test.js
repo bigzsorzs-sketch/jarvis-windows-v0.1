@@ -62,6 +62,7 @@ function makeApplyHarness(overrides={}) {
     },
     getGitHubSelfRepairClient:()=>githubClient,
     githubSelfRepair:{DEFAULT_REPO:'bigzsorzs-sketch/jarvis-windows-v0.1'},
+    app:{getVersion:()=> '0.3.23'},
     writeGitHubRepairState:(value)=>{state=value;events.push('github-state');return value;},
     Date,console
   };
