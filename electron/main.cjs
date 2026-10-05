@@ -2524,6 +2524,7 @@ app.whenReady().then(async () => {
       }
 
       const expectedBaseFiles=developerRepair.readOwnerPlanFiles(entry.workspace,entry.plan);
+      const workspaceFingerprintBefore=selfRepairSourceFingerprint(entry.workspace);
       const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
       const previousRuntime = activation.snapshotRuntime(entry.workspace, manualRuntimeStatePath(), backup);
       selfRepairToolchainPaths();
@@ -2539,6 +2540,10 @@ app.whenReady().then(async () => {
           developerRepair.rollbackOwner(entry.workspace,backup);
           activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
           workspaceRestored=true;
+          if (selfRepairSourceFingerprint(entry.workspace) !== workspaceFingerprintBefore) {
+            try { fs.rmSync(entry.workspace,{recursive:true,force:true}); } catch {}
+            throw new Error('MANUAL_REPAIR_STAGING_INTEGRITY_FAILED');
+          }
           manualRepairPlans.delete(hash);
           removePersistedManualRepairPlan(hash);
           return {success:false,status:'ROLLED_BACK',hash,backup,validation};
@@ -2562,6 +2567,10 @@ app.whenReady().then(async () => {
         developerRepair.rollbackOwner(entry.workspace,backup);
         activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
         workspaceRestored=true;
+        if (selfRepairSourceFingerprint(entry.workspace) !== workspaceFingerprintBefore) {
+          try { fs.rmSync(entry.workspace,{recursive:true,force:true}); } catch {}
+          throw new Error('MANUAL_REPAIR_STAGING_INTEGRITY_FAILED');
+        }
 
         const client=getGitHubSelfRepairClient();
         const published=await client.createRepairPullRequest({
