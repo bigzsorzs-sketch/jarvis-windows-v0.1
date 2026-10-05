@@ -2411,100 +2411,161 @@ app.whenReady().then(async () => {
     if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
     manualRepairApplyInFlight = true;
     try {
-    const hash=String(request.hash || '').trim().toLowerCase();
-    const entry=loadPersistedManualRepairPlan(hash);
-    if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
-    manualRepairPlans.set(hash,entry);
-    if (Date.now()-entry.createdAt > 60*60*1000) {
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      throw new Error('MANUAL_REPAIR_PLAN_EXPIRED');
-    }
-    const approvedPlan={...entry.plan};
-    delete approvedPlan.hash;
-    if (developerRepair.proposalHash(approvedPlan)!==hash) {
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
-    }
-
-    // The explicit "Elfogadom / Accept" click is the owner approval for this
-    // exact hashed proposal. Keep the owner-role, hash, expiry and workspace
-    // integrity checks here; do not ask for a second confirmation dialog.
-    if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
-    const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
-    const previousRuntime = activation.snapshotRuntime(entry.workspace, manualRuntimeStatePath(), backup);
-    selfRepairToolchainPaths();
-    // Failing to disable the old runtime must abort BEFORE any source is changed.
-    fs.rmSync(manualRuntimeStatePath(),{force:true});
-    if (fs.existsSync(manualRuntimeStatePath())) {
-      throw new Error('MANUAL_REPAIR_DISABLE_RUNTIME_FAILED');
-    }
-    try {
-      developerRepair.applyOwner(entry.workspace,entry.plan);
-      const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
-      if (!validation.ok) {
-        developerRepair.rollbackOwner(entry.workspace,backup);
-        activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
+      const hash=String(request.hash || '').trim().toLowerCase();
+      const entry=loadPersistedManualRepairPlan(hash);
+      if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
+      manualRepairPlans.set(hash,entry);
+      if (Date.now()-entry.createdAt > 60*60*1000) {
         manualRepairPlans.delete(hash);
         removePersistedManualRepairPlan(hash);
-        return {success:false,status:'ROLLED_BACK',hash,backup,validation};
+        throw new Error('MANUAL_REPAIR_PLAN_EXPIRED');
       }
-      const runtime = await ensureManualRuntimeBuilt(entry.workspace);
-      const fullValidation = {
-        ok:true,
-        results:[...(validation.results || []),...(runtime.checks || [])]
-      };
+      const approvedPlan={...entry.plan};
+      delete approvedPlan.hash;
+      if (developerRepair.proposalHash(approvedPlan)!==hash) {
+        manualRepairPlans.delete(hash);
+        removePersistedManualRepairPlan(hash);
+        throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
+      }
+
+      // "Elfogadom / Accept" approves only this exact hashed patch. The patch is
+      // first exercised in the isolated Self-Repair workspace. The installed
+      // Jarvis runtime is not replaced by that staging build. Only the exact
+      // locally validated file bytes may be sent to a dedicated GitHub repair
+      // branch; merge and release remain separate owner actions.
+      if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
+      getGitHubSelfRepairClient();
+
+      const expectedBaseFiles=developerRepair.readOwnerPlanFiles(entry.workspace,entry.plan);
+      const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
+      const previousRuntime = activation.snapshotRuntime(entry.workspace, manualRuntimeStatePath(), backup);
+      selfRepairToolchainPaths();
+      fs.rmSync(manualRuntimeStatePath(),{force:true});
+      if (fs.existsSync(manualRuntimeStatePath())) throw new Error('MANUAL_REPAIR_DISABLE_RUNTIME_FAILED');
+
+      let workspaceRestored=false;
+      let localValidationCompleted=false;
       try {
-        selfRepairLearning?.recordVerified?.({
-          title:entry.plan.goal || 'Kézi Self-Repair',
-          repairId:hash,
-          files:entry.plan.patches.map((patch)=>patch.file),
-          evidence:entry.plan.rationale || entry.plan.goal || '',
-          validation:fullValidation.results
-            .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
-          success:true
-        });
-      } catch (learningError) {
-        // A telemetry failure must not revert code that passed the full suite.
-        console.warn('Self-Repair learning could not be saved:', learningError);
-      }
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      scheduleManualRuntimeRestart(entry.workspace);
-      return {
-        success:true,
-        status:'APPLIED_AND_RESTARTING',
-        hash,
-        backup,
-        workspace:entry.workspace,
-        files:entry.plan.patches.map((patch)=>patch.file),
-        validation:fullValidation,
-        runtime:{
-          version:runtime.version,
-          builtAt:runtime.builtAt,
-          restartScheduled:true
+        developerRepair.applyOwner(entry.workspace,entry.plan);
+        const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
+        if (!validation.ok) {
+          developerRepair.rollbackOwner(entry.workspace,backup);
+          activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
+          workspaceRestored=true;
+          manualRepairPlans.delete(hash);
+          removePersistedManualRepairPlan(hash);
+          return {success:false,status:'ROLLED_BACK',hash,backup,validation};
         }
-      };
-    } catch (error) {
-      // Invalidate activation even if the source rollback itself encounters an error.
-      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-      let rollbackFailure=null;
-      try {
+
+        const runtime = await ensureManualRuntimeBuilt(entry.workspace);
+        const stagedFiles=developerRepair.readOwnerPlanFiles(entry.workspace,entry.plan);
+        if (stagedFiles.some((item)=>typeof item.content !== 'string')) {
+          throw new Error('GITHUB_REPAIR_STAGED_FILE_MISSING');
+        }
+        const fullValidation = {
+          ok:true,
+          results:[...(validation.results || []),...(runtime.checks || [])]
+        };
+        localValidationCompleted=true;
+
+        // Never leave the locally repaired staging runtime active while GitHub
+        // independently verifies the patch. Restore both source and activation
+        // state before any network mutation.
+        fs.rmSync(manualRuntimeStatePath(),{force:true});
         developerRepair.rollbackOwner(entry.workspace,backup);
         activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
+        workspaceRestored=true;
+
+        const client=getGitHubSelfRepairClient();
+        const published=await client.createRepairPullRequest({
+          hash,
+          goal:entry.plan.goal,
+          rationale:entry.plan.rationale,
+          risk:entry.plan.risk,
+          files:stagedFiles,
+          expectedBaseFiles,
+          validation:fullValidation.results
+        });
+        if (!Number.isInteger(published?.prNumber) || !published?.headSha || !published?.version) {
+          throw new Error('GITHUB_REPAIR_PUBLISH_RESULT_INVALID');
+        }
+
+        const githubState={
+          schema:1,
+          phase:'pull-request',
+          repairHash:hash,
+          goal:entry.plan.goal || 'Jarvis Self-Repair',
+          risk:entry.plan.risk || 'medium',
+          files:entry.plan.patches.map((patch)=>patch.file),
+          repo:published.repo || githubSelfRepair.DEFAULT_REPO,
+          branch:published.branch,
+          baseSha:published.baseSha,
+          headSha:published.headSha,
+          version:published.version,
+          prNumber:published.prNumber,
+          prUrl:published.prUrl || null,
+          createdAt:Date.now(),
+          updatedAt:Date.now(),
+          localValidation:fullValidation
+        };
+        writeGitHubRepairState(githubState);
+
+        try {
+          selfRepairLearning?.recordVerified?.({
+            title:entry.plan.goal || 'Kézi Self-Repair',
+            repairId:hash,
+            files:entry.plan.patches.map((patch)=>patch.file),
+            evidence:entry.plan.rationale || entry.plan.goal || '',
+            validation:fullValidation.results
+              .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+            success:true
+          });
+        } catch (learningError) {
+          console.warn('Self-Repair learning could not be saved:', learningError);
+        }
+
+        manualRepairPlans.delete(hash);
+        removePersistedManualRepairPlan(hash);
+        return {
+          success:true,
+          status:'GITHUB_PR_OPENED',
+          hash,
+          backup,
+          files:entry.plan.patches.map((patch)=>patch.file),
+          validation:fullValidation,
+          github:githubState,
+          runtime:{
+            version:runtime.version,
+            builtAt:runtime.builtAt,
+            restartScheduled:false,
+            stagingOnly:true
+          }
+        };
+      } catch (error) {
+        try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+        let rollbackFailure=null;
+        if (!workspaceRestored) {
+          try {
+            developerRepair.rollbackOwner(entry.workspace,backup);
+            activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
+            workspaceRestored=true;
+          } catch (rollbackError) {
+            rollbackFailure=rollbackError;
+          }
+        }
+        const isGitHubError = /^GITHUB_/.test(String(error?.message || error || ''));
+        if (!isGitHubError || !localValidationCompleted) {
+          manualRepairPlans.delete(hash);
+          removePersistedManualRepairPlan(hash);
+        }
+        if (rollbackFailure) {
+          throw new Error(
+            'MANUAL_REPAIR_ROLLBACK_FAILED: ' + String(rollbackFailure?.message || rollbackFailure)
+            + ' (original: ' + String(error?.message || error) + ')'
+          );
+        }
+        throw error;
       }
-      catch (rollbackError) { rollbackFailure=rollbackError; }
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      if (rollbackFailure) {
-        throw new Error(
-          'MANUAL_REPAIR_ROLLBACK_FAILED: ' + String(rollbackFailure?.message || rollbackFailure)
-          + ' (original: ' + String(error?.message || error) + ')'
-        );
-      }
-      throw error;
-    }
     } finally {
       manualRepairApplyInFlight = false;
     }
