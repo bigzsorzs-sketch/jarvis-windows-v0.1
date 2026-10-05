@@ -23,6 +23,11 @@ const PROTECTED = [
 const OWNER_BLOCKED = [
   /^electron[\\/]security[\\/]/i,
   /^security[\\/]/i,
+  /^electron[\\/]main\.cjs$/i,
+  /^electron[\\/]developer-repair\.cjs$/i,
+  /^electron[\\/]github-self-repair\.cjs$/i,
+  /^electron[\\/]preload\.cjs$/i,
+  /^electron[\\/]admin-diagnostics\.cjs$/i,
   /^\.github[\\/]workflows[\\/]/i,
   /^scripts[\\/]/i,
   /^package\.json$/i,
