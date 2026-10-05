@@ -371,6 +371,7 @@ export default function Chat() {
         prompt: `Does this user message contain a personal fact worth remembering? Message: "${safeMsg}"
 Return JSON: {"save": boolean, "content": "string (the fact)", "category": "preference|fact|habit|interest|other"}
 Only save if genuinely new personal info (name, health fact, preference, habit). Return save:false for questions or generic statements.`,
+        request_origin: 'conversation',
         response_json_schema: {
           type: 'object',
           properties: {
@@ -473,7 +474,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
     try {
       setLoadingStep(t('thinking'));
-      const detectedFromMessage = msg.length > 8 ? await detectLanguage(msg, lang || detectedLang || 'hu') : (detectedLang || lang || 'hu');
+      const detectedFromMessage = msg.length > 8 ? await detectLanguage(msg, lang || detectedLang || 'hu', { requestOrigin:'conversation' }) : (detectedLang || lang || 'hu');
       if (!isCurrentSession()) return;
       const routed = await routeUserCommand({
         text: msg,
