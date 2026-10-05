@@ -36,6 +36,9 @@ const OWNER_BLOCKED = [
   /^package-lock\.json$/i,
   /^src[\\/]lib[\\/]appVersion\.js$/i,
   /^release-notes[\\/]/i,
+  /^eslint\.config\.js$/i,
+  /^tsconfig\.json$/i,
+  /^vite\.config\.js$/i,
 ];
 const ALLOWED_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
