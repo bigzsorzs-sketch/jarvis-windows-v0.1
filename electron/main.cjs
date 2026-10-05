@@ -1858,7 +1858,11 @@ Start-Process -FilePath $appExe
     currentVersion,
     latestVersion:release.latestVersion,
     backupRoot,
-    verification:signer.verification,
+    verification:signer.verification === 'authenticode'
+      ? 'sha256+manifest+authenticode'
+      : signer.verification === 'sha256+authenticode'
+        ? 'sha256+manifest+authenticode'
+        : 'sha256+manifest',
     signer:signer.subject || signer.thumbprint || null
   };
 }
