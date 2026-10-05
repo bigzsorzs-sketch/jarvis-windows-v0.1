@@ -17,6 +17,7 @@ const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
 const developerRepair = require('./developer-repair.cjs');
+const githubSelfRepair = require('./github-self-repair.cjs');
 const { validateUploadedFileUrl } = require('./analysis/file-upload-validator.cjs');
 const { SelfRepairLearning } = require('./self-repair-learning.cjs');
 const { parseHelperArgs, startAdminHelper, AdminDiagnosticsManager } = require('./admin-diagnostics.cjs');
@@ -118,6 +119,13 @@ function developerBackupRoot() { return path.join(app.getPath('userData'),'devel
 function manualRepairRoot() { return path.join(app.getPath('userData'),'manual-self-repair'); }
 function manualRuntimeStatePath() { return path.join(manualRepairRoot(),'runtime.json'); }
 function manualRepairPlanStoreRoot() { return path.join(manualRepairRoot(),'plans'); }
+function githubRepairStatePath() { return path.join(manualRepairRoot(),'github-repair-state.json'); }
+function readGitHubRepairState() { return readJson(githubRepairStatePath(),null); }
+function writeGitHubRepairState(value) {
+  if (!value) { try { fs.rmSync(githubRepairStatePath(),{force:true}); } catch {} return null; }
+  writeJson(githubRepairStatePath(),value);
+  return value;
+}
 function manualRepairPlanFile(hash) {
   const safeHash = String(hash || '').trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(safeHash)) return null;
@@ -649,12 +657,17 @@ function unprotectSecret(entry) {
 function purgeInsecureLegacySecrets() {
   const file = settingsPath();
   const raw = readJson(file, {});
+  let changed = false;
   if (raw.openRouterKey && raw.openRouterKey.type !== 'safeStorage') {
     delete raw.openRouterKey;
-    writeJson(file, raw);
-    return true;
+    changed = true;
   }
-  return false;
+  if (raw.githubSelfRepairToken && raw.githubSelfRepairToken.type !== 'safeStorage') {
+    delete raw.githubSelfRepairToken;
+    changed = true;
+  }
+  if (changed) writeJson(file, raw);
+  return changed;
 }
 
 function getSettingsInternal() {
@@ -673,6 +686,9 @@ function getSettingsInternal() {
     ttsGender: raw.ttsGender || ((raw.ttsVoice || DEFAULT_TTS_VOICE) === 'Kore' ? 'female' : 'male'),
     ttsVoice: raw.ttsVoice || DEFAULT_TTS_VOICE,
     hasOpenRouterKey: hasSecureOpenRouterKey,
+    hasGitHubSelfRepairToken: raw.githubSelfRepairToken?.type === 'safeStorage'
+      && safeStorage.isEncryptionAvailable()
+      && Boolean(raw.githubSelfRepairToken?.value),
   };
 }
 
@@ -694,6 +710,123 @@ async function saveSettingsInternal(patch={}) {
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
   return getSettingsInternal();
+}
+
+async function connectGitHubSelfRepair(tokenValue) {
+  const token = String(tokenValue || '').trim();
+  const client = githubSelfRepair.createGitHubSelfRepairClient({ token, repo:githubSelfRepair.DEFAULT_REPO });
+  const connection = await client.validateConnection();
+  const raw = readJson(settingsPath(), {});
+  raw.githubSelfRepairToken = protectSecret(token);
+  writeJson(settingsPath(), raw);
+  return connection;
+}
+
+function disconnectGitHubSelfRepair() {
+  const raw = readJson(settingsPath(), {});
+  delete raw.githubSelfRepairToken;
+  writeJson(settingsPath(), raw);
+  return { connected:false, repo:githubSelfRepair.DEFAULT_REPO };
+}
+
+function getGitHubSelfRepairClient() {
+  const raw = readJson(settingsPath(), {});
+  const token = unprotectSecret(raw.githubSelfRepairToken);
+  if (!token) throw new Error('GITHUB_TOKEN_MISSING');
+  return githubSelfRepair.createGitHubSelfRepairClient({ token, repo:githubSelfRepair.DEFAULT_REPO });
+}
+
+async function syncGitHubRepairState() {
+  const stored = readGitHubRepairState();
+  if (!stored) return null;
+  const client = getGitHubSelfRepairClient();
+  const next = { ...stored };
+
+  if (next.prNumber && !next.mergeSha) {
+    const pr = await client.getPullRequestStatus(next.prNumber);
+    next.prStatus = pr;
+    if (pr.merged && pr.mergeCommitSha) {
+      next.mergeSha = pr.mergeCommitSha;
+      next.phase = 'merged';
+    }
+  }
+
+  if (next.mergeSha) {
+    next.mainStatus = await client.getMainStatus(next.mergeSha);
+    if (next.mainStatus?.state === 'current' && next.mainStatus?.ci?.state === 'passed' && next.phase === 'merged') {
+      next.phase = 'main-verified';
+    }
+  }
+
+  if (next.version && next.mergeSha && (next.releaseDispatchedAt || next.phase === 'released')) {
+    const release = await client.getReleaseStatus({
+      version:next.version,
+      mergeSha:next.mergeSha,
+      dispatchedAt:next.releaseDispatchedAt || null
+    });
+    next.releaseStatus = release;
+    if (release?.state === 'released') next.phase = 'released';
+  }
+
+  next.updatedAt = Date.now();
+  writeGitHubRepairState(next);
+  return next;
+}
+
+async function getGitHubSelfRepairStatus() {
+  const raw = readJson(settingsPath(), {});
+  const token = unprotectSecret(raw.githubSelfRepairToken);
+  const stored = readGitHubRepairState();
+  if (!token) {
+    return { connected:false, repo:githubSelfRepair.DEFAULT_REPO, repair:stored || null };
+  }
+  const client = githubSelfRepair.createGitHubSelfRepairClient({ token, repo:githubSelfRepair.DEFAULT_REPO });
+  const connection = await client.validateConnection();
+  let repair = stored || null;
+  if (repair) repair = await syncGitHubRepairState();
+  return { ...connection, repair };
+}
+
+async function mergeGitHubSelfRepair() {
+  if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+  const state = await syncGitHubRepairState();
+  if (!state?.prNumber || !state?.headSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
+  if (state.mergeSha) return state;
+  if (state.prStatus?.ci?.state !== 'passed') throw new Error('GITHUB_REPAIR_CI_NOT_PASSED');
+  const client = getGitHubSelfRepairClient();
+  const merged = await client.mergeRepair(state.prNumber,state.headSha);
+  const next = {
+    ...state,
+    phase:'merged',
+    mergeSha:merged.mergeSha,
+    mergedAt:Date.now()
+  };
+  writeGitHubRepairState(next);
+  return syncGitHubRepairState();
+}
+
+async function publishGitHubSelfRepairRelease(allowUnsigned=false) {
+  if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+  const state = await syncGitHubRepairState();
+  if (!state?.version || !state?.mergeSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
+  if (state.phase === 'released') return state;
+  if (state.mainStatus?.state !== 'current' || state.mainStatus?.ci?.state !== 'passed') {
+    throw new Error('GITHUB_RELEASE_MAIN_CI_NOT_PASSED');
+  }
+  const client = getGitHubSelfRepairClient();
+  const dispatch = await client.dispatchRelease({
+    version:state.version,
+    mergeSha:state.mergeSha,
+    allowUnsigned:Boolean(allowUnsigned)
+  });
+  const next = {
+    ...state,
+    phase:dispatch.alreadyReleased ? 'released' : 'release-dispatched',
+    releaseDispatchedAt:dispatch.dispatchedAt || state.releaseDispatchedAt || new Date().toISOString(),
+    unsignedReleaseApproved:Boolean(allowUnsigned)
+  };
+  writeGitHubRepairState(next);
+  return syncGitHubRepairState();
 }
 
 async function deleteAllLocalData() {
