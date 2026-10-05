@@ -9,6 +9,8 @@ const PROTECTED = [
   /^security[\\/]/i,
   /^electron[\\/]main\.cjs$/i,
   /^electron[\\/]developer-repair\.cjs$/i,
+  /^electron[\\/]github-self-repair\.cjs$/i,
+  /^electron[\\/]preload\.cjs$/i,
   /^electron[\\/]admin-diagnostics\.cjs$/i,
   /^\.github[\\/]workflows[\\/]/i,
   /^scripts[\\/]/i,
