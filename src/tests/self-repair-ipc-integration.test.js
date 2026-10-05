@@ -40,6 +40,7 @@ function makeApplyHarness(overrides={}) {
     readOwnerPlanFiles:()=>[{path:'src/pages/example.jsx',content:patched?'fixed':'old'}],
     snapshotOwner:()=>{events.push('backup');return '/backup/test';},
     applyOwner:()=>{patched=true;events.push('apply');},
+    normalizeOwnerPlanFiles:()=>events.push('canonicalize'),
     rollbackOwner:()=>{patched=false;events.push('rollback');}
   };
   const context={
@@ -110,10 +111,12 @@ test('Accept validates the exact patch locally, restores staging, then creates a
   assert.equal(result.runtime.stagingOnly,true);
   assert.equal(result.runtime.restartScheduled,false);
   assert.equal(h.events.includes('apply'),true);
+  assert.equal(h.events.includes('canonicalize'),true);
   assert.equal(h.events.includes('github-publish'),true);
   assert.equal(h.events.includes('github-state'),true);
   assert.equal(h.patched,false);
-  assert.ok(h.events.indexOf('apply') < h.events.indexOf('rollback'));
+  assert.ok(h.events.indexOf('apply') < h.events.indexOf('canonicalize'));
+  assert.ok(h.events.indexOf('canonicalize') < h.events.indexOf('rollback'));
   assert.ok(h.events.indexOf('rollback') < h.events.indexOf('github-publish'));
   assert.equal(h.state.prNumber,41);
 });
