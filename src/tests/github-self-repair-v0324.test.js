@@ -425,14 +425,44 @@ test('desktop updater requires and verifies release-manifest.json before signer 
 test('an existing closed exact repair PR is cleaned up instead of being reused as success', async () => {
   const repo=github.DEFAULT_REPO;
   const baseSha='a'.repeat(40);
-  const branchName='fix/jarvis-self-repair-v0-3-24-'+ 'f'.repeat(10);
+  const hash='f'.repeat(64);
+  const branchName='fix/jarvis-self-repair-v0-3-24-'+hash.slice(0,10);
   const headSha='b'.repeat(40);
+  const goal='retry closed repair';
   const source='export const value = "old";\n';
-  const files=new Map([
+  const basePackage={name:'jarvis-desktop',version:'0.3.23'};
+  const baseLock={name:'jarvis-desktop',version:'0.3.23',lockfileVersion:3,packages:{'':{name:'jarvis-desktop',version:'0.3.23'}},dependencies:{}};
+  const mainFiles=new Map([
     ['src/pages/example.jsx',source],
-    ['package.json',JSON.stringify({name:'jarvis-desktop',version:'0.3.23'},null,2)+'\n'],
-    ['package-lock.json',JSON.stringify({name:'jarvis-desktop',version:'0.3.23',lockfileVersion:3,packages:{'':{name:'jarvis-desktop',version:'0.3.23'}},dependencies:{}},null,2)+'\n'],
+    ['package.json',JSON.stringify(basePackage,null,2)+'\n'],
+    ['package-lock.json',JSON.stringify(baseLock,null,2)+'\n'],
     ['src/lib/appVersion.js',"export const APP_VERSION = '0.3.23';\n"]
+  ]);
+  const nextPackage={...basePackage,version:'0.3.24'};
+  const nextLock=JSON.parse(JSON.stringify(baseLock));
+  nextLock.version='0.3.24';
+  nextLock.packages[''].version='0.3.24';
+  const notes=`# Jarvis v0.3.24
+
+Self-Repair verified update.
+
+- Repair: ${goal}
+- Risk: low
+- Changed source: src/pages/example.jsx
+- Repair hash: ${hash}
+
+## Verification
+
+Before this repair is sent to GitHub, Jarvis applies the exact owner-approved patch in an isolated local workspace and requires direct file validation, the complete automated test suite, lint, typecheck, Jarvis policy verification and renderer build to pass. GitHub must then independently pass CodeQL, the Windows build, packaged Self-Repair checks, admin-helper handshake and startup smoke test before merge.
+
+Publication remains a separate owner action. Unsigned publication requires an explicit unsigned-release approval.
+`;
+  const branchFiles=new Map([
+    ['src/pages/example.jsx',source],
+    ['package.json',JSON.stringify(nextPackage,null,2)+'\n'],
+    ['package-lock.json',JSON.stringify(nextLock,null,2)+'\n'],
+    ['src/lib/appVersion.js',"export const APP_VERSION = '0.3.24';\n"],
+    ['release-notes/v0.3.24.md',notes]
   ]);
   let deleted=false;
   const client=github.createGitHubSelfRepairClient({
@@ -447,7 +477,8 @@ test('an existing closed exact repair PR is cleaned up instead of being reused a
       if(method==='GET' && p.includes('/git/ref/heads/fix/jarvis-self-repair-')) return reply(200,{object:{sha:headSha}});
       if(method==='GET' && p.startsWith(`/repos/${repo}/contents/`)){
         const file=p.split(`/repos/${repo}/contents/`)[1].split('/').map(decodeURIComponent).join('/');
-        const value=files.get(file);
+        const ref=parsed.searchParams.get('ref');
+        const value=ref===branchName ? branchFiles.get(file) : mainFiles.get(file);
         if(value===undefined) return reply(404,{message:'Not Found'});
         return reply(200,{type:'file',encoding:'base64',content:b64(value)});
       }
@@ -461,8 +492,9 @@ test('an existing closed exact repair PR is cleaned up instead of being reused a
     }
   });
   await assert.rejects(()=>client.createRepairPullRequest({
-    hash:'f'.repeat(64),
-    goal:'retry closed repair',
+    hash,
+    goal,
+    risk:'low',
     files:[{path:'src/pages/example.jsx',content:source}],
     expectedBaseFiles:[{path:'src/pages/example.jsx',content:source}],
     installedVersion:'0.3.23'
