@@ -346,6 +346,15 @@ Publication remains a separate owner action. Unsigned publication requires an ex
       await verifyBranchFiles(branch,allFiles);
       const existingPr = await findPullRequest(branch);
       if (!existingPr) throw new Error('GITHUB_REPAIR_BRANCH_EXISTS_WITHOUT_PR');
+      if (existingPr.merged === true) throw new Error('GITHUB_REPAIR_ALREADY_MERGED');
+      if (existingPr.state !== 'open') {
+        const branchPath = branch.split('/').map(encodeURIComponent).join('/');
+        await request(`/repos/${repo}/git/refs/heads/${branchPath}`,{method:'DELETE',allow404:true});
+        throw new Error('GITHUB_REPAIR_PR_CLOSED_RETRY');
+      }
+      if (assertSha(existingPr?.head?.sha) !== assertSha(existingRef.object.sha)) {
+        throw new Error('GITHUB_REPAIR_PR_HEAD_MISMATCH');
+      }
       return {
         reused:true,
         repo,
@@ -553,6 +562,9 @@ This pull request was created only after the exact owner-approved patch passed J
       ];
       if (release.draft || release.prerelease || required.some((name)=>!names.has(name))) {
         throw new Error('GITHUB_RELEASE_ASSETS_INVALID');
+      }
+      if (String(release.target_commitish || '').toLowerCase() !== assertSha(mergeSha)) {
+        throw new Error('GITHUB_RELEASE_TARGET_MISMATCH');
       }
       return {state:'released',version:releaseVersion,url:release.html_url || null,publishedAt:release.published_at || null};
     }
