@@ -2596,7 +2596,11 @@ app.whenReady().then(async () => {
           updatedAt:Date.now(),
           localValidation:fullValidation
         };
-        writeGitHubRepairState(githubState);
+        try {
+          writeGitHubRepairState(githubState);
+        } catch (stateError) {
+          throw new Error('GITHUB_REPAIR_STATE_PERSIST_FAILED: ' + String(stateError?.message || stateError));
+        }
 
         try {
           selfRepairLearning?.recordVerified?.({
