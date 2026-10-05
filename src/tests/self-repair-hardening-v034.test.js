@@ -100,7 +100,7 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(main,/const workspace = entry\?\.workspace/);
   assert.match(main,/MANUAL_REPAIR_WORKSPACE_REQUIRED/);
   assert.match(main,/sourceFingerprint:readJson\(manualWorkspaceSourceStatePath\(workspace\), \{\}\)\.sourceFingerprint/);
-  assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(workspace\)/);
+  assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(entry\.workspace\)/);
   assert.match(main,/if \(isManualRepairRuntime\) return developerRepair\.validateWorkspace\(target\)/);
   assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);
