@@ -166,7 +166,8 @@ test('GitHub repair transaction uploads the exact locally validated patch and de
     risk:'low',
     files:[{path:'src/pages/example.jsx',content:'export const value = "fixed";\n'}],
     expectedBaseFiles:[{path:'src/pages/example.jsx',content:'export const value = "old";\n'}],
-    validation:[{cmd:'node --test',ok:true},{cmd:'npm run build',ok:true}]
+    validation:[{cmd:'node --test',ok:true},{cmd:'npm run build',ok:true}],
+    installedVersion:'0.3.23'
   });
   assert.equal(result.version,'0.3.24');
   assert.equal(result.prNumber,41);
@@ -176,6 +177,24 @@ test('GitHub repair transaction uploads the exact locally validated patch and de
   assert.equal(JSON.parse(mock.branchFiles.get('package-lock.json')).version,'0.3.24');
   assert.match(mock.branchFiles.get('src/lib/appVersion.js'),/0\.3\.24/);
   assert.match(mock.branchFiles.get('release-notes/v0.3.24.md'),/Repair hash:/);
+});
+
+test('GitHub repair transaction refuses to repair from an installed version older than main/latest release', async () => {
+  const mock = makeGitHubMock();
+  const client = github.createGitHubSelfRepairClient({
+    token:'github_pat_' + 'd'.repeat(40),
+    fetchImpl:mock.fetchImpl
+  });
+  await assert.rejects(
+    ()=>client.createRepairPullRequest({
+      hash:'d'.repeat(64),
+      goal:'stale installed build',
+      files:[{path:'src/pages/example.jsx',content:'export const value = "fixed";\n'}],
+      expectedBaseFiles:[{path:'src/pages/example.jsx',content:'export const value = "old";\n'}],
+      installedVersion:'0.3.22'
+    }),
+    /GITHUB_INSTALLED_VERSION_NOT_LATEST/
+  );
 });
 
 test('GitHub repair transaction refuses to overwrite source when main changed after the local plan was created', async () => {
@@ -189,7 +208,8 @@ test('GitHub repair transaction refuses to overwrite source when main changed af
       hash:'c'.repeat(64),
       goal:'Fix stale source',
       files:[{path:'src/pages/example.jsx',content:'export const value = "fixed";\n'}],
-      expectedBaseFiles:[{path:'src/pages/example.jsx',content:'export const value = "old";\n'}]
+      expectedBaseFiles:[{path:'src/pages/example.jsx',content:'export const value = "old";\n'}],
+      installedVersion:'0.3.23'
     }),
     /GITHUB_REPAIR_REMOTE_SOURCE_CHANGED/
   );
