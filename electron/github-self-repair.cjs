@@ -78,9 +78,6 @@ function replaceAppVersion(source, version) {
   }
   return updated;
 }
-function encodeBase64(value) {
-  return Buffer.from(normalizeText(value),'utf8').toString('base64');
-}
 function decodeGitHubContent(payload) {
   if (!payload || payload.type !== 'file' || payload.encoding !== 'base64' || typeof payload.content !== 'string') {
     throw new Error('GITHUB_CONTENT_RESPONSE_INVALID');
@@ -159,7 +156,8 @@ function createGitHubSelfRepairClient(options={}) {
       return data;
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('GITHUB_API_TIMEOUT');
-      throw error;
+      if (/^GITHUB_/.test(String(error?.message || ''))) throw error;
+      throw new Error('GITHUB_API_NETWORK_ERROR: ' + String(error?.message || error || 'network failure').slice(0,300));
     } finally {
       clearTimeout(timer);
     }
