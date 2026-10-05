@@ -86,6 +86,7 @@ test('Self-Repair trust core and release metadata cannot be modified by AI repai
     for (const file of [
       'electron/main.cjs',
       'electron/github-self-repair.cjs',
+      'src/pages/SystemCenter.jsx',
       'src/lib/appVersion.js',
       'release-notes/v0.3.24.md',
       'eslint.config.js',
