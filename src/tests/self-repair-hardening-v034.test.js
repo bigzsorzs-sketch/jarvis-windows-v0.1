@@ -58,6 +58,19 @@ test('Self-Repair maps reachability, routes, dependencies and IPC', () => {
   }
 });
 
+test('Self-Repair recognizes natural Hungarian repair execution requests', () => {
+  const cases = [
+    'nézd meg miért nem tudod végre hajtani a javítást és miért nem működik az elfogadom gomb?',
+    'végezd el a javítást',
+    'készíts konkrét javítási tervet az electron/main.cjs fájlhoz',
+    'javítsd ki ezt a hibát',
+    'apply the fix'
+  ];
+  for (const value of cases) assert.equal(repair.isExplicitRepairRequest(value),true,value);
+  assert.equal(repair.isExplicitRepairRequest('magyarázd el hogyan működik a javítás'),false);
+  assert.equal(repair.isExplicitRepairRequest('mi a javítás állapota?'),false);
+});
+
 test('Self-Repair learning stores only verified local lessons', () => {
   const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-learning-')),'learning.json');
   const learning=new learningModule.SelfRepairLearning(file);
