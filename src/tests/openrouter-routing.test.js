@@ -29,7 +29,11 @@ test('candidate OpenRouter key is validated before it is persisted', () => {
   assert.match(settings, /testAiConnection\(candidateKey\)/);
 });
 
-test('normal AI text and attachments do not trigger confirmation popup', () => {
+test('normal typed, voice and attachment conversation requests bypass the sensitive-data confirmation popup', () => {
+  assert.match(main, /const isConversationRequest = requestOrigin === 'conversation'/);
+  assert.match(main, /if \(!isConversationRequest && payloadContainsSensitiveContext\(payload\)\)/);
+  assert.match(chat, /request_origin: 'conversation'/);
+  assert.match(codeAssistant, /request_origin: 'conversation'/);
   assert.match(main, /transmitsSensitiveData:false/);
 });
 
