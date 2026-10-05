@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { History, MessageSquarePlus, Trash2, X } from 'lucide-react';
 
 function formatDate(value) {
@@ -23,8 +24,8 @@ export default function ChatHistoryDrawer({
 }) {
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[120] bg-black/55 backdrop-blur-sm" onMouseDown={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[10050] bg-black/55 backdrop-blur-sm" onMouseDown={onClose}>
       <aside
         className="absolute left-0 top-0 h-full w-[340px] max-w-[88vw] border-r border-border bg-background shadow-2xl flex flex-col"
         onMouseDown={(event) => event.stopPropagation()}
@@ -92,6 +93,7 @@ export default function ChatHistoryDrawer({
           })}
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body
   );
 }
