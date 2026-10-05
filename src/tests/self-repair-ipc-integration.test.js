@@ -180,6 +180,16 @@ test('rollback failure is reported instead of silently hiding staging corruption
   assert.equal(h.events.includes('github-publish'),false);
 });
 
+test('GitHub PR state persistence failure keeps the validated pending plan so the exact existing PR can be recovered on retry',async()=>{
+  const h=makeApplyHarness({
+    writeGitHubRepairState:()=>{throw new Error('DISK_FULL');}
+  });
+  await assert.rejects(()=>h.apply(null,{hash}),/GITHUB_REPAIR_STATE_PERSIST_FAILED: DISK_FULL/);
+  assert.equal(h.patched,false);
+  assert.equal(h.events.includes('github-publish'),true);
+  assert.equal(h.events.includes('remove-plan'),false);
+});
+
 test('GitHub failure after full local validation keeps the still-valid pending plan for retry and leaves staging restored',async()=>{
   const h=makeApplyHarness({
     githubClient:{createRepairPullRequest:async()=>{throw new Error('GITHUB_API_503: unavailable');}}
