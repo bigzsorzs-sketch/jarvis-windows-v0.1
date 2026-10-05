@@ -296,7 +296,19 @@ async function ensureManualRepairWorkspace() {
   ];
   const incompleteWorkspace = requiredWorkspaceFiles.some((file) => !fs.existsSync(path.join(target,file)));
   const sourceChanged = !sourceState.sourceFingerprint || sourceState.sourceFingerprint !== installedSourceFingerprint;
-  const mustRefresh = incompleteWorkspace || !currentVersion || (installedVersion && currentVersion !== installedVersion) || sourceChanged;
+  let workspaceDirty = false;
+  if (!incompleteWorkspace && currentVersion) {
+    try {
+      workspaceDirty = selfRepairSourceFingerprint(target) !== installedSourceFingerprint;
+    } catch {
+      workspaceDirty = true;
+    }
+  }
+  const mustRefresh = incompleteWorkspace
+    || !currentVersion
+    || (installedVersion && currentVersion !== installedVersion)
+    || sourceChanged
+    || workspaceDirty;
   if (mustRefresh) {
     for (const entry of entries) {
       const destination = path.join(target,entry);
