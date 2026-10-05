@@ -758,7 +758,9 @@ async function withNetworkTimeout(timeoutMs, label, operation) {
 }
 
 async function openRouterRequest(payload={}) {
-  if (payloadContainsSensitiveContext(payload)) {
+  const requestOrigin = String(payload?.request_origin || payload?.requestOrigin || '').trim().toLowerCase();
+  const isConversationRequest = requestOrigin === 'conversation';
+  if (!isConversationRequest && payloadContainsSensitiveContext(payload)) {
     await enforcePolicy({
       type:'external_ai_sensitive_context',
       target:'openrouter.ai',
