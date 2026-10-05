@@ -1,0 +1,131 @@
+# One-time release promotion for the exact owner-approved, unsigned v0.3.23
+# Windows artifact. This workflow is pinned to the already verified MAIN-branch
+# build and refuses any unexpected version, source commit, artifact, checksum
+# or signing status.
+name: Publish approved Jarvis v0.3.23 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-approved-v0323.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jarvis-owner-approved-onetime-v0323
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'bigzsorzs-sketch/jarvis-windows-v0.1' &&
+      startsWith(github.event.head_commit.message, 'Owner-approved one-time unsigned Jarvis v0.3.23 release')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the main branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Confirm pinned successful main build and version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "0.3.23"
+          test -f release-notes/v0.3.23.md
+          git merge-base --is-ancestor 53372fa1aba141676a9fe5e324e049117ddc2efa HEAD
+          actual_run_status="$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37379402185 --jq '.conclusion')"
+          actual_run_sha="$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37379402185 --jq '.head_sha')"
+          test "$actual_run_status" = "success"
+          test "$actual_run_sha" = "53372fa1aba141676a9fe5e324e049117ddc2efa"
+          actual_run_branch="$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37379402185 --jq '.head_branch')"
+          actual_run_event="$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37379402185 --jq '.event')"
+          actual_artifact_id="$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37379402185/artifacts --jq '.artifacts[] | select(.name == "Jarvis-Windows-x64") | .id')"
+          test "$actual_run_branch" = "main"
+          test "$actual_run_event" = "push"
+          test "$actual_artifact_id" = "11373039530"
+          if gh release view v0.3.23 --repo bigzsorzs-sketch/jarvis-windows-v0.1 >/dev/null 2>&1; then
+            echo "::error::Release v0.3.23 already exists; refusing to overwrite it."
+            exit 1
+          fi
+
+      - name: Download immutable x64 installer from successful main build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          gh run download 37379402185 \
+            --repo bigzsorzs-sketch/jarvis-windows-v0.1 \
+            --name Jarvis-Windows-x64 \
+            --dir release
+
+      - name: Verify the exact approved installer, manifest and unsigned status
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const version = '0.3.23';
+          const source = '53372fa1aba141676a9fe5e324e049117ddc2efa';
+          const name = 'Jarvis-Setup-0.3.23-x64.exe';
+          const hash = '67e9061f8241157d18acbe20560e471da4a6d36ab54b57c3290ed629fa8ad812';
+          const base = 'release/';
+          const exe = fs.readFileSync(base + name);
+          const actual = crypto.createHash('sha256').update(exe).digest('hex');
+          if (actual !== hash) throw new Error('APPROVED_INSTALLER_SHA256_MISMATCH');
+          const manifest = JSON.parse(fs.readFileSync(base + 'release-manifest.json', 'utf8').replace(/^\uFEFF/, ''));
+          if (manifest.version !== version || manifest.commit !== source || manifest.installer !== name
+              || manifest.sha256 !== hash || manifest.ref !== 'refs/heads/main') {
+            throw new Error('APPROVED_MAIN_ARTIFACT_MANIFEST_MISMATCH');
+          }
+          if (manifest.signing?.status !== 'NotSigned') {
+            throw new Error('APPROVED_UNSIGNED_STATUS_MISMATCH');
+          }
+          const checksum = fs.readFileSync(base + name + '.sha256', 'utf8');
+          if (!new RegExp('^' + hash + '(?:\\s|$)', 'im').test(checksum)) {
+            throw new Error('APPROVED_CHECKSUM_ASSET_MISMATCH');
+          }
+          console.log('Approved installer SHA-256 verified:', actual);
+          console.log('Unsigned publication was explicitly approved by the owner.');
+          NODE
+
+      - name: Publish v0.3.23 with the approved unsigned exception
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v0.3.23 \
+            release/Jarvis-Setup-0.3.23-x64.exe \
+            release/Jarvis-Setup-0.3.23-x64.exe.sha256 \
+            release/release-manifest.json \
+            --repo bigzsorzs-sketch/jarvis-windows-v0.1 \
+            --target 53372fa1aba141676a9fe5e324e049117ddc2efa \
+            --title "Jarvis v0.3.23" \
+            --notes-file release-notes/v0.3.23.md \
+            --latest
+
+      - name: Confirm the official Release exists with all required assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.23 \
+            --jq '[.tag_name, .draft, .prerelease, ([.assets[].name] | sort | join(","))] | @tsv'
+          for item in Jarvis-Setup-0.3.23-x64.exe Jarvis-Setup-0.3.23-x64.exe.sha256 release-manifest.json; do
+            gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.23 \
+              --jq '.assets[].name' | grep -Fx "$item"
+          done
