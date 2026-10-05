@@ -36,6 +36,26 @@ function stable(value) {
 function proposalHash(plan) {
   return crypto.createHash('sha256').update(stable(plan)).digest('hex');
 }
+function isExplicitRepairRequest(input='') {
+  const text = String(input || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .trim();
+  if (!text) return false;
+
+  // Direct imperatives: "javítsd", "old meg", "apply the fix", etc.
+  if (/\b(?:javits(?:d|ad)?|kijavits(?:d|ad)?|old\s+meg|csinald\s+meg|modosits(?:d|ad)?|alkalmazd|fix\s+(?:it|this)|repair\s+(?:it|this)|apply\s+(?:the\s+)?fix|make\s+the\s+change)\b/i.test(text)) {
+    return true;
+  }
+
+  // Natural Hungarian requests often use a noun plus an execution verb, e.g.
+  // "végre hajtani a javítást" or "készíts javítási tervet".
+  const mentionsRepair = /\b(?:javitas(?:t|ok|okat|ra|rol|hoz|sal|ban|nak|i)?|patch(?:et)?|repair(?:\s+plan)?|fix)\b/i.test(text);
+  const asksExecution = /\b(?:vegre\s*hajt(?:ani|asd|sd|sa|as)?|vegezd\s+el|alkalmaz(?:d|ni)|keszits(?:d)?|generalj|hozz\s+letre|create|prepare|apply)\b/i.test(text);
+  return mentionsRepair && asksExecution;
+}
+
 
 function normalizeLineEndings(value='') {
   return String(value).replace(/\r\n/g,'\n').replace(/\r/g,'\n');
@@ -611,6 +631,6 @@ function buildDiagnosticContext(root, query='', options={}) {
 }
 
 module.exports={
-  validateWorkspace,validateOwnerPlan,proposalHash,snapshotOwner,applyOwner,rollbackOwner,
+  validateWorkspace,validateOwnerPlan,proposalHash,isExplicitRepairRequest,snapshotOwner,applyOwner,rollbackOwner,
   inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED,OWNER_BLOCKED
 };
