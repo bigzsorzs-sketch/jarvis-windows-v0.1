@@ -804,6 +804,9 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
                   onHistory={() => setHistoryOpen(true)}
                   loading={loading}
                   loadingStep={loadingStep}
+                  attachedFiles={attachedImages}
+                  setAttachedFiles={setAttachedImages}
+                  onMediaError={(errMsg) => setMessages(prev => [...prev, { role: 'assistant', content: errMsg }])}
                 />
                 <ChatConfirmBar
                   pendingConfirm={pendingConfirm}
