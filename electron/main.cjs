@@ -2561,6 +2561,7 @@ app.whenReady().then(async () => {
       let localValidationCompleted=false;
       try {
         developerRepair.applyOwner(entry.workspace,entry.plan);
+        developerRepair.normalizeOwnerPlanFiles(entry.workspace,entry.plan);
         const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
         if (!validation.ok) {
           developerRepair.rollbackOwner(entry.workspace,backup);
