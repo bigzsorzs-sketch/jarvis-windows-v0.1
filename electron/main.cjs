@@ -132,12 +132,14 @@ function persistManualRepairPlan(entry) {
   const hash = String(entry?.plan?.hash || '').trim().toLowerCase();
   const file = manualRepairPlanFile(hash);
   if (!file) throw new Error('MANUAL_REPAIR_INVALID_PLAN_HASH');
+  const workspace = entry?.workspace;
+  if (!workspace) throw new Error('MANUAL_REPAIR_WORKSPACE_REQUIRED');
   writeJson(file,{
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
       || selfRepairSourceFingerprint(selfRepairSourceRoot()),
     createdAt:Number(entry?.createdAt) || Date.now(),
-    workspaceSourceFingerprint:selfRepairSourceFingerprint(entry.workspace),
+    workspaceSourceFingerprint:selfRepairSourceFingerprint(workspace),
     plan:entry.plan
   });
 }
