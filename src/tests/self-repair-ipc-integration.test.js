@@ -61,6 +61,7 @@ function makeApplyHarness(overrides={}) {
       restoreRuntime:()=>events.push('restore-runtime')
     },
     getGitHubSelfRepairClient:()=>githubClient,
+    readGitHubRepairState:()=>null,
     githubSelfRepair:{DEFAULT_REPO:'bigzsorzs-sketch/jarvis-windows-v0.1'},
     app:{getVersion:()=> '0.3.23'},
     writeGitHubRepairState:(value)=>{state=value;events.push('github-state');return value;},
@@ -81,6 +82,15 @@ test('unauthorised local user cannot apply a pending repair',async()=>{
   assert.equal(h.events.includes('backup'),false);
   assert.equal(h.events.includes('apply'),false);
   assert.equal(h.events.includes('github-publish'),false);
+});
+
+test('an active GitHub repair blocks a second repair before local source mutation',async()=>{
+  const h=makeApplyHarness({
+    readGitHubRepairState:()=>({phase:'pull-request',prNumber:41})
+  });
+  await assert.rejects(()=>h.apply(null,{hash}),/GITHUB_REPAIR_ALREADY_ACTIVE/);
+  assert.equal(h.events.includes('backup'),false);
+  assert.equal(h.events.includes('apply'),false);
 });
 
 test('missing GitHub connection aborts before any local source change',async()=>{
