@@ -445,7 +445,7 @@ export default function SystemCenter() {
     && githubRepair?.mainStatus?.state === 'current'
     && mainCiState === 'passed'
     && githubRepair?.phase !== 'released'
-    && githubRepair?.phase !== 'release-dispatched'
+    && (githubRepair?.phase !== 'release-dispatched' || releaseState === 'failed')
   );
 
   return (
