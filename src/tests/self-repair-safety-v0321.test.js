@@ -38,7 +38,7 @@ test('pending approvals can be restored but are bound to the exact workspace sta
   assert.match(view, /developerRepair\?\.getPending\?\.\(\)/);
 });
 
-test('Accept is the final owner approval and apply still rechecks the exact plan', () => {
+test('Accept validates the exact plan locally, restores staging, then publishes only the validated bytes to GitHub', () => {
   const start = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
   const end = main.indexOf("ipcMain.handle('jarvis:repair:apply'",start);
   const body = main.slice(start,end);
@@ -46,24 +46,29 @@ test('Accept is the final owner approval and apply still rechecks the exact plan
   const checks = [
     "loadPersistedManualRepairPlan(hash)",
     "if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED')",
+    "const expectedBaseFiles=developerRepair.readOwnerPlanFiles(",
     "developerRepair.snapshotOwner(",
     "developerRepair.applyOwner(",
     "await validateDirectOwnerRepair(",
     "await ensureManualRuntimeBuilt(",
-    "scheduleManualRuntimeRestart("
+    "const stagedFiles=developerRepair.readOwnerPlanFiles(",
+    "developerRepair.rollbackOwner(entry.workspace,backup)",
+    "await client.createRepairPullRequest(",
+    "writeGitHubRepairState(githubState)"
   ];
   let previous = -1;
   for (const item of checks) {
     const index = body.indexOf(item);
-    assert.ok(index > previous, `Approval or rollback sequence incorrect: ${item}`);
+    assert.ok(index > previous, `Approval or GitHub handoff sequence incorrect: ${item}`);
     previous = index;
   }
   assert.doesNotMatch(body, /requireOwnerPresence/);
+  assert.doesNotMatch(body, /scheduleManualRuntimeRestart\(/);
   assert.match(body, /fs\.rmSync\(manualRuntimeStatePath\(\),\{force:true\}\)/);
-  assert.match(body, /developerRepair\.rollbackOwner\(entry\.workspace,backup\)/);
+  assert.match(body, /stagingOnly:true/);
 });
 
-test('manual runtime only activates after the source checks, node tests and build', () => {
+test('staging runtime is written only after source checks, node tests and build', () => {
   const start = main.indexOf('async function ensureManualRuntimeBuilt(');
   const end = main.indexOf('function scheduleManualRuntimeRestart(',start);
   const body = main.slice(start,end);
