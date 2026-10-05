@@ -1521,7 +1521,7 @@ Rules:
 - Return JSON only with goal, rationale, risk and patches.
 - Copy every search string exactly from CURRENT SOURCE. Do not invent or paraphrase search text.
 - Repair ordinary application/module source only. The Self-Repair trust core is intentionally immutable to AI patches.
-- Never target electron/main.cjs, electron/developer-repair.cjs, electron/github-self-repair.cjs, electron/preload.cjs, electron/admin-diagnostics.cjs, security/**, electron/security/**, .github/**, scripts/**, package.json, package-lock.json, src/lib/appVersion.js, release-notes/**, eslint.config.js, tsconfig.json, vite.config.js, or src/tests/**.
+- Never target electron/main.cjs, electron/developer-repair.cjs, electron/github-self-repair.cjs, electron/preload.cjs, electron/admin-diagnostics.cjs, src/pages/SystemCenter.jsx, security/**, electron/security/**, .github/**, scripts/**, package.json, package-lock.json, src/lib/appVersion.js, release-notes/**, eslint.config.js, tsconfig.json, vite.config.js, or src/tests/**.
 - Prefer exact replacements over whole-file replacement.
 - Maximum 6 files and 8 replacements per file.
 - Do not change release/version metadata.
