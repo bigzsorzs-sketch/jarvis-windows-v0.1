@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const github = require('../../electron/github-self-repair.cjs');
+const electronMainSource = fs.readFileSync('electron/main.cjs','utf8');
 
 function reply(status,payload) {
   return {
@@ -406,4 +407,89 @@ test('GitHub client independently blocks Self-Repair trust-core files even if up
     }),/GITHUB_REPAIR_PATH_BLOCKED/,file);
     assert.equal(calls,0,file);
   }
+});
+
+
+test('desktop updater requires and verifies release-manifest.json before signer or installer handoff', () => {
+  const start=electronMainSource.indexOf('async function fetchLatestRelease()');
+  const end=electronMainSource.indexOf('function payloadContainsSensitiveContext',start);
+  const body=electronMainSource.slice(start,end);
+  assert.ok(start>=0 && end>start);
+  assert.match(body,/UPDATE_MANIFEST_NOT_FOUND/);
+  assert.match(body,/release-manifest\.json/);
+  assert.match(body,/await downloadFile\(release\.manifest\.browser_download_url,manifestPath\)/);
+  assert.match(body,/githubSelfRepair\.verifyReleaseManifest\(releaseManifest/);
+  assert.ok(body.indexOf('verifyReleaseManifest') < body.indexOf('verifyUpdateSigner'));
+});
+
+test('an existing closed exact repair PR is cleaned up instead of being reused as success', async () => {
+  const repo=github.DEFAULT_REPO;
+  const baseSha='a'.repeat(40);
+  const branchName='fix/jarvis-self-repair-v0-3-24-'+ 'f'.repeat(10);
+  const headSha='b'.repeat(40);
+  const source='export const value = "old";\n';
+  const files=new Map([
+    ['src/pages/example.jsx',source],
+    ['package.json',JSON.stringify({name:'jarvis-desktop',version:'0.3.23'},null,2)+'\n'],
+    ['package-lock.json',JSON.stringify({name:'jarvis-desktop',version:'0.3.23',lockfileVersion:3,packages:{'':{name:'jarvis-desktop',version:'0.3.23'}},dependencies:{}},null,2)+'\n'],
+    ['src/lib/appVersion.js',"export const APP_VERSION = '0.3.23';\n"]
+  ]);
+  let deleted=false;
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'y'.repeat(40),
+    fetchImpl:async(url,options={})=>{
+      const parsed=new URL(url);
+      const method=options.method || 'GET';
+      const p=parsed.pathname;
+      if(method==='GET' && p===`/repos/${repo}`) return reply(200,{full_name:repo,owner:{login:'bigzsorzs-sketch'},default_branch:'main',permissions:{push:true}});
+      if(method==='GET' && p.endsWith('/actions/workflows/build-windows.yml')) return reply(200,{id:1});
+      if(method==='GET' && p.endsWith('/git/ref/heads/main')) return reply(200,{object:{sha:baseSha}});
+      if(method==='GET' && p.includes('/git/ref/heads/fix/jarvis-self-repair-')) return reply(200,{object:{sha:headSha}});
+      if(method==='GET' && p.startsWith(`/repos/${repo}/contents/`)){
+        const file=p.split(`/repos/${repo}/contents/`)[1].split('/').map(decodeURIComponent).join('/');
+        const value=files.get(file);
+        if(value===undefined) return reply(404,{message:'Not Found'});
+        return reply(200,{type:'file',encoding:'base64',content:b64(value)});
+      }
+      if(method==='GET' && p.endsWith('/releases/latest')) return reply(200,{tag_name:'v0.3.23',draft:false,prerelease:false});
+      if(method==='GET' && p.endsWith('/releases/tags/v0.3.24')) return reply(404,{message:'Not Found'});
+      if(method==='GET' && p.endsWith('/pulls')) return reply(200,[{
+        number:55,state:'closed',merged:false,html_url:'https://github.com/example/pr/55',head:{sha:headSha,ref:branchName},base:{ref:'main'}
+      }]);
+      if(method==='DELETE' && p.includes('/git/refs/heads/fix/jarvis-self-repair-')) { deleted=true; return reply(204,null); }
+      return reply(500,{message:`unexpected ${method} ${p}`});
+    }
+  });
+  await assert.rejects(()=>client.createRepairPullRequest({
+    hash:'f'.repeat(64),
+    goal:'retry closed repair',
+    files:[{path:'src/pages/example.jsx',content:source}],
+    expectedBaseFiles:[{path:'src/pages/example.jsx',content:source}],
+    installedVersion:'0.3.23'
+  }),/GITHUB_REPAIR_PR_CLOSED_RETRY/);
+  assert.equal(deleted,true);
+});
+
+test('release status rejects a stable-looking release targeted at a different commit', async () => {
+  const repo=github.DEFAULT_REPO;
+  const mergeSha='c'.repeat(40);
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'x'.repeat(40),
+    fetchImpl:async(url)=>{
+      const parsed=new URL(url);
+      if(parsed.pathname.endsWith('/releases/tags/v0.3.24')) return reply(200,{
+        tag_name:'v0.3.24',draft:false,prerelease:false,target_commitish:'d'.repeat(40),
+        assets:[
+          {name:'Jarvis-Setup-0.3.24-x64.exe'},
+          {name:'Jarvis-Setup-0.3.24-x64.exe.sha256'},
+          {name:'release-manifest.json'}
+        ]
+      });
+      return reply(500,{message:'unexpected'});
+    }
+  });
+  await assert.rejects(
+    ()=>client.getReleaseStatus({version:'0.3.24',mergeSha}),
+    /GITHUB_RELEASE_TARGET_MISMATCH/
+  );
 });
