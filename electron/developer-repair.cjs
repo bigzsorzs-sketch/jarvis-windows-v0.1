@@ -14,6 +14,8 @@ const PROTECTED = [
   /^scripts[\\/]/i,
   /^package\.json$/i,
   /^package-lock\.json$/i,
+  /^src[\\/]lib[\\/]appVersion\.js$/i,
+  /^release-notes[\\/]/i,
   /^eslint\.config\.js$/i,
   /^tsconfig\.json$/i,
   /^vite\.config\.js$/i,
@@ -25,6 +27,8 @@ const OWNER_BLOCKED = [
   /^scripts[\\/]/i,
   /^package\.json$/i,
   /^package-lock\.json$/i,
+  /^src[\\/]lib[\\/]appVersion\.js$/i,
+  /^release-notes[\\/]/i,
 ];
 const ALLOWED_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
