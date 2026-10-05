@@ -49,6 +49,7 @@ test('Accept validates the exact plan locally, restores staging, then publishes 
     "const expectedBaseFiles=developerRepair.readOwnerPlanFiles(",
     "developerRepair.snapshotOwner(",
     "developerRepair.applyOwner(",
+    "developerRepair.normalizeOwnerPlanFiles(",
     "await validateDirectOwnerRepair(",
     "await ensureManualRuntimeBuilt(",
     "const stagedFiles=developerRepair.readOwnerPlanFiles(",
