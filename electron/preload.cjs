@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
       connect: (token) => ipcRenderer.invoke('jarvis:self-repair:github:connect', { token }),
       disconnect: () => ipcRenderer.invoke('jarvis:self-repair:github:disconnect'),
       refresh: () => ipcRenderer.invoke('jarvis:self-repair:github:refresh'),
+      abandon: () => ipcRenderer.invoke('jarvis:self-repair:github:abandon'),
       merge: () => ipcRenderer.invoke('jarvis:self-repair:github:merge'),
       publish: (allowUnsigned=false) => ipcRenderer.invoke('jarvis:self-repair:github:publish', { allowUnsigned:Boolean(allowUnsigned) }),
     },
