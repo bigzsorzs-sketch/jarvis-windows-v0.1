@@ -28,9 +28,11 @@ export function detectLanguageHeuristic(text) {
 }
 
 // Full LLM-based language detection (used when heuristic is uncertain)
-export async function detectLanguageLLM(text) {
+export async function detectLanguageLLM(text, options = {}) {
+  const requestOrigin = options.requestOrigin || options.request_origin;
   const result = await invokeWithRetry({
     prompt: `Detect the language of this text and return ONLY the ISO 639-1 two-letter code (e.g. "en", "hu", "de", "fr", "es", "it", "ro", "pl"). Text: "${text.substring(0, 200)}"`,
+    request_origin: requestOrigin,
     response_json_schema: {
       type: 'object',
       properties: { language: { type: 'string' } }
@@ -41,13 +43,13 @@ export async function detectLanguageLLM(text) {
 }
 
 // Main detection – heuristic first, LLM fallback
-export async function detectLanguage(text, fallbackLanguage = 'hu') {
+export async function detectLanguage(text, fallbackLanguage = 'hu', options = {}) {
   const clean = String(text || '').trim();
   if (!clean || clean.length < 3) return fallbackLanguage;
   const heuristic = detectLanguageHeuristic(clean);
   if (heuristic) return heuristic;
   if ((fallbackLanguage === 'hu' || fallbackLanguage === 'hu-HU') && clean.length < 24) return 'hu';
-  return await detectLanguageLLM(clean);
+  return await detectLanguageLLM(clean, options);
 }
 
 // ─── TRANSLATE TOOL ───────────────────────────────────────────────────────────
