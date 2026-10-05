@@ -1,4 +1,5 @@
 import { History, Loader2, Send } from 'lucide-react';
+import MultiMediaUpload from '@/components/common/MultiMediaUpload';
 
 export default function CommandCenterChatPanel({
   messages = [],
@@ -8,6 +9,9 @@ export default function CommandCenterChatPanel({
   onHistory,
   loading = false,
   loadingStep = '',
+  attachedFiles = [],
+  setAttachedFiles,
+  onMediaError,
 }) {
   const visibleMessages = messages
     .filter((message) => message?.role === 'user' || message?.role === 'assistant')
@@ -15,7 +19,7 @@ export default function CommandCenterChatPanel({
 
   const submit = (event) => {
     event?.preventDefault?.();
-    if (!input.trim() || loading) return;
+    if ((!input.trim() && attachedFiles.length === 0) || loading) return;
     onSend?.();
   };
 
@@ -54,7 +58,27 @@ export default function CommandCenterChatPanel({
         )}
       </div>
 
+      {attachedFiles.length > 0 && (
+        <div className="px-3 pb-1">
+          <MultiMediaUpload
+            files={attachedFiles}
+            onChange={setAttachedFiles}
+            onError={onMediaError}
+            chatMode
+          />
+        </div>
+      )}
+
       <form className="jarvis-command-chat-input" onSubmit={submit}>
+        <div className="jarvis-command-chat-attach">
+          <MultiMediaUpload
+            files={attachedFiles}
+            onChange={setAttachedFiles}
+            onError={onMediaError}
+            buttonOnly
+            chatMode
+          />
+        </div>
         <textarea
           value={input}
           onChange={(event) => setInput?.(event.target.value)}
@@ -69,7 +93,7 @@ export default function CommandCenterChatPanel({
           placeholder="Írj Jarvisnak…"
           aria-label="Üzenet Jarvisnak"
         />
-        <button type="submit" disabled={loading || !input.trim()} aria-label="Küldés">
+        <button type="submit" disabled={loading || (!input.trim() && attachedFiles.length === 0)} aria-label="Küldés">
           {loading ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
         </button>
       </form>
