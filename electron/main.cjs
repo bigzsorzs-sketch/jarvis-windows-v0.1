@@ -787,6 +787,19 @@ async function getGitHubSelfRepairStatus() {
   return { ...connection, repair };
 }
 
+async function abandonGitHubSelfRepair() {
+  if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+  const state = await syncGitHubRepairState();
+  if (!state?.prNumber || !state?.headSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
+  if (state.mergeSha || state.phase === 'merged' || state.phase === 'main-verified' || state.phase === 'release-dispatched' || state.phase === 'released') {
+    throw new Error('GITHUB_REPAIR_ALREADY_MERGED');
+  }
+  const client = getGitHubSelfRepairClient();
+  await client.abandonRepair(state.prNumber,state.headSha);
+  writeGitHubRepairState(null);
+  return { abandoned:true, connected:true, repo:githubSelfRepair.DEFAULT_REPO };
+}
+
 async function mergeGitHubSelfRepair() {
   if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
   const state = await syncGitHubRepairState();
@@ -2422,6 +2435,10 @@ app.whenReady().then(async () => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
     return getGitHubSelfRepairStatus();
   });
+  ipcMain.handle('jarvis:self-repair:github:abandon', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return abandonGitHubSelfRepair();
+  });
   ipcMain.handle('jarvis:self-repair:github:merge', async () => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
     return mergeGitHubSelfRepair();
@@ -2459,6 +2476,10 @@ app.whenReady().then(async () => {
       // branch; merge and release remain separate owner actions.
       if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
       getGitHubSelfRepairClient();
+      const activeGitHubRepair = readGitHubRepairState();
+      if (activeGitHubRepair && activeGitHubRepair.phase !== 'released') {
+        throw new Error('GITHUB_REPAIR_ALREADY_ACTIVE');
+      }
 
       const expectedBaseFiles=developerRepair.readOwnerPlanFiles(entry.workspace,entry.plan);
       const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
