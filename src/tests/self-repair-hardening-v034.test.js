@@ -71,6 +71,38 @@ test('Self-Repair recognizes natural Hungarian repair execution requests', () =>
   assert.equal(repair.isExplicitRepairRequest('mi a javítás állapota?'),false);
 });
 
+test('Self-Repair trust core and release metadata cannot be modified by AI repair plans', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-trust-core-'));
+  try {
+    fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({name:'jarvis-desktop',version:'0.3.24'}));
+    fs.mkdirSync(path.join(root,'electron'),{recursive:true});
+    fs.mkdirSync(path.join(root,'src','lib'),{recursive:true});
+    fs.mkdirSync(path.join(root,'release-notes'),{recursive:true});
+    fs.writeFileSync(path.join(root,'electron','main.cjs'),'module.exports = {};\n');
+    fs.writeFileSync(path.join(root,'electron','github-self-repair.cjs'),'module.exports = {};\n');
+    fs.writeFileSync(path.join(root,'src','lib','appVersion.js'),"export const APP_VERSION = '0.3.24';\n");
+    fs.writeFileSync(path.join(root,'release-notes','v0.3.24.md'),'# Jarvis v0.3.24\n');
+
+    for (const file of [
+      'electron/main.cjs',
+      'electron/github-self-repair.cjs',
+      'src/lib/appVersion.js',
+      'release-notes/v0.3.24.md'
+    ]) {
+      assert.throws(
+        ()=>repair.validateOwnerPlan(root,{
+          goal:'tamper test',
+          patches:[{file,content:'changed'}]
+        }),
+        /DEV_REPAIR_OWNER_BLOCKED_PATH/,
+        file
+      );
+    }
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
 test('Self-Repair learning stores only verified local lessons', () => {
   const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-learning-')),'learning.json');
   const learning=new learningModule.SelfRepairLearning(file);
