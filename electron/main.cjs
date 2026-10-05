@@ -2508,7 +2508,8 @@ app.whenReady().then(async () => {
           risk:entry.plan.risk,
           files:stagedFiles,
           expectedBaseFiles,
-          validation:fullValidation.results
+          validation:fullValidation.results,
+          installedVersion:String(app.getVersion?.() || '')
         });
         if (!Number.isInteger(published?.prNumber) || !published?.headSha || !published?.version) {
           throw new Error('GITHUB_REPAIR_PUBLISH_RESULT_INVALID');
