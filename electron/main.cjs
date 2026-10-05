@@ -789,16 +789,16 @@ async function getGitHubSelfRepairStatus() {
 
 async function abandonGitHubSelfRepair() {
   if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
-  await requireOwnerPresence({
-    title:'Jarvis GitHub Self-Repair',
-    message:'Elveted az aktív Self-Repair javítást?',
-    detail:'A Pull Request bezárul és a hozzá tartozó javítási ág törlődik. Ez nem módosítja a main ágat.'
-  });
   const state = await syncGitHubRepairState();
   if (!state?.prNumber || !state?.headSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
   if (state.mergeSha || state.phase === 'merged' || state.phase === 'main-verified' || state.phase === 'release-dispatched' || state.phase === 'released') {
     throw new Error('GITHUB_REPAIR_ALREADY_MERGED');
   }
+  await requireOwnerPresence({
+    title:'Jarvis GitHub Self-Repair',
+    message:'Elveted az aktív Self-Repair javítást?',
+    detail:'A Pull Request bezárul és a hozzá tartozó javítási ág törlődik. Ez nem módosítja a main ágat.'
+  });
   const client = getGitHubSelfRepairClient();
   await client.abandonRepair(state.prNumber,state.headSha);
   writeGitHubRepairState(null);
@@ -807,15 +807,15 @@ async function abandonGitHubSelfRepair() {
 
 async function mergeGitHubSelfRepair() {
   if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
-  await requireOwnerPresence({
-    title:'Jarvis GitHub Self-Repair',
-    message:'Beolvasztod az ellenőrzött Self-Repair PR-t a main ágba?',
-    detail:'A művelet csak akkor folytatódik, ha a pontos PR head SHA és a kötelező GitHub CI jobok sikeresek.'
-  });
   const state = await syncGitHubRepairState();
   if (!state?.prNumber || !state?.headSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
   if (state.mergeSha) return state;
   if (state.prStatus?.ci?.state !== 'passed') throw new Error('GITHUB_REPAIR_CI_NOT_PASSED');
+  await requireOwnerPresence({
+    title:'Jarvis GitHub Self-Repair',
+    message:'Beolvasztod az ellenőrzött Self-Repair PR-t a main ágba?',
+    detail:'A pontos PR head SHA és a kötelező GitHub CI jobok már sikeresek. A következő lépés a main ág módosítása.'
+  });
   const client = getGitHubSelfRepairClient();
   const merged = await client.mergeRepair(state.prNumber,state.headSha);
   const next = {
@@ -830,19 +830,19 @@ async function mergeGitHubSelfRepair() {
 
 async function publishGitHubSelfRepairRelease(allowUnsigned=false) {
   if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
-  await requireOwnerPresence({
-    title:'Jarvis új verzió kiadása',
-    message:'Elindítod a GitHub Release publikálását?',
-    detail:allowUnsigned
-      ? 'Kifejezetten engedélyezted az aláírás nélküli kiadást. A SHA-256, manifest, main CI és minden más kiadási kapu továbbra is kötelező.'
-      : 'Érvényes Authenticode aláírás nélkül a publikálás meg fog állni.'
-  });
   const state = await syncGitHubRepairState();
   if (!state?.version || !state?.mergeSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
   if (state.phase === 'released') return state;
   if (state.mainStatus?.state !== 'current' || state.mainStatus?.ci?.state !== 'passed') {
     throw new Error('GITHUB_RELEASE_MAIN_CI_NOT_PASSED');
   }
+  await requireOwnerPresence({
+    title:'Jarvis új verzió kiadása',
+    message:'Elindítod a GitHub Release publikálását?',
+    detail:allowUnsigned
+      ? 'Kifejezetten engedélyezted az aláírás nélküli kiadást. A SHA-256, manifest, main CI és minden más kiadási kapu továbbra is kötelező.'
+      : 'A main teljes CI-je sikeres. Érvényes Authenticode aláírás nélkül a publikálás meg fog állni.'
+  });
   const client = getGitHubSelfRepairClient();
   const dispatch = await client.dispatchRelease({
     version:state.version,
