@@ -344,3 +344,66 @@ test('release dispatch requires exact main commit and both required main CI jobs
     inputs:{publish_release:'true',allow_unsigned_release:'true'}
   }]);
 });
+
+
+test('release manifest must bind version installer checksum main ref and exact release target', () => {
+  const hash='1'.repeat(64);
+  const commit='2'.repeat(40);
+  const result=github.verifyReleaseManifest({
+    version:'0.3.24',
+    commit,
+    ref:'refs/heads/main',
+    installer:'Jarvis-Setup-0.3.24-x64.exe',
+    sha256:hash
+  },{
+    version:'0.3.24',
+    installer:'Jarvis-Setup-0.3.24-x64.exe',
+    sha256:hash,
+    targetCommitish:commit
+  });
+  assert.equal(result.commit,commit);
+  assert.throws(()=>github.verifyReleaseManifest({
+    version:'0.3.24',commit,ref:'refs/heads/main',
+    installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:'3'.repeat(64)
+  },{
+    version:'0.3.24',installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:hash,targetCommitish:commit
+  }),/UPDATE_MANIFEST_CHECKSUM_MISMATCH/);
+  assert.throws(()=>github.verifyReleaseManifest({
+    version:'0.3.24',commit,ref:'refs/heads/fix',
+    installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:hash
+  },{
+    version:'0.3.24',installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:hash,targetCommitish:commit
+  }),/UPDATE_MANIFEST_REF_INVALID/);
+  assert.throws(()=>github.verifyReleaseManifest({
+    version:'0.3.24',commit,ref:'refs/heads/main',
+    installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:hash
+  },{
+    version:'0.3.24',installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:hash,targetCommitish:'4'.repeat(40)
+  }),/UPDATE_MANIFEST_RELEASE_TARGET_MISMATCH/);
+});
+
+test('GitHub client independently blocks Self-Repair trust-core files even if upstream plan validation regresses', async () => {
+  for (const file of [
+    'electron/main.cjs',
+    'electron/developer-repair.cjs',
+    'electron/github-self-repair.cjs',
+    'electron/preload.cjs',
+    'electron/admin-diagnostics.cjs',
+    'src/lib/appVersion.js',
+    'release-notes/v0.3.24.md'
+  ]) {
+    let calls=0;
+    const client=github.createGitHubSelfRepairClient({
+      token:'github_pat_'+'z'.repeat(40),
+      fetchImpl:async()=>{ calls+=1; return reply(500,{message:'must not be called'}); }
+    });
+    await assert.rejects(()=>client.createRepairPullRequest({
+      hash:'e'.repeat(64),
+      goal:'trust core tamper',
+      files:[{path:file,content:'changed'}],
+      expectedBaseFiles:[{path:file,content:'old'}],
+      installedVersion:'0.3.23'
+    }),/GITHUB_REPAIR_PATH_BLOCKED/,file);
+    assert.equal(calls,0,file);
+  }
+});
