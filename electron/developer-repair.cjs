@@ -243,6 +243,21 @@ function rollbackOwner(root, dir) {
     }
   }
 }
+function readOwnerPlanFiles(root, plan) {
+  const base = validateWorkspace(root);
+  const patches = Array.isArray(plan?.patches) ? plan.patches : [];
+  if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
+  return patches.map((patch) => {
+    const file = normalizeOwnerRelative(patch?.file);
+    const target = resolveOwnerInside(base,file);
+    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      return { path:file, content:null };
+    }
+    const content = fs.readFileSync(target,'utf8');
+    if (Buffer.byteLength(content,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
+    return { path:file, content };
+  });
+}
 const INSPECT_IGNORED = new Set(['.git','node_modules','release','dist','coverage']);
 const INSPECT_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
@@ -631,6 +646,6 @@ function buildDiagnosticContext(root, query='', options={}) {
 }
 
 module.exports={
-  validateWorkspace,validateOwnerPlan,proposalHash,isExplicitRepairRequest,snapshotOwner,applyOwner,rollbackOwner,
+  validateWorkspace,validateOwnerPlan,proposalHash,isExplicitRepairRequest,snapshotOwner,applyOwner,rollbackOwner,readOwnerPlanFiles,
   inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED,OWNER_BLOCKED
 };
