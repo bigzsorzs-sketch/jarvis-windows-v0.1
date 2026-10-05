@@ -49,7 +49,7 @@ function safePath(input) {
 }
 function assertRepairPath(input) {
   const value = safePath(input);
-  if (/^(?:\.github\/|scripts\/|security\/|electron\/security\/|electron\/main\.cjs$|electron\/developer-repair\.cjs$|electron\/github-self-repair\.cjs$|electron\/preload\.cjs$|electron\/admin-diagnostics\.cjs$|package\.json$|package-lock\.json$|src\/lib\/appVersion\.js$|release-notes\/|eslint\.config\.js$|tsconfig\.json$|vite\.config\.js$|src\/tests\/)/i.test(value)) {
+  if (/^(?:\.github\/|scripts\/|security\/|electron\/security\/|electron\/main\.cjs$|electron\/developer-repair\.cjs$|electron\/github-self-repair\.cjs$|electron\/preload\.cjs$|src\/pages\/SystemCenter\.jsx$|electron\/admin-diagnostics\.cjs$|package\.json$|package-lock\.json$|src\/lib\/appVersion\.js$|release-notes\/|eslint\.config\.js$|tsconfig\.json$|vite\.config\.js$|src\/tests\/)/i.test(value)) {
     throw new Error('GITHUB_REPAIR_PATH_BLOCKED:' + value);
   }
   return value;
