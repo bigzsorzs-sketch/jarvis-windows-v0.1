@@ -1464,7 +1464,7 @@ Keep it concise unless the owner asks for deep detail.`;
     ).join('\n\n');
     const planPrompt = `You are preparing a MANUAL, owner-approved Jarvis repair plan.
 The owner explicitly asked to fix the issue. Create the smallest concrete patch from the exact current source below.
-The patch will NOT be applied until the owner presses Accept. After approval, Jarvis builds the repaired local workspace and restarts from that workspace so the accepted code becomes active immediately.
+The patch will NOT be sent to GitHub until the owner presses Accept. After approval, Jarvis applies it only inside an isolated local staging workspace, runs the full local validation suite, captures the exact validated file bytes, restores the staging workspace, and then creates a dedicated GitHub repair branch and Pull Request. The installed Jarvis remains unchanged until the independently verified GitHub repair is merged, released and installed as a normal update.
 Rules:
 - Return JSON only with goal, rationale, risk and patches.
 - Copy every search string exactly from CURRENT SOURCE. Do not invent or paraphrase search text.
