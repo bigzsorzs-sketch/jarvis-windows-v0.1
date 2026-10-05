@@ -6,9 +6,11 @@ function messageFor(result) {
   if (!result) return '';
   if (result.status === 'up-to-date') return `A Jarvis naprakész (v${result.currentVersion}).`;
   if (result.status === 'installing') {
-    const verification = result.verification === 'authenticode' || result.verification === 'sha256+authenticode'
-      ? 'SHA-256 + digitális aláírás'
-      : 'SHA-256';
+    const verification = result.verification === 'sha256+manifest+authenticode'
+      ? 'SHA-256 + release manifest + digitális aláírás'
+      : result.verification === 'sha256+manifest'
+        ? 'SHA-256 + release manifest'
+        : 'SHA-256';
     return `Jarvis v${result.latestVersion} letöltve és ellenőrizve (${verification}). A telepítés indul…`;
   }
   return result.message || '';
@@ -44,7 +46,7 @@ export default function UpdateCard() {
         <div className="flex-1 min-w-0">
           <h2 className="text-base font-semibold text-foreground">Jarvis frissítés</h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Egy kattintással ellenőrzi, letölti, SHA-256-tal ellenőrzi és telepíti a legújabb stabil Windows-verziót.
+            Egy kattintással ellenőrzi a stabil GitHub Release-t, a release manifestet és az SHA-256 összeget, majd telepíti a Windows-verziót.
           </p>
           <div className="flex items-center gap-1.5 mt-2 text-[11px] text-muted-foreground">
             <ShieldCheck size={12} className="text-primary" />
