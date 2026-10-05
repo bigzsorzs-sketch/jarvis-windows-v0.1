@@ -1481,8 +1481,8 @@ The patch will NOT be sent to GitHub until the owner presses Accept. After appro
 Rules:
 - Return JSON only with goal, rationale, risk and patches.
 - Copy every search string exactly from CURRENT SOURCE. Do not invent or paraphrase search text.
-- You may repair ordinary source and owner-approved core files such as electron/main.cjs or electron/developer-repair.cjs.
-- Never target security/**, electron/security/**, .github/workflows/**, scripts/**, package.json, package-lock.json, or existing src/tests/**.
+- Repair ordinary application/module source only. The Self-Repair trust core is intentionally immutable to AI patches.
+- Never target electron/main.cjs, electron/developer-repair.cjs, electron/github-self-repair.cjs, electron/preload.cjs, electron/admin-diagnostics.cjs, security/**, electron/security/**, .github/workflows/**, scripts/**, package.json, package-lock.json, src/lib/appVersion.js, release-notes/**, or existing src/tests/**.
 - Prefer exact replacements over whole-file replacement.
 - Maximum 6 files and 8 replacements per file.
 - Do not change release/version metadata.
