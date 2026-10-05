@@ -268,3 +268,79 @@ test('commit CI status cannot pass when the workflow is green but a required job
   assert.notEqual(status.state,'passed');
   assert.equal(status.requiredChecks.find(item=>item.name==='windows-installer').status,'missing');
 });
+
+
+test('abandon closes only the exact unmerged Self-Repair PR and deletes its branch', async () => {
+  const sha='7'.repeat(40);
+  const branchName='fix/jarvis-self-repair-v0-3-24-abandon000';
+  const calls=[];
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'g'.repeat(40),
+    fetchImpl:async(url,options={})=>{
+      const parsed=new URL(url);
+      const method=options.method || 'GET';
+      calls.push({method,path:parsed.pathname});
+      if (method==='GET' && parsed.pathname.endsWith('/pulls/42')) {
+        return reply(200,{
+          number:42,state:'open',merged:false,mergeable:true,mergeable_state:'clean',
+          html_url:'https://github.com/example/pr/42',
+          head:{ref:branchName,sha},
+          base:{ref:'main'},
+          merge_commit_sha:null
+        });
+      }
+      if (method==='GET' && parsed.pathname.endsWith('/actions/runs')) return reply(200,{workflow_runs:[]});
+      if (method==='PATCH' && parsed.pathname.endsWith('/pulls/42')) return reply(200,{number:42,state:'closed'});
+      if (method==='DELETE' && parsed.pathname.includes('/git/refs/heads/')) return reply(204,null);
+      return reply(500,{message:`unexpected ${method} ${parsed.pathname}`});
+    }
+  });
+  const result=await client.abandonRepair(42,sha);
+  assert.equal(result.abandoned,true);
+  assert.equal(calls.some(call=>call.method==='PATCH' && call.path.endsWith('/pulls/42')),true);
+  assert.equal(calls.some(call=>call.method==='DELETE' && call.path.includes('/git/refs/heads/')),true);
+});
+
+test('release dispatch requires exact main commit and both required main CI jobs', async () => {
+  const sha='6'.repeat(40);
+  const dispatches=[];
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'h'.repeat(40),
+    fetchImpl:async(url,options={})=>{
+      const parsed=new URL(url);
+      const method=options.method || 'GET';
+      if (method==='GET' && parsed.pathname.endsWith('/git/ref/heads/main')) {
+        return reply(200,{object:{sha}});
+      }
+      if (method==='GET' && parsed.pathname.endsWith('/actions/runs')) {
+        return reply(200,{workflow_runs:[{
+          id:90,name:github.WORKFLOW_NAME,head_sha:sha,head_branch:'main',event:'push',
+          run_number:20,status:'completed',conclusion:'success'
+        }]});
+      }
+      if (method==='GET' && parsed.pathname.endsWith('/actions/runs/90/jobs')) {
+        return reply(200,{jobs:[
+          {id:1,name:'CodeQL security scan',status:'completed',conclusion:'success'},
+          {id:2,name:'windows-installer',status:'completed',conclusion:'success'}
+        ]});
+      }
+      if (method==='GET' && parsed.pathname.includes('/contents/package.json')) {
+        return reply(200,{type:'file',encoding:'base64',content:b64(JSON.stringify({version:'0.3.24'}))});
+      }
+      if (method==='GET' && parsed.pathname.endsWith('/releases/tags/v0.3.24')) {
+        return reply(404,{message:'Not Found'});
+      }
+      if (method==='POST' && parsed.pathname.endsWith('/actions/workflows/build-windows.yml/dispatches')) {
+        dispatches.push(JSON.parse(options.body));
+        return reply(204,null);
+      }
+      return reply(500,{message:`unexpected ${method} ${parsed.pathname}`});
+    }
+  });
+  const result=await client.dispatchRelease({version:'0.3.24',mergeSha:sha,allowUnsigned:true});
+  assert.equal(result.dispatched,true);
+  assert.deepEqual(dispatches,[{
+    ref:'main',
+    inputs:{publish_release:'true',allow_unsigned_release:'true'}
+  }]);
+});
