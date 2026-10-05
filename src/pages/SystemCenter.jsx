@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Activity, CheckCircle2, XCircle, AlertTriangle, Database, ShieldCheck, Save, Upload,
-  RefreshCw, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2
+  RefreshCw, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2,
+  Github, GitPullRequest, GitMerge, Rocket, Download, Unplug
 } from 'lucide-react';
 import { jarvis } from '@/api/jarvisClient';
 import { useLang } from '@/lib/i18n';
@@ -68,6 +69,10 @@ export default function SystemCenter() {
   const pendingRequestEpoch = useRef(0);
   const [manualApplyBusy, setManualApplyBusy] = useState(false);
   const [crashes, setCrashes] = useState([]);
+  const [githubStatus, setGithubStatus] = useState({ connected:false, repo:'bigzsorzs-sketch/jarvis-windows-v0.1', repair:null });
+  const [githubToken, setGithubToken] = useState('');
+  const [githubBusy, setGithubBusy] = useState('');
+  const [allowUnsignedRelease, setAllowUnsignedRelease] = useState(false);
   const currentVersionCrashes = crashes.filter((item) => canonicalAppVersion(item?.appVersion) === canonicalAppVersion(APP_VERSION));
   const latestCurrentCrash = currentVersionCrashes[0] || null;
 
@@ -86,7 +91,111 @@ export default function SystemCenter() {
         }
       })
       .catch(() => {});
+    window.jarvisDesktop?.developerRepair?.github?.status?.()
+      .then((status) => setGithubStatus(status || { connected:false, repo:'bigzsorzs-sketch/jarvis-windows-v0.1', repair:null }))
+      .catch(() => {});
   }, []);
+
+  const refreshGitHubStatus = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.refresh) return null;
+    setGithubBusy('refresh');
+    try {
+      const status = await window.jarvisDesktop.developerRepair.github.refresh();
+      setGithubStatus(status || { connected:false, repo:'bigzsorzs-sketch/jarvis-windows-v0.1', repair:null });
+      return status;
+    } catch (error) {
+      setMessage(tx('GitHub állapot hiba: ','GitHub status error: ') + (error?.message || error));
+      return null;
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const connectGitHub = async () => {
+    const token = githubToken.trim();
+    if (!token || !window.jarvisDesktop?.developerRepair?.github?.connect) return;
+    setGithubBusy('connect');
+    try {
+      await window.jarvisDesktop.developerRepair.github.connect(token);
+      setGithubToken('');
+      const status = await window.jarvisDesktop.developerRepair.github.status();
+      setGithubStatus(status);
+      setMessage(tx(
+        '✓ GitHub kapcsolat ellenőrizve. A token a Windows titkosított tárolójában van, és nem kerül az AI promptokba.',
+        '✓ GitHub connection verified. The token is stored in Windows secure storage and is never sent to AI prompts.'
+      ));
+    } catch (error) {
+      setMessage(tx('GitHub csatlakozási hiba: ','GitHub connection error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const disconnectGitHub = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.disconnect) return;
+    setGithubBusy('disconnect');
+    try {
+      const status = await window.jarvisDesktop.developerRepair.github.disconnect();
+      setGithubStatus({ ...(status || {}), repair:githubStatus?.repair || null });
+      setGithubToken('');
+      setMessage(tx('GitHub kapcsolat bontva.','GitHub connection disconnected.'));
+    } catch (error) {
+      setMessage(tx('GitHub kapcsolat bontási hiba: ','GitHub disconnect error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const mergeGitHubRepair = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.merge) return;
+    setGithubBusy('merge');
+    try {
+      const repair = await window.jarvisDesktop.developerRepair.github.merge();
+      setGithubStatus(prev=>({ ...prev, repair }));
+      setMessage(tx(
+        '✓ A CI által ellenőrzött Self-Repair PR bekerült a main ágba. Most a main teljes buildjét kell megvárni.',
+        '✓ The CI-verified Self-Repair PR was merged into main. The full main build must pass next.'
+      ));
+    } catch (error) {
+      setMessage(tx('GitHub merge hiba: ','GitHub merge error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const publishGitHubRepair = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.publish) return;
+    setGithubBusy('publish');
+    try {
+      const repair = await window.jarvisDesktop.developerRepair.github.publish(allowUnsignedRelease);
+      setGithubStatus(prev=>({ ...prev, repair }));
+      setMessage(tx(
+        '✓ A kiadási workflow elindult. A Release csak akkor készül el, ha a teljes publikálási build is átmegy.',
+        '✓ The release workflow has started. A Release is created only if the complete publication build also passes.'
+      ));
+    } catch (error) {
+      setMessage(tx('GitHub publikálási hiba: ','GitHub publication error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const installReleasedUpdate = async () => {
+    if (!window.jarvisDesktop?.oneClickUpdate) return;
+    setGithubBusy('install');
+    try {
+      const result = await window.jarvisDesktop.oneClickUpdate();
+      if (result?.status === 'up-to-date') {
+        setMessage(tx('A telepített Jarvis már a legújabb stabil verzió.','Installed Jarvis is already the latest stable version.'));
+      } else {
+        setMessage(tx('Frissítés ellenőrizve és telepítésre átadva. Jarvis újra fog indulni.','Update verified and handed to the installer. Jarvis will restart.'));
+      }
+    } catch (error) {
+      setMessage(tx('Frissítési hiba: ','Update error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
 
   const analyzeLatestCrash = () => {
     const latest = latestCurrentCrash;
@@ -226,7 +335,7 @@ export default function SystemCenter() {
     const hash = pendingRepair?.hash;
     if (!hash || manualApplyBusy || chatBusy) return;
     setManualApplyBusy(true);
-    setMessage(tx('Javítás alkalmazása, helyi build készítése és Jarvis újraindítása...','Applying repair, building local runtime and restarting Jarvis...'));
+    setMessage(tx('Javítás izolált ellenőrzése, teljes helyi build és GitHub PR előkészítése...','Validating repair in isolation, running the full local build and preparing a GitHub PR...'));
     try {
       const result = await window.jarvisDesktop?.developerRepair?.applyPending?.(hash);
       if (!result?.success) {
@@ -236,16 +345,14 @@ export default function SystemCenter() {
         throw new Error(tx('A javítás nem fejeződött be.','Repair did not complete.'));
       }
       setPendingRepair(null);
-      setMessage(tx('✓ Javítás alkalmazva. Jarvis a javított kóddal újraindul...','✓ Repair applied. Jarvis is restarting with the repaired code...'));
-      try {
-        const mapped = await jarvis.functions.invoke('selfRepairMap', { query:'' });
-        if (mapped?.data?.map) setProjectMap(mapped.data.map);
-        if (mapped?.data?.learning) setLearningStats(mapped.data.learning);
-      } catch {}
+      if (result?.status !== 'GITHUB_PR_OPENED' || !result?.github?.prNumber) {
+        throw new Error(tx('A GitHub javítási PR nem jött létre.','GitHub repair PR was not created.'));
+      }
+      setGithubStatus(prev=>({ ...prev, connected:true, repair:result.github }));
       setMessage(
-        tx('✓ Javítás elfogadva és közvetlenül alkalmazva a Self-Repair fejlesztési forrására. Módosított fájlok: ','✓ Repair accepted and applied directly to the Self-Repair development source. Changed files: ') +
-        (result.files || []).join(', ') +
-        tx(' Jarvis most a javított kóddal indul újra.',' Jarvis is now restarting with the repaired code.')
+        tx('✓ A javítás helyben teljesen ellenőrizve, a staging forrás visszaállítva, majd a pontos javított bájtok GitHub PR-ba kerültek. PR #','✓ Repair passed the full local validation, staging source was restored, and the exact validated bytes were sent to GitHub PR #') +
+        result.github.prNumber +
+        tx('. Most a független GitHub CI következik; a telepített Jarvis még nem változott.','. Independent GitHub CI is next; the installed Jarvis has not changed.')
       );
     } catch (error) {
       const errorMessage = String(error?.message || error || '');
