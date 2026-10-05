@@ -148,11 +148,6 @@ export default function SystemCenter() {
 
   const abandonGitHubRepair = async () => {
     if (!window.jarvisDesktop?.developerRepair?.github?.abandon) return;
-    const approved = window.confirm(tx(
-      'Elveted ezt a Self-Repair PR-t? A PR bezárul, a javítási ág törlődik, és új javítás készíthető.',
-      'Abandon this Self-Repair PR? The PR will be closed, its repair branch deleted, and a new repair may be created.'
-    ));
-    if (!approved) return;
     setGithubBusy('abandon');
     try {
       await window.jarvisDesktop.developerRepair.github.abandon();
