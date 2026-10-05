@@ -79,7 +79,8 @@ test('System Center provides source-aware conversation with manual repair approv
   assert.match(system,/applyPendingRepair/);
   // The UI must describe conditional validation, rather than promising a
   // working build and restart before any verification has completed.
-  assert.match(system,/teszteli az engedélyezett módosítást/);
+  assert.match(system,/Az „Elfogadom” maga a javítás jóváhagyása/);
+  assert.match(system,/alkalmazza és teszteli a módosítást/);
   assert.match(system,/csak sikeres ellenőrzések esetén indítja újra/);
   assert.match(system,/Sikertelen ellenőrzésnél visszaállítja a forrást/);
   assert.match(system,/A javítás nem kerül automatikusan a GitHubra/);
