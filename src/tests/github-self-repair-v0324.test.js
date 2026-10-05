@@ -391,7 +391,12 @@ test('GitHub client independently blocks Self-Repair trust-core files even if up
     'electron/preload.cjs',
     'electron/admin-diagnostics.cjs',
     'src/lib/appVersion.js',
-    'release-notes/v0.3.24.md'
+    'release-notes/v0.3.24.md',
+    'eslint.config.js',
+    'tsconfig.json',
+    'vite.config.js',
+    'src/tests/new-ai-written.test.js',
+    '.github/anything.md'
   ]) {
     let calls=0;
     const client=github.createGitHubSelfRepairClient({
