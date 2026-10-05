@@ -462,6 +462,22 @@ This pull request was created only after the exact owner-approved patch passed J
       ci
     };
   }
+  async function abandonRepair(prNumber,expectedHeadSha) {
+    const status = await getPullRequestStatus(prNumber);
+    const expected = assertSha(expectedHeadSha);
+    if (status.merged || status.mergeCommitSha) throw new Error('GITHUB_REPAIR_ALREADY_MERGED');
+    if (status.headSha !== expected) throw new Error('GITHUB_REPAIR_HEAD_CHANGED');
+    if (status.state === 'open') {
+      await request(`/repos/${repo}/pulls/${Number(prNumber)}`,{
+        method:'PATCH',
+        body:{state:'closed'}
+      });
+    }
+    const branchPath = status.branch.split('/').map(encodeURIComponent).join('/');
+    await request(`/repos/${repo}/git/refs/heads/${branchPath}`,{method:'DELETE',allow404:true});
+    return {abandoned:true,prNumber:Number(prNumber),branch:status.branch};
+  }
+
   async function mergeRepair(prNumber,expectedHeadSha) {
     const status = await getPullRequestStatus(prNumber);
     const expected = assertSha(expectedHeadSha);
@@ -535,6 +551,7 @@ This pull request was created only after the exact owner-approved patch passed J
     validateConnection,
     createRepairPullRequest,
     getPullRequestStatus,
+    abandonRepair,
     mergeRepair,
     getMainStatus,
     dispatchRelease,
