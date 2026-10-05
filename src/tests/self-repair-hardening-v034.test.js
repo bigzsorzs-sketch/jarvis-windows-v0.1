@@ -87,7 +87,12 @@ test('Self-Repair trust core and release metadata cannot be modified by AI repai
       'electron/main.cjs',
       'electron/github-self-repair.cjs',
       'src/lib/appVersion.js',
-      'release-notes/v0.3.24.md'
+      'release-notes/v0.3.24.md',
+      'eslint.config.js',
+      'tsconfig.json',
+      'vite.config.js',
+      'src/tests/new-ai-written.test.js',
+      '.github/anything.md'
     ]) {
       assert.throws(
         ()=>repair.validateOwnerPlan(root,{
