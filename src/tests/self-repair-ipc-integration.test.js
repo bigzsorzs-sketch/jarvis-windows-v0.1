@@ -51,6 +51,7 @@ function makeApplyHarness(overrides={}) {
     developerRepair:repair,
     developerBackupRoot:()=>'/backup',
     selfRepairToolchainPaths:()=>null,
+    selfRepairSourceFingerprint:()=> 'workspace-clean',
     manualRuntimeStatePath:()=>'/runtime.json',
     fs:{rmSync:()=>events.push('invalidate'),existsSync:()=>false},
     validateDirectOwnerRepair:async()=>({ok:true,results:[{cmd:'node --check',ok:true}]}),
@@ -158,6 +159,20 @@ test('failed direct source validation rolls back without GitHub mutation',async(
   assert.ok(h.events.includes('restore-runtime'));
   assert.equal(h.events.includes('github-publish'),false);
   assert.equal(h.patched,false);
+});
+
+test('unexpected staging source mutation outside the approved patch aborts before GitHub and invalidates the staging workspace',async()=>{
+  let fingerprintCalls=0;
+  const h=makeApplyHarness({
+    selfRepairSourceFingerprint:()=>{
+      fingerprintCalls+=1;
+      return fingerprintCalls===1 ? 'workspace-clean' : 'workspace-dirty';
+    }
+  });
+  await assert.rejects(()=>h.apply(null,{hash}),/MANUAL_REPAIR_STAGING_INTEGRITY_FAILED/);
+  assert.equal(h.events.includes('github-publish'),false);
+  assert.equal(h.events.includes('remove-plan'),true);
+  assert.ok(fingerprintCalls>=2);
 });
 
 test('failed toolchain build rolls back source and restores the previous runtime',async()=>{
