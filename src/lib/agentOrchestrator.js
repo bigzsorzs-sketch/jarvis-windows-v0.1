@@ -84,6 +84,7 @@ ${JSON.stringify(compactContext(ctx))}`;
     response_json_schema:{type:'object'},
     queueKey:'jarvis-agent-plan',
     contains_sensitive_context:false,
+    request_origin:(source === 'chat' || source === 'voice') ? 'conversation' : undefined,
   },1);
 
   return parseJsonObject(response?.data?.result ?? response?.data ?? response);
