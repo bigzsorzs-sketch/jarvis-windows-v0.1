@@ -2,7 +2,6 @@
 
 const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme, shell } = require('electron');
 const path = require('path');
-const activation = require('./runtime-activation.cjs');
 const { fileURLToPath } = require('url');
 const fs = require('fs');
 const os = require('os');
@@ -27,8 +26,7 @@ const {
   analyzeProjectSpecialists,
 } = require('./analysis/file-analyzer.cjs');
 
-const isManualRepairRuntime = process.argv.includes('--jarvis-manual-runtime');
-const isDev = !app.isPackaged && !isManualRepairRuntime;
+const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
 let obdBridge;
@@ -69,21 +67,16 @@ function selfRepairSourceRoot() {
     : path.join(__dirname, '..');
 }
 
-let activeSelfRepairToolchainRoot = null;
 function selfRepairToolchainPaths() {
-  let root = String(process.env.JARVIS_SELF_REPAIR_TOOLCHAIN || '').trim();
-  if (!root && app.isPackaged) root = path.join(process.resourcesPath, 'self-repair-toolchain');
-  if (!root) {
-    try { root = String(readJson(manualRuntimeStatePath(),{}).toolchainRoot || '').trim(); } catch {}
-  }
-  if (!root) root = activeSelfRepairToolchainRoot;
+  const root = app.isPackaged
+    ? path.join(process.resourcesPath, 'self-repair-toolchain')
+    : String(process.env.JARVIS_SELF_REPAIR_TOOLCHAIN || '').trim();
   if (!root) return null;
   const node = path.join(root, process.platform === 'win32' ? 'node.exe' : 'node');
   const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
   if (!fs.existsSync(node) || !fs.existsSync(npmCli)) {
     throw new Error('SELF_REPAIR_TOOLCHAIN_MISSING');
   }
-  activeSelfRepairToolchainRoot = root;
   return { root, node, npmCli };
 }
 
@@ -278,7 +271,6 @@ async function ensureManualRepairWorkspace() {
   ];
 
   fs.mkdirSync(target,{recursive:true});
-  if (isManualRepairRuntime) return developerRepair.validateWorkspace(target);
 
   const installedVersion = String(app.getVersion?.() || '');
   const installedSourceFingerprint = selfRepairSourceFingerprint(sourceRoot);
@@ -424,84 +416,21 @@ async function ensureManualRuntimeBuilt(workspace) {
   if (!fs.existsSync(renderer)) throw new Error('MANUAL_REPAIR_RUNTIME_BUILD_MISSING');
 
   const toolchain = selfRepairToolchainPaths();
-  const state = {
-    enabled:true,
-    installedExecPath:installedExecutable(),
+  return {
+    enabled:false,
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
       || selfRepairSourceFingerprint(selfRepairSourceRoot()),
     workspace,
     electronPath,
     toolchainRoot:toolchain?.root || null,
-    builtAt:new Date().toISOString()
+    builtAt:new Date().toISOString(),
+    checks
   };
-  writeJson(manualRuntimeStatePath(),state);
-  return {...state,checks};
 }
 
-function scheduleManualRuntimeRestart(workspace) {
-  const state = readManualRuntimeState();
-  const electronPath = state.electronPath || manualRuntimeElectronPath(workspace);
-  setTimeout(() => {
-    try {
-      app.relaunch({
-        execPath:electronPath,
-        args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
-      });
-      app.exit(0);
-    } catch (error) {
-      // Never keep a failed runtime active for the next Jarvis launch.
-      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-      recordCrash('manual-self-repair-restart-failed',{
-        message:String(error?.message || error),
-        workspace
-      });
-    }
-  },900);
-}
-
-function handOffToManualRuntimeIfReady() {
-  if (!app.isPackaged || isManualRepairRuntime || process.argv.includes('--jarvis-safe-start')) return false;
-  const state = readManualRuntimeState();
-  if (state.enabled !== true) return false;
-
-  const expectedWorkspace = path.resolve(manualRepairWorkspaceRoot());
-  const workspace = path.resolve(String(state.workspace || ''));
-  const version = String(app.getVersion?.() || '');
-  const sourceFingerprint = selfRepairSourceFingerprint(selfRepairSourceRoot());
-  if (
-    workspace !== expectedWorkspace
-    || String(state.version || '') !== version
-    || !state.sourceFingerprint
-    || state.sourceFingerprint !== sourceFingerprint
-  ) {
-    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-    return false;
-  }
-
-  const electronPath = manualRuntimeElectronPath(workspace);
-  const renderer = path.join(workspace,'dist','index.html');
-  if (!fs.existsSync(electronPath) || !fs.existsSync(renderer)) {
-    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-    return false;
-  }
-
-  try {
-    app.relaunch({
-      execPath:electronPath,
-      args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
-    });
-    app.exit(0);
-    return true;
-  } catch (error) {
-    // Fall back to the installed, known-startable package if the handoff fails.
-    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-    recordCrash('manual-runtime-handoff-failed',{
-      message:String(error?.message || error),
-      workspace
-    });
-    return false;
-  }
+function clearLegacyManualRuntimeState() {
+  try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
 }
 
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
@@ -2301,7 +2230,8 @@ app.whenReady().then(async () => {
     return;
   }
 
-  if (handOffToManualRuntimeIfReady()) return;
+
+  clearLegacyManualRuntimeState();
 
   seedInitialSettings();
   purgeInsecureLegacySecrets();
@@ -2552,7 +2482,6 @@ app.whenReady().then(async () => {
       const expectedBaseFiles=developerRepair.readOwnerPlanFiles(entry.workspace,entry.plan);
       const workspaceFingerprintBefore=selfRepairSourceFingerprint(entry.workspace);
       const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
-      const previousRuntime = activation.snapshotRuntime(entry.workspace, manualRuntimeStatePath(), backup);
       selfRepairToolchainPaths();
       fs.rmSync(manualRuntimeStatePath(),{force:true});
       if (fs.existsSync(manualRuntimeStatePath())) throw new Error('MANUAL_REPAIR_DISABLE_RUNTIME_FAILED');
@@ -2565,7 +2494,6 @@ app.whenReady().then(async () => {
         const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
         if (!validation.ok) {
           developerRepair.rollbackOwner(entry.workspace,backup);
-          activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
           workspaceRestored=true;
           if (selfRepairSourceFingerprint(entry.workspace) !== workspaceFingerprintBefore) {
             try { fs.rmSync(entry.workspace,{recursive:true,force:true}); } catch {}
@@ -2592,7 +2520,6 @@ app.whenReady().then(async () => {
         // state before any network mutation.
         fs.rmSync(manualRuntimeStatePath(),{force:true});
         developerRepair.rollbackOwner(entry.workspace,backup);
-        activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
         workspaceRestored=true;
         if (selfRepairSourceFingerprint(entry.workspace) !== workspaceFingerprintBefore) {
           try { fs.rmSync(entry.workspace,{recursive:true,force:true}); } catch {}
@@ -2675,8 +2602,7 @@ app.whenReady().then(async () => {
         if (!workspaceRestored) {
           try {
             developerRepair.rollbackOwner(entry.workspace,backup);
-            activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
-            workspaceRestored=true;
+              workspaceRestored=true;
           } catch (rollbackError) {
             rollbackFailure=rollbackError;
           }
