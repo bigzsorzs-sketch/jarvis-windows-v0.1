@@ -68,6 +68,7 @@ test('Self-Repair learning stores only verified local lessons', () => {
 
 test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(layout,/currentItem = allDesktopItems\.find\(\(item\) => item\.path === location\.pathname\)/);
+  assert.match(layout,/\['\/muszerfal','\/memoria','\/automotive','\/obd2','\/system-center'\]\.includes\(p\)/);
   assert.doesNotMatch(fast,/if \(\/\(hallasz\|hallod/);
   assert.match(fast,/\^\(\?:hallasz\|hallod/);
   assert.match(toolsSource,/requireStrictNumber/);
@@ -83,7 +84,10 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(main,/developerBackupRoot\(\)/);
   assert.match(main,/SELF_REPAIR_FINGERPRINT_ENTRIES/);
   assert.match(main,/sourceState\.sourceFingerprint !== installedSourceFingerprint/);
+  assert.match(main,/const workspace = entry\?\.workspace/);
+  assert.match(main,/MANUAL_REPAIR_WORKSPACE_REQUIRED/);
   assert.match(main,/sourceFingerprint:readJson\(manualWorkspaceSourceStatePath\(workspace\), \{\}\)\.sourceFingerprint/);
+  assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(workspace\)/);
   assert.match(main,/if \(isManualRepairRuntime\) return developerRepair\.validateWorkspace\(target\)/);
   assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);
