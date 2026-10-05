@@ -275,6 +275,25 @@ function readOwnerPlanFiles(root, plan) {
     return { path:file, content };
   });
 }
+function normalizeOwnerPlanFiles(root, plan) {
+  const base = validateWorkspace(root);
+  const patches = Array.isArray(plan?.patches) ? plan.patches : [];
+  if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
+  for (const patch of patches) {
+    const file = normalizeOwnerRelative(patch?.file);
+    const target = resolveOwnerInside(base,file);
+    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      throw new Error('DEV_REPAIR_NORMALIZE_TARGET_MISSING:' + file);
+    }
+    const current = fs.readFileSync(target,'utf8');
+    const canonical = normalizeLineEndings(current);
+    if (Buffer.byteLength(canonical,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
+    if (canonical === current) continue;
+    const temp=target+'.jarvis-normalize-tmp-'+process.pid;
+    fs.writeFileSync(temp,canonical,'utf8');
+    fs.renameSync(temp,target);
+  }
+}
 const INSPECT_IGNORED = new Set(['.git','node_modules','release','dist','coverage']);
 const INSPECT_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
@@ -663,6 +682,6 @@ function buildDiagnosticContext(root, query='', options={}) {
 }
 
 module.exports={
-  validateWorkspace,validateOwnerPlan,proposalHash,isExplicitRepairRequest,snapshotOwner,applyOwner,rollbackOwner,readOwnerPlanFiles,
+  validateWorkspace,validateOwnerPlan,proposalHash,isExplicitRepairRequest,snapshotOwner,applyOwner,rollbackOwner,readOwnerPlanFiles,normalizeOwnerPlanFiles,
   inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED,OWNER_BLOCKED
 };
