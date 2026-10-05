@@ -123,7 +123,7 @@ function githubRepairStatePath() { return path.join(manualRepairRoot(),'github-r
 function readGitHubRepairState() { return readJson(githubRepairStatePath(),null); }
 function writeGitHubRepairState(value) {
   if (!value) { try { fs.rmSync(githubRepairStatePath(),{force:true}); } catch {} return null; }
-  writeJson(githubRepairStatePath(),value);
+  writeJsonAtomic(githubRepairStatePath(),value);
   return value;
 }
 function manualRepairPlanFile(hash) {
@@ -651,6 +651,16 @@ function seedInitialSettings() {
 }
 function readJson(file, fallback={}) { try { return JSON.parse(fs.readFileSync(file,'utf8')); } catch { return fallback; } }
 function writeJson(file, value) { fs.mkdirSync(path.dirname(file), {recursive:true}); fs.writeFileSync(file, JSON.stringify(value,null,2),'utf8'); }
+function writeJsonAtomic(file, value) {
+  fs.mkdirSync(path.dirname(file), {recursive:true});
+  const temp=file+'.tmp-'+process.pid+'-'+Date.now();
+  try {
+    fs.writeFileSync(temp,JSON.stringify(value,null,2),'utf8');
+    fs.renameSync(temp,file);
+  } finally {
+    try { if (fs.existsSync(temp)) fs.rmSync(temp,{force:true}); } catch {}
+  }
+}
 
 function protectSecret(value) {
   if (!value) return null;
@@ -730,14 +740,14 @@ async function connectGitHubSelfRepair(tokenValue) {
   const connection = await client.validateConnection();
   const raw = readJson(settingsPath(), {});
   raw.githubSelfRepairToken = protectSecret(token);
-  writeJson(settingsPath(), raw);
+  writeJsonAtomic(settingsPath(), raw);
   return connection;
 }
 
 function disconnectGitHubSelfRepair() {
   const raw = readJson(settingsPath(), {});
   delete raw.githubSelfRepairToken;
-  writeJson(settingsPath(), raw);
+  writeJsonAtomic(settingsPath(), raw);
   return { connected:false, repo:githubSelfRepair.DEFAULT_REPO };
 }
 
