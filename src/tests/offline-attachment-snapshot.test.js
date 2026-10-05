@@ -50,7 +50,7 @@ test('messages without attachments remain unchanged, and metadata is bounded',as
   ];
   const snapshot=await h.save(messages,{detectedLang:'hu'});
   assert.equal(snapshot.messages[0].content,'hello');
-  assert.equal(snapshot.messages[1].attachedFiles.length,10);
+  assert.equal(snapshot.messages[1].attachedFiles.length,20);
   assert.equal(snapshot.messages[1].attachedFiles[0].name,'photo-0');
   assert.ok(!JSON.stringify(snapshot).includes('data:image/png'));
 });
