@@ -201,7 +201,7 @@ export default function MultiMediaUpload({ files = [], onChange, onError, button
     onChange(newFiles);
     setUploading(false);
     e.target.value = '';
-  }, [files, onChange, onError]);
+  }, [files, onChange, onError, chatMode, effectiveMaxFiles, effectiveMaxTotalSize, effectiveMaxFileSize]);
 
   const remove = useCallback((idx) => onChange(files.filter((_, i) => i !== idx)), [files, onChange]);
 
