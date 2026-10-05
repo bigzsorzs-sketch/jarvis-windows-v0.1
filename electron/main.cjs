@@ -1695,7 +1695,17 @@ async function fetchLatestRelease() {
     if(!exe) throw new Error('UPDATE_INSTALLER_NOT_FOUND');
     const checksum=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === `${expectedInstallerName}.sha256`.toLowerCase());
     if(!checksum) throw new Error('UPDATE_CHECKSUM_NOT_FOUND');
-    return {latestVersion, releaseName:release.name||release.tag_name, publishedAt:release.published_at, exe, checksum};
+    const manifest=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === 'release-manifest.json');
+    if(!manifest) throw new Error('UPDATE_MANIFEST_NOT_FOUND');
+    return {
+      latestVersion,
+      releaseName:release.name||release.tag_name,
+      publishedAt:release.published_at,
+      targetCommitish:String(release.target_commitish || ''),
+      exe,
+      checksum,
+      manifest
+    };
   });
 }
 
@@ -1756,9 +1766,11 @@ async function oneClickUpdate() {
   fs.mkdirSync(tempDir,{recursive:true});
   const installerPath=path.join(tempDir,release.exe.name);
   const checksumPath=`${installerPath}.sha256`;
+  const manifestPath=path.join(tempDir,'release-manifest.json');
 
   await downloadFile(release.exe.browser_download_url,installerPath);
   await downloadFile(release.checksum.browser_download_url,checksumPath);
+  await downloadFile(release.manifest.browser_download_url,manifestPath);
 
   const checksumText=fs.readFileSync(checksumPath,'utf8');
   const expected=(checksumText.match(/\b[a-f0-9]{64}\b/i)||[])[0]?.toLowerCase();
@@ -1768,6 +1780,19 @@ async function oneClickUpdate() {
     try { fs.unlinkSync(installerPath); } catch {}
     throw new Error('UPDATE_CHECKSUM_MISMATCH');
   }
+
+  let releaseManifest;
+  try {
+    releaseManifest=JSON.parse(fs.readFileSync(manifestPath,'utf8').replace(/^\uFEFF/,''));
+  } catch {
+    throw new Error('UPDATE_MANIFEST_INVALID');
+  }
+  githubSelfRepair.verifyReleaseManifest(releaseManifest,{
+    version:release.latestVersion,
+    installer:release.exe.name,
+    sha256:actual,
+    targetCommitish:release.targetCommitish
+  });
 
   const signer = await verifyUpdateSigner(installerPath);
 
