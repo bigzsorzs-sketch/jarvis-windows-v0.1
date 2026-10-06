@@ -1,6 +1,5 @@
 import { invokeWithRetry } from '@/lib/llmGateway';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
-import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
 import { buildDeepProjectAnalysisContext, buildFileAnalysisContext, buildSpecialistProjectAnalysisContext, hasAnalyzableFiles } from '@/lib/fileAnalysisContext';
 
 const CODE_EXTENSIONS = new Set([
@@ -90,5 +89,5 @@ ${String(message || '').slice(0, 12000)}`;
     request_origin: 'conversation',
   }, 1);
 
-  return sanitizeAssistantText(normalizeAssistantReply(response));
+  return normalizeAssistantReply(response);
 }
