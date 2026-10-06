@@ -303,6 +303,49 @@ test('abandon closes only the exact unmerged Self-Repair PR and deletes its bran
   assert.equal(calls.some(call=>call.method==='DELETE' && call.path.includes('/git/refs/heads/')),true);
 });
 
+test('green PR CI is not enough when main moved after the repair branch was tested', async () => {
+  const headSha='5'.repeat(40);
+  const baseSha='4'.repeat(40);
+  const movedMain='3'.repeat(40);
+  const branch='fix/jarvis-self-repair-v0-3-24-mainmoved00';
+  let mergeCalls=0;
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'m'.repeat(40),
+    fetchImpl:async(url,options={})=>{
+      const parsed=new URL(url);
+      const method=options.method || 'GET';
+      if (method==='GET' && parsed.pathname.endsWith('/pulls/44')) {
+        return reply(200,{
+          number:44,state:'open',merged:false,mergeable:true,mergeable_state:'clean',
+          head:{ref:branch,sha:headSha},base:{ref:'main'},merge_commit_sha:null
+        });
+      }
+      if (method==='GET' && parsed.pathname.endsWith('/actions/runs')) {
+        return reply(200,{workflow_runs:[{
+          id:91,name:github.WORKFLOW_NAME,head_sha:headSha,head_branch:branch,event:'push',
+          run_number:21,status:'completed',conclusion:'success'
+        }]});
+      }
+      if (method==='GET' && parsed.pathname.endsWith('/actions/runs/91/jobs')) {
+        return reply(200,{jobs:[
+          {id:1,name:'CodeQL security scan',status:'completed',conclusion:'success'},
+          {id:2,name:'windows-installer',status:'completed',conclusion:'success'}
+        ]});
+      }
+      if (method==='GET' && parsed.pathname.endsWith('/git/ref/heads/main')) {
+        return reply(200,{object:{sha:movedMain}});
+      }
+      if (method==='PUT' && parsed.pathname.endsWith('/pulls/44/merge')) {
+        mergeCalls+=1;
+        return reply(200,{merged:true,sha:'2'.repeat(40)});
+      }
+      return reply(500,{message:`unexpected ${method} ${parsed.pathname}`});
+    }
+  });
+  await assert.rejects(()=>client.mergeRepair(44,headSha,baseSha),/GITHUB_REPAIR_BASE_MOVED/);
+  assert.equal(mergeCalls,0);
+});
+
 test('release dispatch requires exact main commit and both required main CI jobs', async () => {
   const sha='6'.repeat(40);
   const dispatches=[];
@@ -343,7 +386,12 @@ test('release dispatch requires exact main commit and both required main CI jobs
   assert.equal(result.dispatched,true);
   assert.deepEqual(dispatches,[{
     ref:'main',
-    inputs:{publish_release:'true',allow_unsigned_release:'true'}
+    inputs:{
+      publish_release:'true',
+      allow_unsigned_release:'true',
+      expected_commit:sha,
+      expected_version:'0.3.24'
+    }
   }]);
 });
 
