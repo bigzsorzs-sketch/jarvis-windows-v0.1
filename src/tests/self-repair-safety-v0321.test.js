@@ -38,7 +38,7 @@ test('pending approvals can be restored but are bound to the exact workspace sta
   assert.match(view, /developerRepair\?\.getPending\?\.\(\)/);
 });
 
-test('Accept is the final owner approval and apply still rechecks the exact plan', () => {
+test('Accept validates the exact plan locally, restores staging, then publishes only the validated bytes to GitHub', () => {
   const start = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
   const end = main.indexOf("ipcMain.handle('jarvis:repair:apply'",start);
   const body = main.slice(start,end);
@@ -46,37 +46,46 @@ test('Accept is the final owner approval and apply still rechecks the exact plan
   const checks = [
     "loadPersistedManualRepairPlan(hash)",
     "if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED')",
+    "const expectedBaseFiles=developerRepair.readOwnerPlanFiles(",
     "developerRepair.snapshotOwner(",
     "developerRepair.applyOwner(",
+    "developerRepair.normalizeOwnerPlanFiles(",
     "await validateDirectOwnerRepair(",
     "await ensureManualRuntimeBuilt(",
-    "scheduleManualRuntimeRestart("
+    "const stagedFiles=developerRepair.readOwnerPlanFiles(",
+    "developerRepair.rollbackOwner(entry.workspace,backup)",
+    "await client.createRepairPullRequest(",
+    "writeGitHubRepairState(githubState)"
   ];
   let previous = -1;
   for (const item of checks) {
-    const index = body.indexOf(item);
-    assert.ok(index > previous, `Approval or rollback sequence incorrect: ${item}`);
+    const index = body.indexOf(item, previous + 1);
+    assert.ok(index > previous, `Approval or GitHub handoff sequence incorrect: ${item}`);
     previous = index;
   }
   assert.doesNotMatch(body, /requireOwnerPresence/);
+  assert.doesNotMatch(body, /scheduleManualRuntimeRestart\(/);
   assert.match(body, /fs\.rmSync\(manualRuntimeStatePath\(\),\{force:true\}\)/);
-  assert.match(body, /developerRepair\.rollbackOwner\(entry\.workspace,backup\)/);
+  assert.match(body, /stagingOnly:true/);
 });
 
-test('manual runtime only activates after the source checks, node tests and build', () => {
+test('staging build requires the full local gate and never activates a repaired runtime', () => {
   const start = main.indexOf('async function ensureManualRuntimeBuilt(');
-  const end = main.indexOf('function scheduleManualRuntimeRestart(',start);
+  const end = main.indexOf('function clearLegacyManualRuntimeState(',start);
   const body = main.slice(start,end);
   assert.ok(start >= 0 && end > start);
   for (const step of [
+    "runToolchainNpm(['ci','--no-audit','--no-fund']",
+    "runToolchainNode(['scripts/audit-all-source.cjs']",
     "await checkNpm('lint')",
     "await checkNpm('typecheck')",
     "await checkNpm('verify:jarvis')",
     "await runToolchainNode(['--test',...testFiles]",
     "await checkNpm('build')",
-    "writeJson(manualRuntimeStatePath(),state)"
+    "enabled:false"
   ]) assert.ok(body.includes(step),step);
-  assert.ok(body.indexOf("await checkNpm('build')") < body.indexOf('writeJson(manualRuntimeStatePath(),state)'));
+  assert.ok(body.indexOf("runToolchainNpm(['ci','--no-audit','--no-fund']") < body.indexOf("runToolchainNode(['scripts/audit-all-source.cjs']"));
+  assert.doesNotMatch(body,/writeJson\(manualRuntimeStatePath\(\),state\)|scheduleManualRuntimeRestart|app\.relaunch/);
 });
 
 test('owner repair backup restores bytes when a patch is rejected or build fails', (t) => {

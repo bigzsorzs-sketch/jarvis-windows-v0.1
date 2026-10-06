@@ -30,3 +30,10 @@ test('the draft branch has a package version but publication remains gated',()=>
   assert.match(workflow,/if: github\.event_name == 'workflow_dispatch' && inputs\.publish_release == true && github\.ref != 'refs\/heads\/main'/);
   assert.match(workflow,/gh release view \$tag/);
 });
+
+test('Self-Repair release dispatch can pin the exact main commit and package version',()=>{
+  assert.match(workflow,/expected_commit:/);
+  assert.match(workflow,/expected_version:/);
+  assert.match(workflow,/RELEASE_DISPATCH_COMMIT_MISMATCH/);
+  assert.match(workflow,/RELEASE_DISPATCH_VERSION_MISMATCH/);
+});

@@ -9,11 +9,16 @@ const PROTECTED = [
   /^security[\\/]/i,
   /^electron[\\/]main\.cjs$/i,
   /^electron[\\/]developer-repair\.cjs$/i,
+  /^electron[\\/]github-self-repair\.cjs$/i,
+  /^electron[\\/]preload\.cjs$/i,
+  /^src[\\/]pages[\\/]SystemCenter\.jsx$/i,
   /^electron[\\/]admin-diagnostics\.cjs$/i,
-  /^\.github[\\/]workflows[\\/]/i,
+  /^\.github[\\/]/i,
   /^scripts[\\/]/i,
   /^package\.json$/i,
   /^package-lock\.json$/i,
+  /^src[\\/]lib[\\/]appVersion\.js$/i,
+  /^release-notes[\\/]/i,
   /^eslint\.config\.js$/i,
   /^tsconfig\.json$/i,
   /^vite\.config\.js$/i,
@@ -21,10 +26,22 @@ const PROTECTED = [
 const OWNER_BLOCKED = [
   /^electron[\\/]security[\\/]/i,
   /^security[\\/]/i,
-  /^\.github[\\/]workflows[\\/]/i,
+  /^electron[\\/]main\.cjs$/i,
+  /^electron[\\/]developer-repair\.cjs$/i,
+  /^electron[\\/]github-self-repair\.cjs$/i,
+  /^electron[\\/]preload\.cjs$/i,
+  /^src[\\/]pages[\\/]SystemCenter\.jsx$/i,
+  /^electron[\\/]admin-diagnostics\.cjs$/i,
+  /^\.github[\\/]/i,
   /^scripts[\\/]/i,
   /^package\.json$/i,
   /^package-lock\.json$/i,
+  /^src[\\/]lib[\\/]appVersion\.js$/i,
+  /^release-notes[\\/]/i,
+  /^eslint\.config\.js$/i,
+  /^tsconfig\.json$/i,
+  /^vite\.config\.js$/i,
+  /^src[\\/]tests[\\/]/i,
 ];
 const ALLOWED_EXT = new Set(['.js','.jsx','.cjs','.mjs','.ts','.tsx','.json','.css','.md']);
 
@@ -107,7 +124,7 @@ function isProtectedRelative(input) {
 }
 function normalizeRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
-  if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
+  if (!rel || path.isAbsolute(rel) || rel.split('/').some((part)=>!part || part === '.' || part === '..')) throw new Error('DEV_REPAIR_INVALID_PATH');
   if (isProtectedRelative(rel)) throw new Error('DEV_REPAIR_PROTECTED_PATH:' + rel);
   if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
@@ -135,7 +152,7 @@ function resolveInside(root, rel) {
 }
 function normalizeOwnerRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
-  if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
+  if (!rel || path.isAbsolute(rel) || rel.split('/').some((part)=>!part || part === '.' || part === '..')) throw new Error('DEV_REPAIR_INVALID_PATH');
   if (OWNER_BLOCKED.some((rx) => rx.test(rel))) throw new Error('DEV_REPAIR_OWNER_BLOCKED_PATH:' + rel);
   if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
@@ -241,6 +258,40 @@ function rollbackOwner(root, dir) {
     } else if (fs.existsSync(target)) {
       fs.rmSync(target,{force:true});
     }
+  }
+}
+function readOwnerPlanFiles(root, plan) {
+  const base = validateWorkspace(root);
+  const patches = Array.isArray(plan?.patches) ? plan.patches : [];
+  if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
+  return patches.map((patch) => {
+    const file = normalizeOwnerRelative(patch?.file);
+    const target = resolveOwnerInside(base,file);
+    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      return { path:file, content:null };
+    }
+    const content = fs.readFileSync(target,'utf8');
+    if (Buffer.byteLength(content,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
+    return { path:file, content };
+  });
+}
+function normalizeOwnerPlanFiles(root, plan) {
+  const base = validateWorkspace(root);
+  const patches = Array.isArray(plan?.patches) ? plan.patches : [];
+  if (!patches.length) throw new Error('DEV_REPAIR_EMPTY_PLAN');
+  for (const patch of patches) {
+    const file = normalizeOwnerRelative(patch?.file);
+    const target = resolveOwnerInside(base,file);
+    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      throw new Error('DEV_REPAIR_NORMALIZE_TARGET_MISSING:' + file);
+    }
+    const current = fs.readFileSync(target,'utf8');
+    const canonical = normalizeLineEndings(current);
+    if (Buffer.byteLength(canonical,'utf8') > 900000) throw new Error('DEV_REPAIR_CONTENT_TOO_LARGE');
+    if (canonical === current) continue;
+    const temp=target+'.jarvis-normalize-tmp-'+process.pid;
+    fs.writeFileSync(temp,canonical,'utf8');
+    fs.renameSync(temp,target);
   }
 }
 const INSPECT_IGNORED = new Set(['.git','node_modules','release','dist','coverage']);
@@ -631,6 +682,6 @@ function buildDiagnosticContext(root, query='', options={}) {
 }
 
 module.exports={
-  validateWorkspace,validateOwnerPlan,proposalHash,isExplicitRepairRequest,snapshotOwner,applyOwner,rollbackOwner,
+  validateWorkspace,validateOwnerPlan,proposalHash,isExplicitRepairRequest,snapshotOwner,applyOwner,rollbackOwner,readOwnerPlanFiles,normalizeOwnerPlanFiles,
   inspectWorkspace,buildDiagnosticContext,applyReplacementEdits,isProtectedRelative,PROTECTED,OWNER_BLOCKED
 };

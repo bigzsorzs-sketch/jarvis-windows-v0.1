@@ -71,6 +71,67 @@ test('Self-Repair recognizes natural Hungarian repair execution requests', () =>
   assert.equal(repair.isExplicitRepairRequest('mi a javítás állapota?'),false);
 });
 
+test('Self-Repair trust core and release metadata cannot be modified by AI repair plans', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-trust-core-'));
+  try {
+    fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({name:'jarvis-desktop',version:'0.3.24'}));
+    fs.mkdirSync(path.join(root,'electron'),{recursive:true});
+    fs.mkdirSync(path.join(root,'src','lib'),{recursive:true});
+    fs.mkdirSync(path.join(root,'release-notes'),{recursive:true});
+    fs.writeFileSync(path.join(root,'electron','main.cjs'),'module.exports = {};\n');
+    fs.writeFileSync(path.join(root,'electron','github-self-repair.cjs'),'module.exports = {};\n');
+    fs.writeFileSync(path.join(root,'src','lib','appVersion.js'),"export const APP_VERSION = '0.3.24';\n");
+    fs.writeFileSync(path.join(root,'release-notes','v0.3.24.md'),'# Jarvis v0.3.24\n');
+
+    for (const file of [
+      'electron/main.cjs',
+      'electron/github-self-repair.cjs',
+      'src/pages/SystemCenter.jsx',
+      'src/lib/appVersion.js',
+      'release-notes/v0.3.24.md',
+      'eslint.config.js',
+      'tsconfig.json',
+      'vite.config.js',
+      'src/tests/new-ai-written.test.js',
+      '.github/anything.md'
+    ]) {
+      assert.throws(
+        ()=>repair.validateOwnerPlan(root,{
+          goal:'tamper test',
+          patches:[{file,content:'changed'}]
+        }),
+        /DEV_REPAIR_OWNER_BLOCKED_PATH/,
+        file
+      );
+    }
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
+test('Self-Repair canonicalizes approved text bytes before validation and GitHub staging', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-canonical-repair-'));
+  try {
+    fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({name:'jarvis-desktop',version:'0.3.23'}));
+    const file=path.join(root,'src','pages','sample.js');
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    fs.writeFileSync(file,'export const a = 1;\r\nexport const b = 2;\r\n','utf8');
+    const plan=repair.validateOwnerPlan(root,{
+      goal:'canonical bytes',
+      risk:'low',
+      patches:[{file:'src/pages/sample.js',replacements:[{search:'a = 1',replace:'a = 3'}]}]
+    });
+    repair.applyOwner(root,plan);
+    assert.match(fs.readFileSync(file,'utf8'),/\r\n/);
+    repair.normalizeOwnerPlanFiles(root,plan);
+    const canonical=fs.readFileSync(file,'utf8');
+    assert.equal(canonical.includes('\r'),false);
+    assert.equal(canonical,'export const a = 3;\nexport const b = 2;\n');
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
 test('Self-Repair learning stores only verified local lessons', () => {
   const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-learning-')),'learning.json');
   const learning=new learningModule.SelfRepairLearning(file);
@@ -97,11 +158,15 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(main,/developerBackupRoot\(\)/);
   assert.match(main,/SELF_REPAIR_FINGERPRINT_ENTRIES/);
   assert.match(main,/sourceState\.sourceFingerprint !== installedSourceFingerprint/);
+  assert.match(main,/workspaceDirty = selfRepairSourceFingerprint\(target\) !== installedSourceFingerprint/);
+  assert.match(main,/function writeJsonAtomic/);
+  assert.match(main,/GITHUB_REPAIR_STATE_PERSIST_FAILED/);
   assert.match(main,/const workspace = entry\?\.workspace/);
   assert.match(main,/MANUAL_REPAIR_WORKSPACE_REQUIRED/);
   assert.match(main,/sourceFingerprint:readJson\(manualWorkspaceSourceStatePath\(workspace\), \{\}\)\.sourceFingerprint/);
   assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(entry\.workspace\)/);
-  assert.match(main,/if \(isManualRepairRuntime\) return developerRepair\.validateWorkspace\(target\)/);
+  assert.doesNotMatch(main,/isManualRepairRuntime|--jarvis-manual-runtime|scheduleManualRuntimeRestart|handOffToManualRuntimeIfReady/);
+  assert.match(main,/function clearLegacyManualRuntimeState/);
   assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);
   assert.match(preload,/apply: \(repairId, reportId\)/);

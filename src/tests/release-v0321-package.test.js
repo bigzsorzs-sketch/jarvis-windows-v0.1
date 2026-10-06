@@ -5,9 +5,11 @@ import fs from 'node:fs';
 test('published version and dependency lock agree',()=>{
   const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
   const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
-  assert.equal(pkg.version,'0.3.23');
+  const appVersionSource=fs.readFileSync('src/lib/appVersion.js','utf8');
+  assert.match(pkg.version,/^\d+\.\d+\.\d+$/);
   assert.equal(lock.version,pkg.version);
   assert.equal(lock.packages[''].version,pkg.version);
+  assert.match(appVersionSource,new RegExp("APP_VERSION\\s*=\\s*['\"]"+pkg.version.replace(/\./g,'\\.')+"['\"]"));
 });
 
 test('release notes exist for exact package version',()=>{
@@ -16,7 +18,7 @@ test('release notes exist for exact package version',()=>{
   assert.ok(fs.existsSync(file),file);
   const notes=fs.readFileSync(file,'utf8');
   assert.match(notes,new RegExp('Jarvis v'+pkg.version.replace(/\./g,'\\.')));
-  assert.match(notes,/manual acceptance testing/);
+  assert.match(notes,/## Verification/);
 });
 
 test('every release candidate verifies installer, commit, hash and signature status',()=>{

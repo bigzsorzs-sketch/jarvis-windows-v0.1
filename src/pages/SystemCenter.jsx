@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Activity, CheckCircle2, XCircle, AlertTriangle, Database, ShieldCheck, Save, Upload,
-  RefreshCw, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2
+  RefreshCw, Sparkles, Search, MessageSquare, Send, Map, Bug, Loader2,
+  Github, GitPullRequest, GitMerge, Rocket, Download, Unplug
 } from 'lucide-react';
 import { jarvis } from '@/api/jarvisClient';
 import { useLang } from '@/lib/i18n';
@@ -68,6 +69,10 @@ export default function SystemCenter() {
   const pendingRequestEpoch = useRef(0);
   const [manualApplyBusy, setManualApplyBusy] = useState(false);
   const [crashes, setCrashes] = useState([]);
+  const [githubStatus, setGithubStatus] = useState({ connected:false, repo:'bigzsorzs-sketch/jarvis-windows-v0.1', repair:null });
+  const [githubToken, setGithubToken] = useState('');
+  const [githubBusy, setGithubBusy] = useState('');
+  const [allowUnsignedRelease, setAllowUnsignedRelease] = useState(false);
   const currentVersionCrashes = crashes.filter((item) => canonicalAppVersion(item?.appVersion) === canonicalAppVersion(APP_VERSION));
   const latestCurrentCrash = currentVersionCrashes[0] || null;
 
@@ -86,7 +91,125 @@ export default function SystemCenter() {
         }
       })
       .catch(() => {});
+    window.jarvisDesktop?.developerRepair?.github?.status?.()
+      .then((status) => setGithubStatus(status || { connected:false, repo:'bigzsorzs-sketch/jarvis-windows-v0.1', repair:null }))
+      .catch(() => {});
   }, []);
+
+  const refreshGitHubStatus = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.refresh) return null;
+    setGithubBusy('refresh');
+    try {
+      const status = await window.jarvisDesktop.developerRepair.github.refresh();
+      setGithubStatus(status || { connected:false, repo:'bigzsorzs-sketch/jarvis-windows-v0.1', repair:null });
+      return status;
+    } catch (error) {
+      setMessage(tx('GitHub állapot hiba: ','GitHub status error: ') + (error?.message || error));
+      return null;
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const connectGitHub = async () => {
+    const token = githubToken.trim();
+    if (!token || !window.jarvisDesktop?.developerRepair?.github?.connect) return;
+    setGithubBusy('connect');
+    try {
+      await window.jarvisDesktop.developerRepair.github.connect(token);
+      setGithubToken('');
+      const status = await window.jarvisDesktop.developerRepair.github.status();
+      setGithubStatus(status);
+      setMessage(tx(
+        '✓ GitHub kapcsolat ellenőrizve. A token a Windows titkosított tárolójában van, és nem kerül az AI promptokba.',
+        '✓ GitHub connection verified. The token is stored in Windows secure storage and is never sent to AI prompts.'
+      ));
+    } catch (error) {
+      setMessage(tx('GitHub csatlakozási hiba: ','GitHub connection error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const disconnectGitHub = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.disconnect) return;
+    setGithubBusy('disconnect');
+    try {
+      const status = await window.jarvisDesktop.developerRepair.github.disconnect();
+      setGithubStatus({ ...(status || {}), repair:githubStatus?.repair || null });
+      setGithubToken('');
+      setMessage(tx('GitHub kapcsolat bontva.','GitHub connection disconnected.'));
+    } catch (error) {
+      setMessage(tx('GitHub kapcsolat bontási hiba: ','GitHub disconnect error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const abandonGitHubRepair = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.abandon) return;
+    setGithubBusy('abandon');
+    try {
+      await window.jarvisDesktop.developerRepair.github.abandon();
+      setGithubStatus(prev=>({ ...prev, repair:null }));
+      setMessage(tx('Self-Repair PR elvetve. Új javítás készíthető.','Self-Repair PR abandoned. A new repair can be created.'));
+    } catch (error) {
+      setMessage(tx('GitHub elvetési hiba: ','GitHub abandon error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const mergeGitHubRepair = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.merge) return;
+    setGithubBusy('merge');
+    try {
+      const repair = await window.jarvisDesktop.developerRepair.github.merge();
+      setGithubStatus(prev=>({ ...prev, repair }));
+      setMessage(tx(
+        '✓ A CI által ellenőrzött Self-Repair PR bekerült a main ágba. Most a main teljes buildjét kell megvárni.',
+        '✓ The CI-verified Self-Repair PR was merged into main. The full main build must pass next.'
+      ));
+    } catch (error) {
+      setMessage(tx('GitHub merge hiba: ','GitHub merge error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const publishGitHubRepair = async () => {
+    if (!window.jarvisDesktop?.developerRepair?.github?.publish) return;
+    setGithubBusy('publish');
+    try {
+      const repair = await window.jarvisDesktop.developerRepair.github.publish(allowUnsignedRelease);
+      setGithubStatus(prev=>({ ...prev, repair }));
+      setMessage(tx(
+        '✓ A kiadási workflow elindult. A Release csak akkor készül el, ha a teljes publikálási build is átmegy.',
+        '✓ The release workflow has started. A Release is created only if the complete publication build also passes.'
+      ));
+    } catch (error) {
+      setMessage(tx('GitHub publikálási hiba: ','GitHub publication error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
+
+  const installReleasedUpdate = async () => {
+    if (!window.jarvisDesktop?.oneClickUpdate) return;
+    setGithubBusy('install');
+    try {
+      const result = await window.jarvisDesktop.oneClickUpdate();
+      if (result?.status === 'up-to-date') {
+        setMessage(tx('A telepített Jarvis már a legújabb stabil verzió.','Installed Jarvis is already the latest stable version.'));
+      } else {
+        setMessage(tx('Frissítés ellenőrizve és telepítésre átadva. Jarvis újra fog indulni.','Update verified and handed to the installer. Jarvis will restart.'));
+      }
+    } catch (error) {
+      setMessage(tx('Frissítési hiba: ','Update error: ') + (error?.message || error));
+    } finally {
+      setGithubBusy('');
+    }
+  };
 
   const analyzeLatestCrash = () => {
     const latest = latestCurrentCrash;
@@ -226,7 +349,7 @@ export default function SystemCenter() {
     const hash = pendingRepair?.hash;
     if (!hash || manualApplyBusy || chatBusy) return;
     setManualApplyBusy(true);
-    setMessage(tx('Javítás alkalmazása, helyi build készítése és Jarvis újraindítása...','Applying repair, building local runtime and restarting Jarvis...'));
+    setMessage(tx('Javítás izolált ellenőrzése, teljes helyi build és GitHub PR előkészítése...','Validating repair in isolation, running the full local build and preparing a GitHub PR...'));
     try {
       const result = await window.jarvisDesktop?.developerRepair?.applyPending?.(hash);
       if (!result?.success) {
@@ -236,16 +359,14 @@ export default function SystemCenter() {
         throw new Error(tx('A javítás nem fejeződött be.','Repair did not complete.'));
       }
       setPendingRepair(null);
-      setMessage(tx('✓ Javítás alkalmazva. Jarvis a javított kóddal újraindul...','✓ Repair applied. Jarvis is restarting with the repaired code...'));
-      try {
-        const mapped = await jarvis.functions.invoke('selfRepairMap', { query:'' });
-        if (mapped?.data?.map) setProjectMap(mapped.data.map);
-        if (mapped?.data?.learning) setLearningStats(mapped.data.learning);
-      } catch {}
+      if (result?.status !== 'GITHUB_PR_OPENED' || !result?.github?.prNumber) {
+        throw new Error(tx('A GitHub javítási PR nem jött létre.','GitHub repair PR was not created.'));
+      }
+      setGithubStatus(prev=>({ ...prev, connected:true, repair:result.github }));
       setMessage(
-        tx('✓ Javítás elfogadva és közvetlenül alkalmazva a Self-Repair fejlesztési forrására. Módosított fájlok: ','✓ Repair accepted and applied directly to the Self-Repair development source. Changed files: ') +
-        (result.files || []).join(', ') +
-        tx(' Jarvis most a javított kóddal indul újra.',' Jarvis is now restarting with the repaired code.')
+        tx('✓ A javítás helyben teljesen ellenőrizve, a staging forrás visszaállítva, majd a pontos javított bájtok GitHub PR-ba kerültek. PR #','✓ Repair passed the full local validation, staging source was restored, and the exact validated bytes were sent to GitHub PR #') +
+        result.github.prNumber +
+        tx('. Most a független GitHub CI következik; a telepített Jarvis még nem változott.','. Independent GitHub CI is next; the installed Jarvis has not changed.')
       );
     } catch (error) {
       const errorMessage = String(error?.message || error || '');
@@ -256,6 +377,11 @@ export default function SystemCenter() {
         setMessage(tx(
           'A korábbi javítási terv már nem érvényes. Kérd újra a javítást; Jarvis friss tervet készít a jelenlegi forrásból.',
           'The previous repair plan is no longer valid. Ask for the repair again and Jarvis will prepare a fresh plan from the current source.'
+        ));
+      } else if (/GITHUB_REPAIR_ALREADY_ACTIVE/.test(errorMessage)) {
+        setMessage(tx(
+          'Már van aktív GitHub Self-Repair folyamat. Előbb ellenőrizd, merge-eld, add ki vagy vesd el azt a PR-t.',
+          'A GitHub Self-Repair flow is already active. Verify, merge, publish or abandon that PR before starting another repair.'
         ));
       } else {
         setMessage(tx('Kézi Self-Repair hiba: ','Manual Self-Repair error: ') + errorMessage);
@@ -322,6 +448,24 @@ export default function SystemCenter() {
   const failedCount = report?.checks?.filter((check) => !check.ok).length || 0;
   const automaticRepairs = repairPlan?.repairs?.filter((repair) => repair.automatic) || [];
   const mapSummary = projectMap?.summary || {};
+  const githubRepair = githubStatus?.repair || null;
+  const repairCiState = githubRepair?.prStatus?.ci?.state || null;
+  const mainCiState = githubRepair?.mainStatus?.ci?.state || null;
+  const releaseState = githubRepair?.releaseStatus?.state || (githubRepair?.phase === 'released' ? 'released' : null);
+  const canMergeGitHubRepair = Boolean(
+    githubStatus?.connected
+    && githubRepair?.prNumber
+    && !githubRepair?.mergeSha
+    && repairCiState === 'passed'
+  );
+  const canPublishGitHubRepair = Boolean(
+    githubStatus?.connected
+    && githubRepair?.mergeSha
+    && githubRepair?.mainStatus?.state === 'current'
+    && mainCiState === 'passed'
+    && githubRepair?.phase !== 'released'
+    && (githubRepair?.phase !== 'release-dispatched' || releaseState === 'failed')
+  );
 
   return (
     <div className="h-full overflow-y-auto jarvis-scroll">
@@ -434,6 +578,173 @@ export default function SystemCenter() {
         </section>
 
         <section className="app-surface rounded-3xl p-5 md:p-6">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><Github size={19} className="text-primary"/></div>
+              <div className="min-w-0">
+                <h2 className="font-semibold">{tx('GitHub Self-Repair kapcsolat','GitHub Self-Repair connection')}</h2>
+                <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                  {tx(
+                    'A javítás először izolált helyi munkatérben fut végig a teljes ellenőrzésen. Csak a pontosan ellenőrzött fájlbájtok kerülhetnek külön fix/jarvis-self-repair ágra. A main merge és a Release külön tulajdonosi művelet.',
+                    'The repair first passes the complete validation in an isolated local workspace. Only the exact validated file bytes may be sent to a dedicated fix/jarvis-self-repair branch. Main merge and Release remain separate owner actions.'
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={githubStatus?.connected ? 'text-xs font-semibold text-green-400' : 'text-xs font-semibold text-muted-foreground'}>
+                {githubStatus?.connected ? tx('● CSATLAKOZVA','● CONNECTED') : tx('○ NINCS KAPCSOLAT','○ DISCONNECTED')}
+              </span>
+              <button
+                onClick={refreshGitHubStatus}
+                disabled={Boolean(githubBusy)}
+                className="rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={githubBusy === 'refresh' ? 'animate-spin' : ''}/>{tx('Frissítés','Refresh')}
+              </button>
+            </div>
+          </div>
+
+          {!githubStatus?.connected ? (
+            <div className="mt-4 rounded-2xl border border-border bg-background/50 p-4">
+              <label className="text-xs font-semibold">{tx('Fine-grained GitHub token','Fine-grained GitHub token')}</label>
+              <div className="flex flex-col md:flex-row gap-2 mt-2">
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={githubToken}
+                  onChange={(event)=>setGithubToken(event.target.value)}
+                  placeholder="github_pat_..."
+                  className="flex-1 rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none"
+                />
+                <button
+                  onClick={connectGitHub}
+                  disabled={githubBusy === 'connect' || !githubToken.trim()}
+                  className="rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                >
+                  {githubBusy === 'connect' ? tx('Ellenőrzés...','Verifying...') : tx('GitHub csatlakoztatása','Connect GitHub')}
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                {tx(
+                  'Csak ehhez a repositoryhoz adj jogosultságot: Contents Read/Write, Pull requests Read/Write, Actions Read/Write. A token Windows safeStorage/DPAPI alatt marad, az AI nem kapja meg.',
+                  'Grant access only to this repository: Contents Read/Write, Pull requests Read/Write, Actions Read/Write. The token stays under Windows safeStorage/DPAPI and is never exposed to AI.'
+                )}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-2xl border border-border bg-background/50 p-4">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold break-all">{githubStatus.repo || 'bigzsorzs-sketch/jarvis-windows-v0.1'}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {tx('Alap ág: ','Base branch: ')}{githubStatus.defaultBranch || 'main'}
+                  </div>
+                </div>
+                <button
+                  onClick={disconnectGitHub}
+                  disabled={Boolean(githubBusy)}
+                  className="rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Unplug size={14}/>{tx('Kapcsolat bontása','Disconnect')}
+                </button>
+              </div>
+
+              {githubRepair && (
+                <div className="mt-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="jarvis-metric"><span>{tx('Jelölt verzió','Candidate')}</span><strong>{githubRepair.version ? 'v'+githubRepair.version : '-'}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Pull Request','Pull Request')}</span><strong>{githubRepair.prNumber ? '#'+githubRepair.prNumber : '-'}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('PR CI','PR CI')}</span><strong>{repairCiState || '-'}</strong></div>
+                    <div className="jarvis-metric"><span>{tx('Main CI','Main CI')}</span><strong>{mainCiState || '-'}</strong></div>
+                  </div>
+
+                  <div className="text-[11px] text-muted-foreground break-all">
+                    {githubRepair.branch ? tx('Ág: ','Branch: ') + githubRepair.branch : ''}
+                    {githubRepair.headSha ? ' · ' + githubRepair.headSha.slice(0,12) : ''}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={refreshGitHubStatus}
+                      disabled={Boolean(githubBusy)}
+                      className="rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <GitPullRequest size={14}/>{tx('CI állapot ellenőrzése','Check CI status')}
+                    </button>
+                    <button
+                      onClick={mergeGitHubRepair}
+                      disabled={!canMergeGitHubRepair || Boolean(githubBusy)}
+                      className="rounded-xl border border-green-500/30 bg-green-500/10 text-green-400 px-3 py-2 text-xs font-semibold flex items-center gap-2 disabled:opacity-40"
+                    >
+                      <GitMerge size={14}/>{githubBusy === 'merge' ? tx('Merge...','Merging...') : tx('Ellenőrzött PR merge','Merge verified PR')}
+                    </button>
+                    {!githubRepair?.mergeSha && (
+                      <button
+                        onClick={abandonGitHubRepair}
+                        disabled={Boolean(githubBusy)}
+                        className="rounded-xl border border-red-500/25 bg-red-500/10 text-red-400 px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                      >
+                        {githubBusy === 'abandon' ? tx('Elvetés...','Abandoning...') : tx('PR elvetése','Abandon PR')}
+                      </button>
+                    )}
+                  </div>
+
+                  {githubRepair.mergeSha && (
+                    <div className="rounded-xl border border-border bg-background/60 p-3">
+                      <div className="text-xs font-semibold">{tx('Main ellenőrzés','Main verification')}</div>
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        {tx('Merge commit: ','Merge commit: ')}{githubRepair.mergeSha.slice(0,12)} · {tx('állapot: ','state: ')}{mainCiState || githubRepair?.mainStatus?.state || '-'}
+                      </div>
+                    </div>
+                  )}
+
+                  {canPublishGitHubRepair && (
+                    <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3">
+                      <label className="flex items-start gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={allowUnsignedRelease}
+                          onChange={(event)=>setAllowUnsignedRelease(event.target.checked)}
+                          className="mt-0.5"
+                        />
+                        <span>{tx(
+                          'Engedélyezem az aláírás nélküli kiadást, ha nincs érvényes Authenticode aláírás. A SHA-256 és minden más kiadási ellenőrzés továbbra is kötelező.',
+                          'Allow an unsigned release if no valid Authenticode signature is present. SHA-256 and every other release gate remain mandatory.'
+                        )}</span>
+                      </label>
+                      <button
+                        onClick={publishGitHubRepair}
+                        disabled={Boolean(githubBusy)}
+                        className="mt-3 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <Rocket size={14}/>{githubBusy === 'publish' ? tx('Kiadás indítása...','Starting release...') : tx('Új verzió kiadása','Publish new version')}
+                      </button>
+                    </div>
+                  )}
+
+                  {githubRepair?.phase === 'release-dispatched' && releaseState !== 'released' && (
+                    <div className="text-xs text-muted-foreground">
+                      {tx('A kiadási build fut. Frissítsd az állapotot; Jarvis csak sikeres Release után engedi a telepítést.','Release build is running. Refresh status; Jarvis enables installation only after a successful Release.')}
+                    </div>
+                  )}
+
+                  {releaseState === 'released' && (
+                    <button
+                      onClick={installReleasedUpdate}
+                      disabled={Boolean(githubBusy)}
+                      className="rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <Download size={14}/>{githubBusy === 'install' ? tx('Frissítés...','Updating...') : tx('Ellenőrzött frissítés telepítése','Install verified update')}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="app-surface rounded-3xl p-5 md:p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center"><MessageSquare size={19} className="text-primary"/></div>
@@ -510,13 +821,13 @@ export default function SystemCenter() {
               disabled={manualApplyBusy || chatBusy || !pendingRepair?.hash}
               className="rounded-xl border border-green-500/30 bg-green-500/10 text-green-400 px-4 text-xs font-semibold disabled:opacity-40"
             >
-              {manualApplyBusy ? tx('Build + újraindítás...','Build + restart...') : tx('Elfogadom','Accept')}
+              {manualApplyBusy ? tx('Ellenőrzés + GitHub PR...','Validate + GitHub PR...') : tx('Elfogadom','Accept')}
             </button>
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">
             {tx(
-              'A „Hibák keresése” csak elemez. Az „Elfogadom” maga a javítás jóváhagyása: Jarvis mentést készít, alkalmazza és teszteli a módosítást, majd csak sikeres ellenőrzések esetén indítja újra a javított helyi verziót. Sikertelen ellenőrzésnél visszaállítja a forrást. A javítás nem kerül automatikusan a GitHubra.',
-              '“Find bugs” only analyzes. “Accept” is the repair approval: Jarvis backs up, applies and tests the patch, then restarts the repaired local version only after successful checks. On failed checks it restores the source. The patch is not automatically committed to GitHub.'
+              'A „Hibák keresése” csak elemez. Az „Elfogadom” az adott hash-elt javítás jóváhagyása: Jarvis izolált munkatérben mentést készít, alkalmazza a patch-et, lefuttatja a teljes helyi ellenőrzést, majd visszaállítja a staging forrást. Csak ezután küldi a pontosan ellenőrzött fájlokat külön GitHub ágra és PR-ba. Main merge, kiadás és telepítés külön lépés.',
+              '“Find bugs” only analyzes. “Accept” approves the exact hashed repair: Jarvis backs up an isolated workspace, applies the patch, runs the full local validation, then restores the staging source. Only then are the exact validated files sent to a dedicated GitHub branch and PR. Main merge, release and installation are separate steps.'
             )}
           </p>
         </section>

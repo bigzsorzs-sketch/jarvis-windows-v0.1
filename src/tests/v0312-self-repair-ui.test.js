@@ -18,9 +18,9 @@ function makeWorkspace() {
 test('Self-Repair replacement matching accepts Windows CRLF source with LF model search text', () => {
   const root = makeWorkspace();
   try {
-    const file = path.join(root, 'src', 'pages', 'SystemCenter.jsx');
+    const file = path.join(root, 'src', 'pages', 'EditablePage.jsx');
     fs.writeFileSync(file, 'alpha\r\nbeta\r\ngamma\r\n', 'utf8');
-    const plan = repair.validateOwnerPlan(root, {goal:'CRLF repair',risk:'low',patches:[{file:'src/pages/SystemCenter.jsx',replacements:[{search:'alpha\nbeta\ngamma',replace:'alpha\nbeta-fixed\ngamma',all:false}]}]});
+    const plan = repair.validateOwnerPlan(root, {goal:'CRLF repair',risk:'low',patches:[{file:'src/pages/EditablePage.jsx',replacements:[{search:'alpha\nbeta\ngamma',replace:'alpha\nbeta-fixed\ngamma',all:false}]}]});
     repair.applyOwner(root, plan);
     const updated = fs.readFileSync(file, 'utf8');
     assert.equal(updated.includes('beta-fixed'), true);
@@ -31,8 +31,8 @@ test('Self-Repair replacement matching accepts Windows CRLF source with LF model
 test('Self-Repair rejects stale search text before an owner-approved write', () => {
   const root = makeWorkspace();
   try {
-    fs.writeFileSync(path.join(root, 'src', 'pages', 'SystemCenter.jsx'), 'export default function SystemCenter(){}\n');
-    assert.throws(() => repair.validateOwnerPlan(root, {patches:[{file:'src/pages/SystemCenter.jsx',replacements:[{ search:'stale block from previous version', replace:'x' }]}]}), /DEV_REPAIR_SEARCH_NOT_FOUND:src\/pages\/SystemCenter\.jsx/);
+    fs.writeFileSync(path.join(root, 'src', 'pages', 'EditablePage.jsx'), 'export default function SystemCenter(){}\n');
+    assert.throws(() => repair.validateOwnerPlan(root, {patches:[{file:'src/pages/EditablePage.jsx',replacements:[{ search:'stale block from previous version', replace:'x' }]}]}), /DEV_REPAIR_SEARCH_NOT_FOUND:src\/pages\/EditablePage\.jsx/);
   } finally { fs.rmSync(root, { recursive:true, force:true }); }
 });
 

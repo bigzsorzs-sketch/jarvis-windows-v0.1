@@ -71,7 +71,7 @@ test('voice prompt knows voice conversation is active', () => {
   assert.match(chat,/Never claim that voice conversation is unavailable or text-only/);
 });
 
-test('System Center provides source-aware conversation with manual repair approval', () => {
+test('System Center provides source-aware conversation and the owner-controlled GitHub Self-Repair lifecycle', () => {
   assert.match(system,/Self-Repair párbeszéd/);
   assert.match(system,/Program feltérképezése/);
   assert.match(system,/Hibák keresése/);
@@ -79,6 +79,11 @@ test('System Center provides source-aware conversation with manual repair approv
   assert.match(system,/const applyPendingRepair = async \(\) =>/);
   assert.match(system,/const hash = pendingRepair\?\.hash/);
   assert.match(system,/developerRepair\?\.applyPending\?\.\(hash\)/);
+  assert.match(system,/status !== 'GITHUB_PR_OPENED'/);
+  assert.match(system,/GitHub Self-Repair kapcsolat/);
+  assert.match(system,/developerRepair\?\.github\?\.status/);
+  assert.match(system,/developerRepair\.github\.merge\(\)/);
+  assert.match(system,/developerRepair\.github\.publish\(allowUnsignedRelease\)/);
   assert.match(system,/onClick=\{applyPendingRepair\}/);
   assert.match(system,/disabled=\{manualApplyBusy \|\| chatBusy \|\| !pendingRepair\?\.hash\}/);
   assert.match(system,/status === 'ROLLED_BACK'/);

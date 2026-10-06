@@ -2,7 +2,6 @@
 
 const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, nativeTheme, shell } = require('electron');
 const path = require('path');
-const activation = require('./runtime-activation.cjs');
 const { fileURLToPath } = require('url');
 const fs = require('fs');
 const os = require('os');
@@ -17,6 +16,7 @@ const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
 const developerRepair = require('./developer-repair.cjs');
+const githubSelfRepair = require('./github-self-repair.cjs');
 const { validateUploadedFileUrl } = require('./analysis/file-upload-validator.cjs');
 const { SelfRepairLearning } = require('./self-repair-learning.cjs');
 const { parseHelperArgs, startAdminHelper, AdminDiagnosticsManager } = require('./admin-diagnostics.cjs');
@@ -26,8 +26,7 @@ const {
   analyzeProjectSpecialists,
 } = require('./analysis/file-analyzer.cjs');
 
-const isManualRepairRuntime = process.argv.includes('--jarvis-manual-runtime');
-const isDev = !app.isPackaged && !isManualRepairRuntime;
+const isDev = !app.isPackaged;
 let mainWindow;
 let policy;
 let obdBridge;
@@ -68,21 +67,16 @@ function selfRepairSourceRoot() {
     : path.join(__dirname, '..');
 }
 
-let activeSelfRepairToolchainRoot = null;
 function selfRepairToolchainPaths() {
-  let root = String(process.env.JARVIS_SELF_REPAIR_TOOLCHAIN || '').trim();
-  if (!root && app.isPackaged) root = path.join(process.resourcesPath, 'self-repair-toolchain');
-  if (!root) {
-    try { root = String(readJson(manualRuntimeStatePath(),{}).toolchainRoot || '').trim(); } catch {}
-  }
-  if (!root) root = activeSelfRepairToolchainRoot;
+  const root = app.isPackaged
+    ? path.join(process.resourcesPath, 'self-repair-toolchain')
+    : String(process.env.JARVIS_SELF_REPAIR_TOOLCHAIN || '').trim();
   if (!root) return null;
   const node = path.join(root, process.platform === 'win32' ? 'node.exe' : 'node');
   const npmCli = path.join(root, 'npm', 'bin', 'npm-cli.js');
   if (!fs.existsSync(node) || !fs.existsSync(npmCli)) {
     throw new Error('SELF_REPAIR_TOOLCHAIN_MISSING');
   }
-  activeSelfRepairToolchainRoot = root;
   return { root, node, npmCli };
 }
 
@@ -118,6 +112,13 @@ function developerBackupRoot() { return path.join(app.getPath('userData'),'devel
 function manualRepairRoot() { return path.join(app.getPath('userData'),'manual-self-repair'); }
 function manualRuntimeStatePath() { return path.join(manualRepairRoot(),'runtime.json'); }
 function manualRepairPlanStoreRoot() { return path.join(manualRepairRoot(),'plans'); }
+function githubRepairStatePath() { return path.join(manualRepairRoot(),'github-repair-state.json'); }
+function readGitHubRepairState() { return readJson(githubRepairStatePath(),null); }
+function writeGitHubRepairState(value) {
+  if (!value) { try { fs.rmSync(githubRepairStatePath(),{force:true}); } catch {} return null; }
+  writeJsonAtomic(githubRepairStatePath(),value);
+  return value;
+}
 function manualRepairPlanFile(hash) {
   const safeHash = String(hash || '').trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(safeHash)) return null;
@@ -270,7 +271,6 @@ async function ensureManualRepairWorkspace() {
   ];
 
   fs.mkdirSync(target,{recursive:true});
-  if (isManualRepairRuntime) return developerRepair.validateWorkspace(target);
 
   const installedVersion = String(app.getVersion?.() || '');
   const installedSourceFingerprint = selfRepairSourceFingerprint(sourceRoot);
@@ -288,7 +288,19 @@ async function ensureManualRepairWorkspace() {
   ];
   const incompleteWorkspace = requiredWorkspaceFiles.some((file) => !fs.existsSync(path.join(target,file)));
   const sourceChanged = !sourceState.sourceFingerprint || sourceState.sourceFingerprint !== installedSourceFingerprint;
-  const mustRefresh = incompleteWorkspace || !currentVersion || (installedVersion && currentVersion !== installedVersion) || sourceChanged;
+  let workspaceDirty = false;
+  if (!incompleteWorkspace && currentVersion) {
+    try {
+      workspaceDirty = selfRepairSourceFingerprint(target) !== installedSourceFingerprint;
+    } catch {
+      workspaceDirty = true;
+    }
+  }
+  const mustRefresh = incompleteWorkspace
+    || !currentVersion
+    || (installedVersion && currentVersion !== installedVersion)
+    || sourceChanged
+    || workspaceDirty;
   if (mustRefresh) {
     for (const entry of entries) {
       const destination = path.join(target,entry);
@@ -348,15 +360,16 @@ async function ensureManualRuntimeBuilt(workspace) {
   const electronPath = manualRuntimeElectronPath(workspace);
   const modulesPath = path.join(workspace,'node_modules');
 
-  if (!fs.existsSync(electronPath)) {
-    await runToolchainNpm(['ci','--no-audit','--no-fund'],{
-      cwd:workspace,
-      windowsHide:true,
-      timeout:900000,
-      shell:false,
-      maxBuffer:16 * 1024 * 1024
-    });
-  }
+  // Reinstall the exact lockfile dependency graph for every repair validation.
+  // Reusing a previous node_modules tree would make the local gate depend on
+  // mutable leftovers rather than the reviewed package-lock.json.
+  await runToolchainNpm(['ci','--no-audit','--no-fund'],{
+    cwd:workspace,
+    windowsHide:true,
+    timeout:900000,
+    shell:false,
+    maxBuffer:16 * 1024 * 1024
+  });
 
   if (!fs.existsSync(modulesPath) || !fs.existsSync(electronPath)) {
     throw new Error('MANUAL_REPAIR_RUNTIME_DEPENDENCIES_MISSING');
@@ -404,84 +417,21 @@ async function ensureManualRuntimeBuilt(workspace) {
   if (!fs.existsSync(renderer)) throw new Error('MANUAL_REPAIR_RUNTIME_BUILD_MISSING');
 
   const toolchain = selfRepairToolchainPaths();
-  const state = {
-    enabled:true,
-    installedExecPath:installedExecutable(),
+  return {
+    enabled:false,
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
       || selfRepairSourceFingerprint(selfRepairSourceRoot()),
     workspace,
     electronPath,
     toolchainRoot:toolchain?.root || null,
-    builtAt:new Date().toISOString()
+    builtAt:new Date().toISOString(),
+    checks
   };
-  writeJson(manualRuntimeStatePath(),state);
-  return {...state,checks};
 }
 
-function scheduleManualRuntimeRestart(workspace) {
-  const state = readManualRuntimeState();
-  const electronPath = state.electronPath || manualRuntimeElectronPath(workspace);
-  setTimeout(() => {
-    try {
-      app.relaunch({
-        execPath:electronPath,
-        args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
-      });
-      app.exit(0);
-    } catch (error) {
-      // Never keep a failed runtime active for the next Jarvis launch.
-      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-      recordCrash('manual-self-repair-restart-failed',{
-        message:String(error?.message || error),
-        workspace
-      });
-    }
-  },900);
-}
-
-function handOffToManualRuntimeIfReady() {
-  if (!app.isPackaged || isManualRepairRuntime || process.argv.includes('--jarvis-safe-start')) return false;
-  const state = readManualRuntimeState();
-  if (state.enabled !== true) return false;
-
-  const expectedWorkspace = path.resolve(manualRepairWorkspaceRoot());
-  const workspace = path.resolve(String(state.workspace || ''));
-  const version = String(app.getVersion?.() || '');
-  const sourceFingerprint = selfRepairSourceFingerprint(selfRepairSourceRoot());
-  if (
-    workspace !== expectedWorkspace
-    || String(state.version || '') !== version
-    || !state.sourceFingerprint
-    || state.sourceFingerprint !== sourceFingerprint
-  ) {
-    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-    return false;
-  }
-
-  const electronPath = manualRuntimeElectronPath(workspace);
-  const renderer = path.join(workspace,'dist','index.html');
-  if (!fs.existsSync(electronPath) || !fs.existsSync(renderer)) {
-    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-    return false;
-  }
-
-  try {
-    app.relaunch({
-      execPath:electronPath,
-      args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
-    });
-    app.exit(0);
-    return true;
-  } catch (error) {
-    // Fall back to the installed, known-startable package if the handoff fails.
-    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-    recordCrash('manual-runtime-handoff-failed',{
-      message:String(error?.message || error),
-      workspace
-    });
-    return false;
-  }
+function clearLegacyManualRuntimeState() {
+  try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
 }
 
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
@@ -631,6 +581,16 @@ function seedInitialSettings() {
 }
 function readJson(file, fallback={}) { try { return JSON.parse(fs.readFileSync(file,'utf8')); } catch { return fallback; } }
 function writeJson(file, value) { fs.mkdirSync(path.dirname(file), {recursive:true}); fs.writeFileSync(file, JSON.stringify(value,null,2),'utf8'); }
+function writeJsonAtomic(file, value) {
+  fs.mkdirSync(path.dirname(file), {recursive:true});
+  const temp=file+'.tmp-'+process.pid+'-'+Date.now();
+  try {
+    fs.writeFileSync(temp,JSON.stringify(value,null,2),'utf8');
+    fs.renameSync(temp,file);
+  } finally {
+    try { if (fs.existsSync(temp)) fs.rmSync(temp,{force:true}); } catch {}
+  }
+}
 
 function protectSecret(value) {
   if (!value) return null;
@@ -649,12 +609,17 @@ function unprotectSecret(entry) {
 function purgeInsecureLegacySecrets() {
   const file = settingsPath();
   const raw = readJson(file, {});
+  let changed = false;
   if (raw.openRouterKey && raw.openRouterKey.type !== 'safeStorage') {
     delete raw.openRouterKey;
-    writeJson(file, raw);
-    return true;
+    changed = true;
   }
-  return false;
+  if (raw.githubSelfRepairToken && raw.githubSelfRepairToken.type !== 'safeStorage') {
+    delete raw.githubSelfRepairToken;
+    changed = true;
+  }
+  if (changed) writeJson(file, raw);
+  return changed;
 }
 
 function getSettingsInternal() {
@@ -673,6 +638,9 @@ function getSettingsInternal() {
     ttsGender: raw.ttsGender || ((raw.ttsVoice || DEFAULT_TTS_VOICE) === 'Kore' ? 'female' : 'male'),
     ttsVoice: raw.ttsVoice || DEFAULT_TTS_VOICE,
     hasOpenRouterKey: hasSecureOpenRouterKey,
+    hasGitHubSelfRepairToken: raw.githubSelfRepairToken?.type === 'safeStorage'
+      && safeStorage.isEncryptionAvailable()
+      && Boolean(raw.githubSelfRepairToken?.value),
   };
 }
 
@@ -694,6 +662,153 @@ async function saveSettingsInternal(patch={}) {
   if (patch.clearOpenRouterApiKey === true) delete raw.openRouterKey;
   writeJson(settingsPath(), raw);
   return getSettingsInternal();
+}
+
+async function connectGitHubSelfRepair(tokenValue) {
+  const token = String(tokenValue || '').trim();
+  const client = githubSelfRepair.createGitHubSelfRepairClient({ token, repo:githubSelfRepair.DEFAULT_REPO });
+  const connection = await client.validateConnection();
+  const raw = readJson(settingsPath(), {});
+  raw.githubSelfRepairToken = protectSecret(token);
+  writeJsonAtomic(settingsPath(), raw);
+  return connection;
+}
+
+function disconnectGitHubSelfRepair() {
+  const raw = readJson(settingsPath(), {});
+  delete raw.githubSelfRepairToken;
+  writeJsonAtomic(settingsPath(), raw);
+  return { connected:false, repo:githubSelfRepair.DEFAULT_REPO };
+}
+
+function getGitHubSelfRepairClient() {
+  const raw = readJson(settingsPath(), {});
+  const token = unprotectSecret(raw.githubSelfRepairToken);
+  if (!token) throw new Error('GITHUB_TOKEN_MISSING');
+  return githubSelfRepair.createGitHubSelfRepairClient({ token, repo:githubSelfRepair.DEFAULT_REPO });
+}
+
+async function syncGitHubRepairState() {
+  const stored = readGitHubRepairState();
+  if (!stored) return null;
+  const client = getGitHubSelfRepairClient();
+  const next = { ...stored };
+
+  if (next.prNumber && !next.mergeSha) {
+    const pr = await client.getPullRequestStatus(next.prNumber);
+    next.prStatus = pr;
+    if (pr.merged && pr.mergeCommitSha) {
+      next.mergeSha = pr.mergeCommitSha;
+      next.phase = 'merged';
+    }
+  }
+
+  if (next.mergeSha) {
+    next.mainStatus = await client.getMainStatus(next.mergeSha);
+    if (next.mainStatus?.state === 'current' && next.mainStatus?.ci?.state === 'passed' && next.phase === 'merged') {
+      next.phase = 'main-verified';
+    }
+  }
+
+  if (next.version && next.mergeSha && (next.releaseDispatchedAt || next.phase === 'released')) {
+    const release = await client.getReleaseStatus({
+      version:next.version,
+      mergeSha:next.mergeSha,
+      dispatchedAt:next.releaseDispatchedAt || null
+    });
+    next.releaseStatus = release;
+    if (release?.state === 'released') next.phase = 'released';
+  }
+
+  next.updatedAt = Date.now();
+  writeGitHubRepairState(next);
+  return next;
+}
+
+async function getGitHubSelfRepairStatus() {
+  const raw = readJson(settingsPath(), {});
+  const token = unprotectSecret(raw.githubSelfRepairToken);
+  const stored = readGitHubRepairState();
+  if (!token) {
+    return { connected:false, repo:githubSelfRepair.DEFAULT_REPO, repair:stored || null };
+  }
+  const client = githubSelfRepair.createGitHubSelfRepairClient({ token, repo:githubSelfRepair.DEFAULT_REPO });
+  const connection = await client.validateConnection();
+  let repair = stored || null;
+  if (repair) repair = await syncGitHubRepairState();
+  return { ...connection, repair };
+}
+
+async function abandonGitHubSelfRepair() {
+  if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+  const state = await syncGitHubRepairState();
+  if (!state?.prNumber || !state?.headSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
+  if (state.mergeSha || state.phase === 'merged' || state.phase === 'main-verified' || state.phase === 'release-dispatched' || state.phase === 'released') {
+    throw new Error('GITHUB_REPAIR_ALREADY_MERGED');
+  }
+  await requireOwnerPresence({
+    title:'Jarvis GitHub Self-Repair',
+    message:'Elveted az aktív Self-Repair javítást?',
+    detail:'A Pull Request bezárul és a hozzá tartozó javítási ág törlődik. Ez nem módosítja a main ágat.'
+  });
+  const client = getGitHubSelfRepairClient();
+  await client.abandonRepair(state.prNumber,state.headSha);
+  writeGitHubRepairState(null);
+  return { abandoned:true, connected:true, repo:githubSelfRepair.DEFAULT_REPO };
+}
+
+async function mergeGitHubSelfRepair() {
+  if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+  const state = await syncGitHubRepairState();
+  if (!state?.prNumber || !state?.headSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
+  if (state.mergeSha) return state;
+  if (state.prStatus?.ci?.state !== 'passed') throw new Error('GITHUB_REPAIR_CI_NOT_PASSED');
+  await requireOwnerPresence({
+    title:'Jarvis GitHub Self-Repair',
+    message:'Beolvasztod az ellenőrzött Self-Repair PR-t a main ágba?',
+    detail:'A pontos PR head SHA és a kötelező GitHub CI jobok már sikeresek. A következő lépés a main ág módosítása.'
+  });
+  const client = getGitHubSelfRepairClient();
+  const merged = await client.mergeRepair(state.prNumber,state.headSha,state.baseSha);
+  const next = {
+    ...state,
+    phase:'merged',
+    mergeSha:merged.mergeSha,
+    mergedAt:Date.now()
+  };
+  writeGitHubRepairState(next);
+  return syncGitHubRepairState();
+}
+
+async function publishGitHubSelfRepairRelease(allowUnsigned=false) {
+  if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+  const state = await syncGitHubRepairState();
+  if (!state?.version || !state?.mergeSha) throw new Error('GITHUB_REPAIR_STATE_MISSING');
+  if (state.phase === 'released') return state;
+  if (state.mainStatus?.state !== 'current' || state.mainStatus?.ci?.state !== 'passed') {
+    throw new Error('GITHUB_RELEASE_MAIN_CI_NOT_PASSED');
+  }
+  await requireOwnerPresence({
+    title:'Jarvis új verzió kiadása',
+    message:'Elindítod a GitHub Release publikálását?',
+    detail:allowUnsigned
+      ? 'Kifejezetten engedélyezted az aláírás nélküli kiadást. A SHA-256, manifest, main CI és minden más kiadási kapu továbbra is kötelező.'
+      : 'A main teljes CI-je sikeres. Érvényes Authenticode aláírás nélkül a publikálás meg fog állni.'
+  });
+  const client = getGitHubSelfRepairClient();
+  const dispatch = await client.dispatchRelease({
+    version:state.version,
+    mergeSha:state.mergeSha,
+    allowUnsigned:Boolean(allowUnsigned)
+  });
+  const next = {
+    ...state,
+    phase:dispatch.alreadyReleased ? 'released' : 'release-dispatched',
+    releaseDispatchedAt:dispatch.dispatchedAt || state.releaseDispatchedAt || new Date().toISOString(),
+    unsignedReleaseApproved:Boolean(allowUnsigned)
+  };
+  writeGitHubRepairState(next);
+  return syncGitHubRepairState();
 }
 
 async function deleteAllLocalData() {
@@ -1331,12 +1446,12 @@ Keep it concise unless the owner asks for deep detail.`;
     ).join('\n\n');
     const planPrompt = `You are preparing a MANUAL, owner-approved Jarvis repair plan.
 The owner explicitly asked to fix the issue. Create the smallest concrete patch from the exact current source below.
-The patch will NOT be applied until the owner presses Accept. After approval, Jarvis builds the repaired local workspace and restarts from that workspace so the accepted code becomes active immediately.
+The patch will NOT be sent to GitHub until the owner presses Accept. After approval, Jarvis applies it only inside an isolated local staging workspace, runs the full local validation suite, captures the exact validated file bytes, restores the staging workspace, and then creates a dedicated GitHub repair branch and Pull Request. The installed Jarvis remains unchanged until the independently verified GitHub repair is merged, released and installed as a normal update.
 Rules:
 - Return JSON only with goal, rationale, risk and patches.
 - Copy every search string exactly from CURRENT SOURCE. Do not invent or paraphrase search text.
-- You may repair ordinary source and owner-approved core files such as electron/main.cjs or electron/developer-repair.cjs.
-- Never target security/**, electron/security/**, .github/workflows/**, scripts/**, package.json, package-lock.json, or existing src/tests/**.
+- Repair ordinary application/module source only. The Self-Repair trust core is intentionally immutable to AI patches.
+- Never target electron/main.cjs, electron/developer-repair.cjs, electron/github-self-repair.cjs, electron/preload.cjs, electron/admin-diagnostics.cjs, src/pages/SystemCenter.jsx, security/**, electron/security/**, .github/**, scripts/**, package.json, package-lock.json, src/lib/appVersion.js, release-notes/**, eslint.config.js, tsconfig.json, vite.config.js, or src/tests/**.
 - Prefer exact replacements over whole-file replacement.
 - Maximum 6 files and 8 replacements per file.
 - Do not change release/version metadata.
@@ -1549,7 +1664,17 @@ async function fetchLatestRelease() {
     if(!exe) throw new Error('UPDATE_INSTALLER_NOT_FOUND');
     const checksum=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === `${expectedInstallerName}.sha256`.toLowerCase());
     if(!checksum) throw new Error('UPDATE_CHECKSUM_NOT_FOUND');
-    return {latestVersion, releaseName:release.name||release.tag_name, publishedAt:release.published_at, exe, checksum};
+    const manifest=(release.assets||[]).find(a => String(a.name||'').toLowerCase() === 'release-manifest.json');
+    if(!manifest) throw new Error('UPDATE_MANIFEST_NOT_FOUND');
+    return {
+      latestVersion,
+      releaseName:release.name||release.tag_name,
+      publishedAt:release.published_at,
+      targetCommitish:String(release.target_commitish || ''),
+      exe,
+      checksum,
+      manifest
+    };
   });
 }
 
@@ -1610,9 +1735,11 @@ async function oneClickUpdate() {
   fs.mkdirSync(tempDir,{recursive:true});
   const installerPath=path.join(tempDir,release.exe.name);
   const checksumPath=`${installerPath}.sha256`;
+  const manifestPath=path.join(tempDir,'release-manifest.json');
 
   await downloadFile(release.exe.browser_download_url,installerPath);
   await downloadFile(release.checksum.browser_download_url,checksumPath);
+  await downloadFile(release.manifest.browser_download_url,manifestPath);
 
   const checksumText=fs.readFileSync(checksumPath,'utf8');
   const expected=(checksumText.match(/\b[a-f0-9]{64}\b/i)||[])[0]?.toLowerCase();
@@ -1622,6 +1749,19 @@ async function oneClickUpdate() {
     try { fs.unlinkSync(installerPath); } catch {}
     throw new Error('UPDATE_CHECKSUM_MISMATCH');
   }
+
+  let releaseManifest;
+  try {
+    releaseManifest=JSON.parse(fs.readFileSync(manifestPath,'utf8').replace(/^\uFEFF/,''));
+  } catch {
+    throw new Error('UPDATE_MANIFEST_INVALID');
+  }
+  githubSelfRepair.verifyReleaseManifest(releaseManifest,{
+    version:release.latestVersion,
+    installer:release.exe.name,
+    sha256:actual,
+    targetCommitish:release.targetCommitish
+  });
 
   const signer = await verifyUpdateSigner(installerPath);
 
@@ -1658,7 +1798,11 @@ Start-Process -FilePath $appExe
     currentVersion,
     latestVersion:release.latestVersion,
     backupRoot,
-    verification:signer.verification,
+    verification:signer.verification === 'authenticode'
+      ? 'sha256+manifest+authenticode'
+      : signer.verification === 'sha256+authenticode'
+        ? 'sha256+manifest+authenticode'
+        : 'sha256+manifest',
     signer:signer.subject || signer.thumbprint || null
   };
 }
@@ -2087,7 +2231,8 @@ app.whenReady().then(async () => {
     return;
   }
 
-  if (handOffToManualRuntimeIfReady()) return;
+
+  clearLegacyManualRuntimeState();
 
   seedInitialSettings();
   purgeInsecureLegacySecrets();
@@ -2273,105 +2418,209 @@ app.whenReady().then(async () => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
     return mostRecentPendingManualRepair();
   });
+  ipcMain.handle('jarvis:self-repair:github:status', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return getGitHubSelfRepairStatus();
+  });
+  ipcMain.handle('jarvis:self-repair:github:connect', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return connectGitHubSelfRepair(request.token);
+  });
+  ipcMain.handle('jarvis:self-repair:github:disconnect', () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return disconnectGitHubSelfRepair();
+  });
+  ipcMain.handle('jarvis:self-repair:github:refresh', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return getGitHubSelfRepairStatus();
+  });
+  ipcMain.handle('jarvis:self-repair:github:abandon', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return abandonGitHubSelfRepair();
+  });
+  ipcMain.handle('jarvis:self-repair:github:merge', async () => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return mergeGitHubSelfRepair();
+  });
+  ipcMain.handle('jarvis:self-repair:github:publish', async (_e, request={}) => {
+    if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
+    return publishGitHubSelfRepairRelease(request.allowUnsigned === true);
+  });
   ipcMain.handle('jarvis:self-repair:manual:apply', async (_e, request={}) => {
     if (!localOwnerAuthorised()) throw new Error('MANUAL_REPAIR_UNAUTHORISED');
     if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
     manualRepairApplyInFlight = true;
     try {
-    const hash=String(request.hash || '').trim().toLowerCase();
-    const entry=loadPersistedManualRepairPlan(hash);
-    if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
-    manualRepairPlans.set(hash,entry);
-    if (Date.now()-entry.createdAt > 60*60*1000) {
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      throw new Error('MANUAL_REPAIR_PLAN_EXPIRED');
-    }
-    const approvedPlan={...entry.plan};
-    delete approvedPlan.hash;
-    if (developerRepair.proposalHash(approvedPlan)!==hash) {
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
-    }
-
-    // The explicit "Elfogadom / Accept" click is the owner approval for this
-    // exact hashed proposal. Keep the owner-role, hash, expiry and workspace
-    // integrity checks here; do not ask for a second confirmation dialog.
-    if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
-    const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
-    const previousRuntime = activation.snapshotRuntime(entry.workspace, manualRuntimeStatePath(), backup);
-    selfRepairToolchainPaths();
-    // Failing to disable the old runtime must abort BEFORE any source is changed.
-    fs.rmSync(manualRuntimeStatePath(),{force:true});
-    if (fs.existsSync(manualRuntimeStatePath())) {
-      throw new Error('MANUAL_REPAIR_DISABLE_RUNTIME_FAILED');
-    }
-    try {
-      developerRepair.applyOwner(entry.workspace,entry.plan);
-      const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
-      if (!validation.ok) {
-        developerRepair.rollbackOwner(entry.workspace,backup);
-        activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
+      const hash=String(request.hash || '').trim().toLowerCase();
+      const entry=loadPersistedManualRepairPlan(hash);
+      if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');
+      manualRepairPlans.set(hash,entry);
+      if (Date.now()-entry.createdAt > 60*60*1000) {
         manualRepairPlans.delete(hash);
         removePersistedManualRepairPlan(hash);
-        return {success:false,status:'ROLLED_BACK',hash,backup,validation};
+        throw new Error('MANUAL_REPAIR_PLAN_EXPIRED');
       }
-      const runtime = await ensureManualRuntimeBuilt(entry.workspace);
-      const fullValidation = {
-        ok:true,
-        results:[...(validation.results || []),...(runtime.checks || [])]
-      };
+      const approvedPlan={...entry.plan};
+      delete approvedPlan.hash;
+      if (developerRepair.proposalHash(approvedPlan)!==hash) {
+        manualRepairPlans.delete(hash);
+        removePersistedManualRepairPlan(hash);
+        throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
+      }
+
+      // "Elfogadom / Accept" approves only this exact hashed patch. The patch is
+      // first exercised in the isolated Self-Repair workspace. The installed
+      // Jarvis runtime is not replaced by that staging build. Only the exact
+      // locally validated file bytes may be sent to a dedicated GitHub repair
+      // branch; merge and release remain separate owner actions.
+      if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED');
+      getGitHubSelfRepairClient();
+      const activeGitHubRepair = readGitHubRepairState();
+      if (activeGitHubRepair && activeGitHubRepair.phase !== 'released') {
+        throw new Error('GITHUB_REPAIR_ALREADY_ACTIVE');
+      }
+
+      const expectedBaseFiles=developerRepair.readOwnerPlanFiles(entry.workspace,entry.plan);
+      const workspaceFingerprintBefore=selfRepairSourceFingerprint(entry.workspace);
+      const backup=developerRepair.snapshotOwner(entry.workspace,entry.plan,developerBackupRoot());
+      selfRepairToolchainPaths();
+      fs.rmSync(manualRuntimeStatePath(),{force:true});
+      if (fs.existsSync(manualRuntimeStatePath())) throw new Error('MANUAL_REPAIR_DISABLE_RUNTIME_FAILED');
+
+      let workspaceRestored=false;
+      let localValidationCompleted=false;
       try {
-        selfRepairLearning?.recordVerified?.({
-          title:entry.plan.goal || 'Kézi Self-Repair',
-          repairId:hash,
-          files:entry.plan.patches.map((patch)=>patch.file),
-          evidence:entry.plan.rationale || entry.plan.goal || '',
-          validation:fullValidation.results
-            .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
-          success:true
-        });
-      } catch (learningError) {
-        // A telemetry failure must not revert code that passed the full suite.
-        console.warn('Self-Repair learning could not be saved:', learningError);
-      }
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      scheduleManualRuntimeRestart(entry.workspace);
-      return {
-        success:true,
-        status:'APPLIED_AND_RESTARTING',
-        hash,
-        backup,
-        workspace:entry.workspace,
-        files:entry.plan.patches.map((patch)=>patch.file),
-        validation:fullValidation,
-        runtime:{
-          version:runtime.version,
-          builtAt:runtime.builtAt,
-          restartScheduled:true
+        developerRepair.applyOwner(entry.workspace,entry.plan);
+        developerRepair.normalizeOwnerPlanFiles(entry.workspace,entry.plan);
+        const validation=await validateDirectOwnerRepair(entry.workspace,entry.plan);
+        if (!validation.ok) {
+          developerRepair.rollbackOwner(entry.workspace,backup);
+          workspaceRestored=true;
+          if (selfRepairSourceFingerprint(entry.workspace) !== workspaceFingerprintBefore) {
+            try { fs.rmSync(entry.workspace,{recursive:true,force:true}); } catch {}
+            throw new Error('MANUAL_REPAIR_STAGING_INTEGRITY_FAILED');
+          }
+          manualRepairPlans.delete(hash);
+          removePersistedManualRepairPlan(hash);
+          return {success:false,status:'ROLLED_BACK',hash,backup,validation};
         }
-      };
-    } catch (error) {
-      // Invalidate activation even if the source rollback itself encounters an error.
-      try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-      let rollbackFailure=null;
-      try {
+
+        const runtime = await ensureManualRuntimeBuilt(entry.workspace);
+        const stagedFiles=developerRepair.readOwnerPlanFiles(entry.workspace,entry.plan);
+        if (stagedFiles.some((item)=>typeof item.content !== 'string')) {
+          throw new Error('GITHUB_REPAIR_STAGED_FILE_MISSING');
+        }
+        const fullValidation = {
+          ok:true,
+          results:[...(validation.results || []),...(runtime.checks || [])]
+        };
+        localValidationCompleted=true;
+
+        // Never leave the locally repaired staging runtime active while GitHub
+        // independently verifies the patch. Restore both source and activation
+        // state before any network mutation.
+        fs.rmSync(manualRuntimeStatePath(),{force:true});
         developerRepair.rollbackOwner(entry.workspace,backup);
-        activation.restoreRuntime(entry.workspace,manualRuntimeStatePath(),previousRuntime);
+        workspaceRestored=true;
+        if (selfRepairSourceFingerprint(entry.workspace) !== workspaceFingerprintBefore) {
+          try { fs.rmSync(entry.workspace,{recursive:true,force:true}); } catch {}
+          throw new Error('MANUAL_REPAIR_STAGING_INTEGRITY_FAILED');
+        }
+
+        const client=getGitHubSelfRepairClient();
+        const published=await client.createRepairPullRequest({
+          hash,
+          goal:entry.plan.goal,
+          rationale:entry.plan.rationale,
+          risk:entry.plan.risk,
+          files:stagedFiles,
+          expectedBaseFiles,
+          validation:fullValidation.results,
+          installedVersion:String(app.getVersion?.() || '')
+        });
+        if (!Number.isInteger(published?.prNumber) || !published?.headSha || !published?.version) {
+          throw new Error('GITHUB_REPAIR_PUBLISH_RESULT_INVALID');
+        }
+
+        const githubState={
+          schema:1,
+          phase:'pull-request',
+          repairHash:hash,
+          goal:entry.plan.goal || 'Jarvis Self-Repair',
+          risk:entry.plan.risk || 'medium',
+          files:entry.plan.patches.map((patch)=>patch.file),
+          repo:published.repo || githubSelfRepair.DEFAULT_REPO,
+          branch:published.branch,
+          baseSha:published.baseSha,
+          headSha:published.headSha,
+          version:published.version,
+          prNumber:published.prNumber,
+          prUrl:published.prUrl || null,
+          createdAt:Date.now(),
+          updatedAt:Date.now(),
+          localValidation:fullValidation
+        };
+        try {
+          writeGitHubRepairState(githubState);
+        } catch (stateError) {
+          throw new Error('GITHUB_REPAIR_STATE_PERSIST_FAILED: ' + String(stateError?.message || stateError));
+        }
+
+        try {
+          selfRepairLearning?.recordVerified?.({
+            title:entry.plan.goal || 'Kézi Self-Repair',
+            repairId:hash,
+            files:entry.plan.patches.map((patch)=>patch.file),
+            evidence:entry.plan.rationale || entry.plan.goal || '',
+            validation:fullValidation.results
+              .map((item)=>`${item.cmd}: ${item.ok ? 'OK' : 'FAIL'}`).join('; '),
+            success:true
+          });
+        } catch (learningError) {
+          console.warn('Self-Repair learning could not be saved:', learningError);
+        }
+
+        manualRepairPlans.delete(hash);
+        removePersistedManualRepairPlan(hash);
+        return {
+          success:true,
+          status:'GITHUB_PR_OPENED',
+          hash,
+          backup,
+          files:entry.plan.patches.map((patch)=>patch.file),
+          validation:fullValidation,
+          github:githubState,
+          runtime:{
+            version:runtime.version,
+            builtAt:runtime.builtAt,
+            restartScheduled:false,
+            stagingOnly:true
+          }
+        };
+      } catch (error) {
+        try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+        let rollbackFailure=null;
+        if (!workspaceRestored) {
+          try {
+            developerRepair.rollbackOwner(entry.workspace,backup);
+              workspaceRestored=true;
+          } catch (rollbackError) {
+            rollbackFailure=rollbackError;
+          }
+        }
+        const isGitHubError = /^GITHUB_/.test(String(error?.message || error || ''));
+        if (!isGitHubError || !localValidationCompleted) {
+          manualRepairPlans.delete(hash);
+          removePersistedManualRepairPlan(hash);
+        }
+        if (rollbackFailure) {
+          throw new Error(
+            'MANUAL_REPAIR_ROLLBACK_FAILED: ' + String(rollbackFailure?.message || rollbackFailure)
+            + ' (original: ' + String(error?.message || error) + ')'
+          );
+        }
+        throw error;
       }
-      catch (rollbackError) { rollbackFailure=rollbackError; }
-      manualRepairPlans.delete(hash);
-      removePersistedManualRepairPlan(hash);
-      if (rollbackFailure) {
-        throw new Error(
-          'MANUAL_REPAIR_ROLLBACK_FAILED: ' + String(rollbackFailure?.message || rollbackFailure)
-          + ' (original: ' + String(error?.message || error) + ')'
-        );
-      }
-      throw error;
-    }
     } finally {
       manualRepairApplyInFlight = false;
     }
