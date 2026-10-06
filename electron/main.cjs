@@ -1853,8 +1853,24 @@ function buildLocalDeviceUrl(baseValue, commandValue='') {
   return new URL(combined).toString();
 }
 
+function normalizeLocalDevicePowerState(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  let raw = data.POWER;
+  if (raw === undefined) {
+    const numberedPowerKeys = Object.keys(data).filter((key) => /^POWER\\d+$/i.test(key));
+    if (numberedPowerKeys.length !== 1) return null;
+    raw = data[numberedPowerKeys[0]];
+  }
+  const value = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+  if (value === 'ON') return 'on';
+  if (value === 'OFF') return 'off';
+  return null;
+}
+
 async function requestLocalDevice(request={}) {
   const targetUrl = buildLocalDeviceUrl(request.base, request.command);
+  const expectedStateRaw = String(request.expectedState || '').trim().toLowerCase();
+  const expectedState = expectedStateRaw === 'on' || expectedStateRaw === 'off' ? expectedStateRaw : null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Math.min(5000, Math.max(500, Number(request.timeout) || 3000)));
   try {
@@ -1868,7 +1884,18 @@ async function requestLocalDevice(request={}) {
     const text = await response.text();
     let data = text;
     try { data = JSON.parse(text); } catch {}
-    return { success:true, url:targetUrl, data };
+    const observedState = normalizeLocalDevicePowerState(data);
+    const verified = expectedState ? observedState === expectedState : observedState !== null;
+    return {
+      success:true,
+      transportSuccess:true,
+      verified,
+      expectedState,
+      observedState,
+      httpStatus:response.status,
+      url:targetUrl,
+      data
+    };
   } finally {
     clearTimeout(timeout);
   }
