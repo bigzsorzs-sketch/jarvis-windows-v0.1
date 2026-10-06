@@ -360,15 +360,16 @@ async function ensureManualRuntimeBuilt(workspace) {
   const electronPath = manualRuntimeElectronPath(workspace);
   const modulesPath = path.join(workspace,'node_modules');
 
-  if (!fs.existsSync(electronPath)) {
-    await runToolchainNpm(['ci','--no-audit','--no-fund'],{
-      cwd:workspace,
-      windowsHide:true,
-      timeout:900000,
-      shell:false,
-      maxBuffer:16 * 1024 * 1024
-    });
-  }
+  // Reinstall the exact lockfile dependency graph for every repair validation.
+  // Reusing a previous node_modules tree would make the local gate depend on
+  // mutable leftovers rather than the reviewed package-lock.json.
+  await runToolchainNpm(['ci','--no-audit','--no-fund'],{
+    cwd:workspace,
+    windowsHide:true,
+    timeout:900000,
+    shell:false,
+    maxBuffer:16 * 1024 * 1024
+  });
 
   if (!fs.existsSync(modulesPath) || !fs.existsSync(electronPath)) {
     throw new Error('MANUAL_REPAIR_RUNTIME_DEPENDENCIES_MISSING');
