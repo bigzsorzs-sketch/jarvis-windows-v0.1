@@ -549,10 +549,11 @@ This pull request was created only after the exact owner-approved patch passed J
   async function dispatchRelease({version,mergeSha,allowUnsigned=false}={}) {
     const releaseVersion = String(version || '');
     if (!/^\d+\.\d+\.\d+$/.test(releaseVersion)) throw new Error('GITHUB_RELEASE_VERSION_INVALID');
-    const main = await getMainStatus(mergeSha);
+    const sha = assertSha(mergeSha);
+    const main = await getMainStatus(sha);
     if (main.state !== 'current') throw new Error('GITHUB_RELEASE_MAIN_MOVED');
     if (main.ci?.state !== 'passed') throw new Error('GITHUB_RELEASE_MAIN_CI_NOT_PASSED');
-    const packageSource = await getContent('package.json',mergeSha);
+    const packageSource = await getContent('package.json',sha);
     const pkg = JSON.parse(packageSource || '{}');
     if (String(pkg.version || '') !== releaseVersion) throw new Error('GITHUB_RELEASE_MAIN_VERSION_MISMATCH');
     if (await getRelease(releaseVersion)) return {alreadyReleased:true,version:releaseVersion};
