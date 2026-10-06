@@ -768,7 +768,7 @@ async function mergeGitHubSelfRepair() {
     detail:'A pontos PR head SHA és a kötelező GitHub CI jobok már sikeresek. A következő lépés a main ág módosítása.'
   });
   const client = getGitHubSelfRepairClient();
-  const merged = await client.mergeRepair(state.prNumber,state.headSha);
+  const merged = await client.mergeRepair(state.prNumber,state.headSha,state.baseSha);
   const next = {
     ...state,
     phase:'merged',
