@@ -68,7 +68,7 @@ test('Self-Repair GitHub client rejects protected repair paths before any write'
   assert.equal(calls,0);
 });
 
-function makeGitHubMock({drift=false}={}) {
+function makeGitHubMock({drift=false, rogueDiff=false, badParent=false}={}) {
   const repo = github.DEFAULT_REPO;
   const baseSha = '1'.repeat(40);
   const baseTreeSha = '2'.repeat(40);
@@ -111,6 +111,16 @@ function makeGitHubMock({drift=false}={}) {
     if (method === 'GET' && path === `/repos/${repo}/git/commits/${baseSha}`) {
       return reply(200,{sha:baseSha,tree:{sha:baseTreeSha}});
     }
+    if (method === 'GET' && branchSha && path === `/repos/${repo}/git/commits/${branchSha}`) {
+      return reply(200,{sha:branchSha,parents:[{sha:badParent ? '9'.repeat(40) : baseSha}]});
+    }
+    if (method === 'GET' && branchSha && path.startsWith(`/repos/${repo}/compare/`)) {
+      const files=[...branchFiles.entries()]
+        .filter(([name,content])=>sourceFiles.get(name)!==content)
+        .map(([name])=>({filename:name,status:sourceFiles.has(name)?'modified':'added'}));
+      if (rogueDiff) files.push({filename:'src/pages/unapproved-change.jsx',status:'added'});
+      return reply(200,{status:'ahead',total_commits:1,files});
+    }
     if (method === 'GET' && path.startsWith(`/repos/${repo}/contents/`)) {
       const file = path.split(`/repos/${repo}/contents/`)[1].split('/').map(decodeURIComponent).join('/');
       const ref = parsed.searchParams.get('ref');
@@ -147,7 +157,13 @@ function makeGitHubMock({drift=false}={}) {
     if (method === 'POST' && path === `/repos/${repo}/pulls`) {
       return reply(201,{number:41,html_url:'https://github.com/example/pr/41',head:{ref:branch,sha:branchSha},base:{ref:'main'}});
     }
-    if (method === 'GET' && path === `/repos/${repo}/pulls`) return reply(200,[]);
+    if (method === 'GET' && path === `/repos/${repo}/pulls`) {
+      return reply(200,branch ? [{
+        number:41,state:'open',merged:false,html_url:'https://github.com/example/pr/41',
+        head:{ref:branch,sha:branchSha},base:{ref:'main'},
+        merge_commit_sha:'8'.repeat(40)
+      }] : []);
+    }
     if (method === 'DELETE' && path.includes('/git/refs/')) return reply(204,null);
 
     return reply(500,{message:`Unhandled ${method} ${path}`});
@@ -179,6 +195,57 @@ test('GitHub repair transaction uploads the exact locally validated patch and de
   assert.equal(JSON.parse(mock.branchFiles.get('package-lock.json')).version,'0.3.24');
   assert.match(mock.branchFiles.get('src/lib/appVersion.js'),/0\.3\.24/);
   assert.match(mock.branchFiles.get('release-notes/v0.3.24.md'),/Repair hash:/);
+});
+
+test('retry reuses only the exact previously approved repair diff with the same parent commit', async () => {
+  const mock = makeGitHubMock();
+  const client = github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'q'.repeat(40),fetchImpl:mock.fetchImpl
+  });
+  const input={
+    hash:'a'.repeat(64),
+    goal:'Exact retry',
+    files:[{path:'src/pages/example.jsx',content:'export const value = "fixed";\n'}],
+    expectedBaseFiles:[{path:'src/pages/example.jsx',content:'export const value = "old";\n'}],
+    installedVersion:'0.3.23'
+  };
+  const first=await client.createRepairPullRequest(input);
+  assert.equal(first.reused,false);
+  const reused=await client.createRepairPullRequest(input);
+  assert.equal(reused.reused,true);
+  assert.equal(reused.headSha,first.headSha);
+});
+
+test('retry rejects a branch that added files outside the locally approved patch', async () => {
+  const mock = makeGitHubMock({rogueDiff:true});
+  const client = github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'q'.repeat(40),fetchImpl:mock.fetchImpl
+  });
+  const input={
+    hash:'b'.repeat(64),
+    goal:'Unapproved extra change',
+    files:[{path:'src/pages/example.jsx',content:'export const value = "fixed";\n'}],
+    expectedBaseFiles:[{path:'src/pages/example.jsx',content:'export const value = "old";\n'}],
+    installedVersion:'0.3.23'
+  };
+  await client.createRepairPullRequest(input);
+  await assert.rejects(()=>client.createRepairPullRequest(input),/GITHUB_REPAIR_BRANCH_DIFF_MISMATCH/);
+});
+
+test('retry rejects a repair branch rebased onto an unreviewed parent', async () => {
+  const mock = makeGitHubMock({badParent:true});
+  const client = github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'q'.repeat(40),fetchImpl:mock.fetchImpl
+  });
+  const input={
+    hash:'c'.repeat(64),
+    goal:'Unexpected parent',
+    files:[{path:'src/pages/example.jsx',content:'export const value = "fixed";\n'}],
+    expectedBaseFiles:[{path:'src/pages/example.jsx',content:'export const value = "old";\n'}],
+    installedVersion:'0.3.23'
+  };
+  await client.createRepairPullRequest(input);
+  await assert.rejects(()=>client.createRepairPullRequest(input),/GITHUB_REPAIR_BRANCH_BASE_CHANGED/);
 });
 
 test('GitHub repair transaction refuses to repair from an installed version older than main/latest release', async () => {
