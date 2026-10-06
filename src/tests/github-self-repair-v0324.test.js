@@ -50,6 +50,48 @@ test('CI is passed only when both named gates and the exact workflow run succeed
   assert.equal(github.deriveCiState(failed,{status:'completed',conclusion:'failure'}),'failed');
 });
 
+test('GitHub client rejects dot-segment and doubled-separator aliases before network mutation', async () => {
+  const client=github.createGitHubSelfRepairClient({
+    token:'github_pat_'+'p'.repeat(40),
+    fetchImpl:async()=>{throw new Error('NETWORK_MUST_NOT_BE_CALLED');}
+  });
+  for (const file of [
+    'src/./pages/SystemCenter.jsx',
+    'src//pages/SystemCenter.jsx',
+    'electron/./main.cjs',
+    'electron//main.cjs',
+    'src/pages/../pages/SystemCenter.jsx'
+  ]) {
+    await assert.rejects(()=>client.createRepairPullRequest({
+      hash:'d'.repeat(64),goal:'deny path alias',
+      files:[{path:file,content:'x'}],
+      expectedBaseFiles:[{path:file,content:'y'}]
+    }),/GITHUB_REPAIR_PATH_INVALID/,file);
+  }
+});
+
+test('local owner plan rejects dot-segment aliases for protected files', () => {
+  const os = require('node:os');
+  const path = require('node:path');
+  const repair = require('../../electron/developer-repair.cjs');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-dot-segment-'));
+  try {
+    fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({name:'jarvis-desktop'}));
+    for (const file of [
+      'src/./pages/SystemCenter.jsx',
+      'src//pages/SystemCenter.jsx',
+      'electron/./main.cjs',
+      'electron//main.cjs'
+    ]) {
+      assert.throws(()=>repair.validateOwnerPlan(root,{
+        goal:'blocked alias',patches:[{file,content:'change'}]
+      }),/DEV_REPAIR_INVALID_PATH/,file);
+    }
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
 test('Self-Repair GitHub client rejects protected repair paths before any write', async () => {
   let calls = 0;
   const client = github.createGitHubSelfRepairClient({

@@ -42,7 +42,7 @@ function assertSha(sha) {
 }
 function safePath(input) {
   const value = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
-  if (!value || value.startsWith('/') || value.split('/').includes('..') || value.includes('\0')) {
+  if (!value || value.startsWith('/') || value.split('/').some((part)=>!part || part === '.' || part === '..') || value.includes('\0')) {
     throw new Error('GITHUB_REPAIR_PATH_INVALID');
   }
   return value;

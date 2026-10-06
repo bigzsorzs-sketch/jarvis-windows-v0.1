@@ -124,7 +124,7 @@ function isProtectedRelative(input) {
 }
 function normalizeRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
-  if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
+  if (!rel || path.isAbsolute(rel) || rel.split('/').some((part)=>!part || part === '.' || part === '..')) throw new Error('DEV_REPAIR_INVALID_PATH');
   if (isProtectedRelative(rel)) throw new Error('DEV_REPAIR_PROTECTED_PATH:' + rel);
   if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
@@ -152,7 +152,7 @@ function resolveInside(root, rel) {
 }
 function normalizeOwnerRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
-  if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error('DEV_REPAIR_INVALID_PATH');
+  if (!rel || path.isAbsolute(rel) || rel.split('/').some((part)=>!part || part === '.' || part === '..')) throw new Error('DEV_REPAIR_INVALID_PATH');
   if (OWNER_BLOCKED.some((rx) => rx.test(rel))) throw new Error('DEV_REPAIR_OWNER_BLOCKED_PATH:' + rel);
   if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) throw new Error('DEV_REPAIR_FILE_TYPE_BLOCKED');
   return rel;
