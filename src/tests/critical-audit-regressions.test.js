@@ -163,10 +163,11 @@ test('Smart Home physical actions are policy-gated and never mutate state after 
   const env = read('src/lib/environmentTools.js');
   const main = read('electron/main.cjs');
   const preload = read('electron/preload.cjs');
-  const failureIndex = env.indexOf('if (!apiResult)');
+  const failureIndex = env.indexOf('if (!apiResult.verified || apiResult.observedState !== newStatus)');
   const updateIndex = env.indexOf("jarvis.entities.SmartDevice.update(device.id");
   assert.equal(failureIndex >= 0, true);
   assert.equal(updateIndex > failureIndex, true);
+  assert.equal(env.includes('{ expectedState:newStatus }'), true);
   assert.equal(env.includes('real_control:false, verified:false'), true);
   assert.equal(env.includes('await fetch('), false);
   assert.equal(preload.includes("ipcRenderer.invoke('jarvis:device:request'"), true);
