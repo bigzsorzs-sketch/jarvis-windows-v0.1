@@ -59,7 +59,7 @@ test('Accept validates the exact plan locally, restores staging, then publishes 
   ];
   let previous = -1;
   for (const item of checks) {
-    const index = body.indexOf(item);
+    const index = body.indexOf(item, previous + 1);
     assert.ok(index > previous, `Approval or GitHub handoff sequence incorrect: ${item}`);
     previous = index;
   }
@@ -69,20 +69,21 @@ test('Accept validates the exact plan locally, restores staging, then publishes 
   assert.match(body, /stagingOnly:true/);
 });
 
-test('staging runtime is written only after source checks, node tests and build', () => {
+test('staging build requires the full local gate and never activates a repaired runtime', () => {
   const start = main.indexOf('async function ensureManualRuntimeBuilt(');
-  const end = main.indexOf('function scheduleManualRuntimeRestart(',start);
+  const end = main.indexOf('function clearLegacyManualRuntimeState(',start);
   const body = main.slice(start,end);
   assert.ok(start >= 0 && end > start);
   for (const step of [
+    "runToolchainNode(['scripts/audit-all-source.cjs']",
     "await checkNpm('lint')",
     "await checkNpm('typecheck')",
     "await checkNpm('verify:jarvis')",
     "await runToolchainNode(['--test',...testFiles]",
     "await checkNpm('build')",
-    "writeJson(manualRuntimeStatePath(),state)"
+    "enabled:false"
   ]) assert.ok(body.includes(step),step);
-  assert.ok(body.indexOf("await checkNpm('build')") < body.indexOf('writeJson(manualRuntimeStatePath(),state)'));
+  assert.doesNotMatch(body,/writeJson\(manualRuntimeStatePath\(\),state\)|scheduleManualRuntimeRestart|app\.relaunch/);
 });
 
 test('owner repair backup restores bytes when a patch is rejected or build fails', (t) => {
