@@ -272,7 +272,7 @@ test('commit CI status cannot pass when the workflow is green but a required job
 });
 
 
-test('abandon closes only the exact unmerged Self-Repair PR and deletes its branch', async () => {
+test('abandon closes an unmerged Self-Repair PR even if GitHub supplied a hypothetical merge SHA', async () => {
   const sha='7'.repeat(40);
   const branchName='fix/jarvis-self-repair-v0-3-24-abandon000';
   const calls=[];
@@ -288,7 +288,7 @@ test('abandon closes only the exact unmerged Self-Repair PR and deletes its bran
           html_url:'https://github.com/example/pr/42',
           head:{ref:branchName,sha},
           base:{ref:'main'},
-          merge_commit_sha:null
+          merge_commit_sha:'8'.repeat(40)
         });
       }
       if (method==='GET' && parsed.pathname.endsWith('/actions/runs')) return reply(200,{workflow_runs:[]});
