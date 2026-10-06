@@ -434,6 +434,8 @@ test('only trusted internal action context is filtered and plain JSON never beco
     SAFE_ASSISTANT_FALLBACK,
   );
   assert.equal(isInternalAssistantOperationEnvelope({ data:{ tool_calls:[] } }), true);
+  assert.equal(isInternalAssistantOperationEnvelope({ data:{ actionResults:[] } }), true);
+  assert.equal(isInternalAssistantOperationEnvelope({ data:{ actions:[] } }), true);
   assert.equal(isInternalAssistantOperationEnvelope({ data:{ result:'{"tool_calls":[]}' } }), false);
 
   const assistantTools = source('src/lib/assistantTools.js');
