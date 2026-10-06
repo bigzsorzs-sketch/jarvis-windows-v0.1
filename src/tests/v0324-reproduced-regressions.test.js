@@ -446,8 +446,8 @@ test('only trusted internal action context is filtered and plain JSON never beco
     { validateAction:() => true, logger:{ warn() {} }, JSON },
   );
 
-  assert.deepEqual(parseActions('{"tool":"create_note","params":{}}'), []);
-  assert.deepEqual(parseActions('```json\n{"tool":"create_note","params":{}}\n```'), []);
+  assert.equal(parseActions('{"tool":"create_note","params":{}}').length, 0);
+  assert.equal(parseActions('```json\n{"tool":"create_note","params":{}}\n```').length, 0);
   assert.equal(parseActions('```actions\n[{"tool":"create_note","params":{}}]\n```').length, 1);
 });
 
