@@ -75,6 +75,7 @@ test('staging build requires the full local gate and never activates a repaired 
   const body = main.slice(start,end);
   assert.ok(start >= 0 && end > start);
   for (const step of [
+    "runToolchainNpm(['ci','--no-audit','--no-fund']",
     "runToolchainNode(['scripts/audit-all-source.cjs']",
     "await checkNpm('lint')",
     "await checkNpm('typecheck')",
@@ -83,6 +84,7 @@ test('staging build requires the full local gate and never activates a repaired 
     "await checkNpm('build')",
     "enabled:false"
   ]) assert.ok(body.includes(step),step);
+  assert.ok(body.indexOf("runToolchainNpm(['ci','--no-audit','--no-fund']") < body.indexOf("runToolchainNode(['scripts/audit-all-source.cjs']"));
   assert.doesNotMatch(body,/writeJson\(manualRuntimeStatePath\(\),state\)|scheduleManualRuntimeRestart|app\.relaunch/);
 });
 
