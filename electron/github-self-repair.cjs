@@ -510,14 +510,26 @@ This pull request was created only after the exact owner-approved patch passed J
     return {abandoned:true,prNumber:Number(prNumber),branch:status.branch};
   }
 
-  async function mergeRepair(prNumber,expectedHeadSha) {
+  async function mergeRepair(prNumber,expectedHeadSha,expectedBaseSha) {
     const status = await getPullRequestStatus(prNumber);
     const expected = assertSha(expectedHeadSha);
+    const expectedBase = assertSha(expectedBaseSha);
     if (status.merged) return {alreadyMerged:true,mergeSha:assertSha(status.mergeCommitSha),status};
     if (status.state !== 'open') throw new Error('GITHUB_REPAIR_PR_NOT_OPEN');
     if (status.headSha !== expected) throw new Error('GITHUB_REPAIR_HEAD_CHANGED');
     if (status.ci.state !== 'passed') throw new Error('GITHUB_REPAIR_CI_NOT_PASSED');
-    if (status.mergeable === false || status.mergeableState === 'dirty') throw new Error('GITHUB_REPAIR_PR_NOT_MERGEABLE');
+
+    // A green repair branch is not sufficient if main moved after that branch
+    // was created. The tested branch must still be based on the exact current
+    // main commit, otherwise the integration bytes were never independently
+    // validated together.
+    const mainRef = await getRef('main');
+    const currentMain = assertSha(mainRef?.object?.sha);
+    if (currentMain !== expectedBase) throw new Error('GITHUB_REPAIR_BASE_MOVED');
+
+    if (status.mergeable !== true || status.mergeableState === 'dirty') {
+      throw new Error('GITHUB_REPAIR_PR_NOT_MERGEABLE');
+    }
     const merged = await request(`/repos/${repo}/pulls/${Number(prNumber)}/merge`,{
       method:'PUT',
       body:{sha:expected,merge_method:'squash',commit_title:`Jarvis Self-Repair: merge PR #${Number(prNumber)}`}
@@ -546,7 +558,15 @@ This pull request was created only after the exact owner-approved patch passed J
     if (await getRelease(releaseVersion)) return {alreadyReleased:true,version:releaseVersion};
     await request(`/repos/${repo}/actions/workflows/build-windows.yml/dispatches`,{
       method:'POST',
-      body:{ref:'main',inputs:{publish_release:'true',allow_unsigned_release:allowUnsigned ? 'true' : 'false'}}
+      body:{
+        ref:'main',
+        inputs:{
+          publish_release:'true',
+          allow_unsigned_release:allowUnsigned ? 'true' : 'false',
+          expected_commit:sha,
+          expected_version:releaseVersion
+        }
+      }
     });
     return {alreadyReleased:false,dispatched:true,version:releaseVersion,allowUnsigned:Boolean(allowUnsigned),dispatchedAt:new Date().toISOString()};
   }
