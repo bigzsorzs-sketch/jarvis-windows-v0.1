@@ -39,11 +39,18 @@ test('offline chat does not promise a response without re-sending the AI request
   assert.doesNotMatch(offline, /telefonodon/);
 });
 
-test('manual self-repair also parses the entire source before activating a patch', () => {
+test('manual self-repair parses the entire source before any GitHub mutation', () => {
   const main = fs.readFileSync('electron/main.cjs','utf8');
   const workflow = fs.readFileSync('.github/workflows/build-windows.yml','utf8');
-  const audited = main.indexOf("runToolchainNode(['scripts/audit-all-source.cjs']");
-  const activation = main.indexOf('writeJson(manualRuntimeStatePath(),state)',audited);
-  assert.ok(audited > 0 && activation > audited);
+  const builderStart = main.indexOf('async function ensureManualRuntimeBuilt(');
+  const builderEnd = main.indexOf('function clearLegacyManualRuntimeState(',builderStart);
+  const builder = main.slice(builderStart,builderEnd);
+  const applyStart = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
+  const applyEnd = main.indexOf("ipcMain.handle('jarvis:repair:apply'",applyStart);
+  const apply = main.slice(applyStart,applyEnd);
+  assert.ok(builderStart > 0 && builderEnd > builderStart);
+  assert.match(builder,/runToolchainNode\(\['scripts\/audit-all-source\.cjs'\]/);
+  assert.ok(apply.indexOf('await ensureManualRuntimeBuilt') < apply.indexOf('await client.createRepairPullRequest'));
+  assert.doesNotMatch(apply,/scheduleManualRuntimeRestart/);
   assert.match(workflow,/node scripts\/audit-all-source\.cjs/);
 });
