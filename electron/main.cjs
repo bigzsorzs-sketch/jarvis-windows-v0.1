@@ -1887,7 +1887,7 @@ async function requestLocalDevice(request={}) {
     const observedState = normalizeLocalDevicePowerState(data);
     const verified = expectedState ? observedState === expectedState : observedState !== null;
     return {
-      success:true,
+      success:verified,
       transportSuccess:true,
       verified,
       expectedState,
