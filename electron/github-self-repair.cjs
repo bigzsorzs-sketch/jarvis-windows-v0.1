@@ -497,7 +497,9 @@ This pull request was created only after the exact owner-approved patch passed J
   async function abandonRepair(prNumber,expectedHeadSha) {
     const status = await getPullRequestStatus(prNumber);
     const expected = assertSha(expectedHeadSha);
-    if (status.merged || status.mergeCommitSha) throw new Error('GITHUB_REPAIR_ALREADY_MERGED');
+    // GitHub sets merge_commit_sha for some open PRs to a *prospective*
+    // merge result. Only the explicit merged flag proves the PR was merged.
+    if (status.merged) throw new Error('GITHUB_REPAIR_ALREADY_MERGED');
     if (status.headSha !== expected) throw new Error('GITHUB_REPAIR_HEAD_CHANGED');
     if (status.state === 'open') {
       await request(`/repos/${repo}/pulls/${Number(prNumber)}`,{
