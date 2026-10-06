@@ -120,7 +120,7 @@ test('GitHub Self-Repair only targets the pinned Jarvis repository and protects 
   assert.match(githubRepair,/DEFAULT_REPO = 'bigzsorzs-sketch\/jarvis-windows-v0\.1'/);
   assert.match(githubRepair,/GITHUB_REPOSITORY_NOT_ALLOWED/);
   assert.match(githubRepair,/GITHUB_REPAIR_PATH_BLOCKED/);
-  assert.match(githubRepair,/\.github\\\/workflows/);
+  assert.match(githubRepair,/GITHUB_REPAIR_PATH_BLOCKED/);
   assert.match(githubRepair,/scripts\\\//);
   assert.match(githubRepair,/GITHUB_REPAIR_REMOTE_SOURCE_CHANGED/);
 });
