@@ -1,7 +1,14 @@
 import { jarvis } from '@/api/jarvisClient';
 import { CONFIG } from '@/lib/appConfig';
 import { networkMonitor } from '@/lib/networkMonitor';
-import { enqueueRouteAction, retryFailedRouteSync, syncRouteQueue } from '@/lib/routeOfflineQueue';
+import {
+  enqueueRouteAction,
+  pauseRouteQueueSync,
+  restoreRouteQueueSync,
+  retryFailedRouteSync,
+  syncRouteQueue,
+  wakeRouteQueueSync,
+} from '@/lib/routeOfflineQueue';
 import { getRouteTrackingState, setRouteTrackingState } from '@/lib/routeTrackingStore';
 
 const ACTIVE_ROUTE_KEY = 'jarvis_active_route';
@@ -426,11 +433,12 @@ export function handleRouteLifecycle() {
     startWatchIfNeeded(active);
   };
 
-  const onOnline = () => syncRouteQueue();
+  restoreRouteQueueSync();
 
   document.addEventListener('visibilitychange', onVisibilityChange);
   const unsubscribe = networkMonitor.subscribe((online) => {
-    if (online) onOnline();
+    if (online) wakeRouteQueueSync();
+    else pauseRouteQueueSync();
     const active = getActiveRoute();
     if (active) {
       setRouteTrackingState({ activeSession: { ...active, sync_status: online ? 'pending' : 'offline' } });
@@ -440,6 +448,7 @@ export function handleRouteLifecycle() {
   return () => {
     document.removeEventListener('visibilitychange', onVisibilityChange);
     unsubscribe();
+    pauseRouteQueueSync();
     stopRouteTracking();
   };
 }

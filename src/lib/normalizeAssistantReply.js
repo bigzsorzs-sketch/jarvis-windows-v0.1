@@ -1,4 +1,4 @@
-import { sanitizeAssistantText, SAFE_ASSISTANT_FALLBACK } from '@/lib/assistantResponseHandler';
+import { isInternalAssistantOperationEnvelope, sanitizeAssistantText, SAFE_ASSISTANT_FALLBACK } from '@/lib/assistantResponseHandler';
 
 export const FALLBACK_ASSISTANT_REPLY = SAFE_ASSISTANT_FALLBACK;
 
@@ -31,9 +31,12 @@ function extractResult(payload, depth = 0) {
 }
 
 export default function normalizeAssistantReply(response, options = {}) {
-  const extracted = extractResult(response);
+  const internalPayload = options.internalPayload === true || isInternalAssistantOperationEnvelope(response);
+  const extracted = internalPayload ? '' : extractResult(response);
   const raw = typeof extracted === 'string' && extracted.trim() ? extracted.trim() : FALLBACK_ASSISTANT_REPLY;
-  const normalized = options.preserveStructured ? raw : sanitizeAssistantText(raw, FALLBACK_ASSISTANT_REPLY);
-  if (import.meta.env?.DEV) console.info('ASSISTANT_REPLY_NORMALIZED', { hasText: !!normalized });
+  const normalized = options.preserveStructured
+    ? raw
+    : sanitizeAssistantText(raw, FALLBACK_ASSISTANT_REPLY, { internalPayload });
+  if (import.meta.env?.DEV) console.info('ASSISTANT_REPLY_NORMALIZED', { hasText: !!normalized, internalPayload });
   return normalized;
 }

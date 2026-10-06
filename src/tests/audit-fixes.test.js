@@ -45,7 +45,9 @@ test('legitimate JSON and code are preserved while internal actions are removed'
   for(const text of ['```json\n{"nev":"George"}\n```','{"action":"go"}','```javascript\nconst params = {x:1};\n```']) {
     assert.equal(sanitizeAssistantText(text),text);
   }
-  assert.equal(sanitizeAssistantText('{"tool":"create_note","params":{"title":"x"}}'),SAFE_ASSISTANT_FALLBACK);
+  const toolLikeExample = '{"tool":"create_note","params":{"title":"x"}}';
+  assert.equal(sanitizeAssistantText(toolLikeExample),toolLikeExample);
+  assert.equal(sanitizeAssistantText(toolLikeExample,SAFE_ASSISTANT_FALLBACK,{internalPayload:true}),SAFE_ASSISTANT_FALLBACK);
   assert.equal(sanitizeAssistantText('Kész.\n```actions\n[{"tool":"create_note","params":{}}]\n```'),'Kész.');
 });
 

@@ -1,26 +1,35 @@
 export const SAFE_ASSISTANT_FALLBACK = 'Something went wrong. Please try again.';
 
-const ACTION_BLOCK_PATTERN = /```([a-z]*)\s*([\s\S]*?)```/gi;
+const ACTION_BLOCK_PATTERN = /```actions?\s*([\s\S]*?)```/gi;
 const LEGACY_ACTION_PATTERN = /\[ACTION:[^\]]+\]/gi;
 
-function isToolPayload(value) {
-  if (!value || typeof value !== 'object') return false;
-  if (Array.isArray(value)) return value.length > 0 && value.every(isToolPayload);
-  return (typeof value.tool === 'string' && ('params' in value || 'arguments' in value))
+function isStructuredInternalPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Array.isArray(value.tool_calls)
+    || Array.isArray(value.actionResults)
+    || Array.isArray(value.actions)
     || (value.type === 'function' && typeof value.function?.name === 'string')
-    || Array.isArray(value.tool_calls) || Array.isArray(value.actionResults)
-    || (Array.isArray(value.actions) && value.actions.some(isToolPayload));
-}
-function looksLikeToolPayload(text) {
-  try { return isToolPayload(JSON.parse(text)); } catch { return false; }
+    || (typeof value.tool === 'string' && ('params' in value || 'arguments' in value));
 }
 
-export function sanitizeAssistantText(value, fallback = SAFE_ASSISTANT_FALLBACK) {
+export function isInternalAssistantOperationEnvelope(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  // Only trust a structured transport envelope. JSON text inside result/content
+  // is user-visible text and must never be reclassified by field names alone.
+  const data = value.data;
+  return isStructuredInternalPayload(data);
+}
+
+export function sanitizeAssistantText(value, fallback = SAFE_ASSISTANT_FALLBACK, options = {}) {
   if (typeof value !== 'string') return fallback;
-  const text = value.replace(ACTION_BLOCK_PATTERN, (full, language, body) => (
-    /^actions?$/i.test(language) || looksLikeToolPayload(body.trim()) ? '' : full
-  )).replace(LEGACY_ACTION_PATTERN, '').trim();
-  return !text || looksLikeToolPayload(text) ? fallback : text;
+  if (options.internalPayload === true) return fallback;
+
+  const text = value
+    .replace(ACTION_BLOCK_PATTERN, '')
+    .replace(LEGACY_ACTION_PATTERN, '')
+    .trim();
+
+  return text || fallback;
 }
 
 export function summarizeActionResults(results = [], lang = 'en') {

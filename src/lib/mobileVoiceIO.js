@@ -130,57 +130,78 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   };
 
   const acquireStream = async (generation) => {
+    if (!active || generation !== captureGeneration) throw new Error('MICROPHONE_CAPTURE_CANCELLED');
     if (hasLiveAudioTrack(stream)) return stream;
 
     if (stream) {
-      stopStream(stream);
+      const previousStream = stream;
       stream = null;
+      stopStream(previousStream);
       await closeAudioInputGraph();
+      if (!active || generation !== captureGeneration) throw new Error('MICROPHONE_CAPTURE_CANCELLED');
     }
 
-    const nextStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-      },
-    });
-    if (!active || generation !== captureGeneration) {
-      stopStream(nextStream);
-      throw new Error('MICROPHONE_CAPTURE_CANCELLED');
-    }
-    stream = nextStream;
+    let nextStream = null;
+    let nextContext = null;
+    let nextMediaSource = null;
+    let nextAnalyser = null;
+    let nextVadSamples = null;
+    let committed = false;
 
-    for (const track of nextStream.getAudioTracks?.() || []) {
-      track.addEventListener?.('ended', () => {
-        if (stream !== nextStream) return;
-        stream = null;
-        void closeAudioInputGraph();
-        if (active && !paused && !processing) {
-          window.setTimeout(startSegment, 600);
-        }
-      }, { once:true });
-    }
+    try {
+      nextStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+      });
+      if (!active || generation !== captureGeneration) throw new Error('MICROPHONE_CAPTURE_CANCELLED');
 
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (AudioContextClass) {
-      const context = new AudioContextClass();
-      audioContext = context;
-      try { await context.resume(); } catch {}
-      if (!active || generation !== captureGeneration) {
-        stopStream(nextStream);
-        throw new Error('MICROPHONE_CAPTURE_CANCELLED');
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        nextContext = new AudioContextClass();
+        try { await nextContext.resume(); } catch {}
+        if (!active || generation !== captureGeneration) throw new Error('MICROPHONE_CAPTURE_CANCELLED');
+        nextMediaSource = nextContext.createMediaStreamSource(nextStream);
+        nextAnalyser = nextContext.createAnalyser();
+        nextAnalyser.fftSize = 1024;
+        nextAnalyser.smoothingTimeConstant = 0.25;
+        nextVadSamples = new Uint8Array(nextAnalyser.fftSize);
+        nextMediaSource.connect(nextAnalyser);
       }
-      mediaSource = context.createMediaStreamSource(nextStream);
-      analyser = context.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.25;
-      vadSamples = new Uint8Array(analyser.fftSize);
-      mediaSource.connect(analyser);
-    }
 
-    return nextStream;
+      if (!active || generation !== captureGeneration) throw new Error('MICROPHONE_CAPTURE_CANCELLED');
+
+      for (const track of nextStream.getAudioTracks?.() || []) {
+        track.addEventListener?.('ended', () => {
+          if (generation !== captureGeneration || stream !== nextStream) return;
+          stream = null;
+          void closeAudioInputGraph();
+          if (active && !paused && !processing) {
+            window.setTimeout(startSegment, 600);
+          }
+        }, { once:true });
+      }
+
+      stream = nextStream;
+      audioContext = nextContext;
+      mediaSource = nextMediaSource;
+      analyser = nextAnalyser;
+      vadSamples = nextVadSamples;
+      committed = true;
+      return nextStream;
+    } catch (error) {
+      if (!committed) {
+        stopStream(nextStream);
+        try { nextMediaSource?.disconnect?.(); } catch {}
+        if (nextContext && nextContext !== localAckAudioContext) {
+          try { await nextContext.close(); } catch {}
+        }
+      }
+      throw error;
+    }
   };
 
   const ensureStream = () => {
@@ -260,7 +281,8 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
     }, RESUME_AFTER_TRANSCRIPT_MS);
   };
 
-  const transcribeBlob = async (blob) => {
+  const transcribeBlob = async (blob, generation) => {
+    if (generation !== captureGeneration || !active) return '';
     if (!navigator.onLine) {
       emitError('network_offline', 'Nincs internetkapcsolat, a hangfelismerés szünetel.');
       return '';
@@ -269,10 +291,12 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
     const started = performance.now();
     onStateChange?.({ phase: 'processing', isListening: false, isRecognitionActive: false });
     const audioBase64 = await blobToBase64(blob);
+    if (generation !== captureGeneration || !active) return '';
     const response = await jarvis.functions.invoke('transcribeVoice', {
       audioBase64,
       mimeType: blob.type || 'audio/webm',
     });
+    if (generation !== captureGeneration || !active) return '';
     console.info('[voiceTiming] Model STT finished', {
       ms: Math.round(performance.now() - started),
       model: response.data?.model || null,
@@ -283,8 +307,8 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
   const startSegment = async () => {
     if (!active || paused || processing || recorder?.state === 'recording') return;
 
+    const segmentGeneration = captureGeneration;
     try {
-      const segmentGeneration = captureGeneration;
       const currentStream = await ensureStream();
       if (!active || paused || processing || segmentGeneration !== captureGeneration
         || recorder?.state === 'recording') return;
@@ -341,7 +365,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         onStateChange?.({ phase: 'processing', isListening: false, isRecognitionActive: false });
 
         try {
-          const text = await transcribeBlob(blob);
+          const text = await transcribeBlob(blob, segmentGeneration);
           if (!active || segmentGeneration !== captureGeneration) return;
           if (text && !isLikelySilenceTranscript(text)) {
             paused = true;
@@ -350,6 +374,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
             scheduleResumeFallback();
           }
         } catch (error) {
+          if (segmentGeneration !== captureGeneration) return;
           const message = error?.message || '';
           if (!navigator.onLine) {
             emitError('network_offline', 'Nincs internetkapcsolat, a hangfelismerés szünetel.');
@@ -357,8 +382,10 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
             emitError('stt_failed', `A modell alapú hangfelismerés nem sikerült. ${message}`.trim());
           }
         } finally {
-          processing = false;
-          if (active && !paused) window.setTimeout(startSegment, 140);
+          if (segmentGeneration === captureGeneration) {
+            processing = false;
+            if (active && !paused) window.setTimeout(startSegment, 140);
+          }
         }
       };
 
@@ -366,7 +393,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       startVad();
       onStateChange?.({ phase: 'listening', isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
     } catch (error) {
-      if (error?.message === 'MICROPHONE_CAPTURE_CANCELLED') return;
+      if (segmentGeneration !== captureGeneration || error?.message === 'MICROPHONE_CAPTURE_CANCELLED') return;
       emitError('microphone_denied', microphoneErrorMessage(error));
       captureGeneration += 1;
       active = false;

@@ -7,6 +7,8 @@ import { setRouteTrackingState } from '@/lib/routeTrackingStore';
 
 const ROUTE_QUEUE_PREFIX = 'route_';
 let routeSyncing = false;
+let routeRetryTimer = null;
+let routeRetryDueAt = 0;
 
 function getRouteItems() {
   return getOfflineQueue().filter((item) => item.type?.startsWith(ROUTE_QUEUE_PREFIX));
@@ -16,10 +18,72 @@ function mapStats() {
   const items = getRouteItems();
   setRouteTrackingState({
     queueStats: {
-      pending: items.filter((item) => item.status === 'pending' || !item.status).length,
+      pending: items.filter((item) => item.status === 'pending' || item.status === 'syncing' || !item.status).length,
       failed: items.filter((item) => item.status === 'failed').length,
     }
   });
+}
+
+function clearRouteRetryTimer() {
+  if (routeRetryTimer !== null) clearTimeout(routeRetryTimer);
+  routeRetryTimer = null;
+  routeRetryDueAt = 0;
+}
+
+function retryDelayMs(retryCount) {
+  const exponent = Math.min(Math.max(Number(retryCount || 1) - 1, 0), 4);
+  return CONFIG.ROUTE_QUEUE_BACKOFF_MS * (2 ** exponent);
+}
+
+function getRouteHeads(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const routeKey = item.local_id || item.payload?.local_id || item.id;
+    if (seen.has(routeKey)) return false;
+    seen.add(routeKey);
+    return true;
+  });
+}
+
+function scheduleRouteRetry(delayOverride = null) {
+  if (!networkMonitor.isOnline()) {
+    clearRouteRetryTimer();
+    return;
+  }
+
+  const now = Date.now();
+  const candidates = getRouteHeads(getRouteItems()).filter((item) =>
+    item.status !== 'failed' && (item.retry_count || 0) < CONFIG.ROUTE_QUEUE_MAX_RETRIES
+  );
+  if (candidates.length === 0) {
+    clearRouteRetryTimer();
+    return;
+  }
+
+  const earliestRetryAt = Math.min(...candidates.map((item) => Number(item.next_retry_at || 0)));
+  const delay = delayOverride === null
+    ? Math.max(0, earliestRetryAt - now)
+    : Math.max(0, Number(delayOverride) || 0);
+  const dueAt = now + delay;
+
+  if (routeRetryTimer !== null && routeRetryDueAt <= dueAt) return;
+  clearRouteRetryTimer();
+  routeRetryDueAt = dueAt;
+  routeRetryTimer = setTimeout(() => {
+    routeRetryTimer = null;
+    routeRetryDueAt = 0;
+    void syncRouteQueue();
+  }, delay);
+}
+
+function recoverInterruptedRouteItems() {
+  for (const item of getRouteItems()) {
+    if (item.status === 'syncing') {
+      updateOfflineAction(item.id, (current) => ({ ...current, status:'pending' }));
+    } else if ((item.retry_count || 0) >= CONFIG.ROUTE_QUEUE_MAX_RETRIES && item.status !== 'failed') {
+      updateOfflineAction(item.id, (current) => ({ ...current, status:'failed', next_retry_at:null }));
+    }
+  }
 }
 
 export function enqueueRouteAction(type, payload) {
@@ -30,11 +94,13 @@ export function enqueueRouteAction(type, payload) {
     created_at: new Date().toISOString(),
     retry_count: 0,
     status: 'pending',
+    next_retry_at: null,
   });
   saveRouteSnapshot(payload);
   // Route actions use this queue as their single source of truth. Conversation
   // sync still uses IndexedDB, but route actions must not be enqueued twice.
   mapStats();
+  if (networkMonitor.isOnline()) scheduleRouteRetry(0);
   return entry;
 }
 
@@ -78,48 +144,89 @@ async function syncRouteItem(item) {
 
 export async function syncRouteQueue() {
   if (!networkMonitor.isOnline() || routeSyncing) return;
-  const items = getRouteItems();
-  if (items.length === 0) {
-    mapStats();
-    return;
-  }
-
   routeSyncing = true;
+  clearRouteRetryTimer();
   setRouteTrackingState({ syncStatus: 'syncing' });
 
   try {
-    for (const item of items) {
-      if ((item.retry_count || 0) >= CONFIG.ROUTE_QUEUE_MAX_RETRIES) continue;
+    while (networkMonitor.isOnline()) {
+      const heads = getRouteHeads(getRouteItems());
+      if (heads.length === 0) break;
 
-      updateOfflineAction(item.id, (current) => ({ ...current, status: 'syncing' }));
-      try {
-        await syncRouteItem(item);
-        removeOfflineAction(item.id);
-      } catch {
-        updateOfflineAction(item.id, (current) => ({
-          ...current,
-          retry_count: (current.retry_count || 0) + 1,
-          status: (current.retry_count || 0) + 1 >= CONFIG.ROUTE_QUEUE_MAX_RETRIES ? 'failed' : 'pending',
-        }));
-        if (networkMonitor.isOnline()) {
-          await new Promise((resolve) => setTimeout(resolve, CONFIG.ROUTE_QUEUE_BACKOFF_MS * (2 ** Math.min(item.retry_count || 0, 4))));
+      const now = Date.now();
+      const ready = heads.filter((item) =>
+        item.status !== 'failed'
+        && (item.retry_count || 0) < CONFIG.ROUTE_QUEUE_MAX_RETRIES
+        && Number(item.next_retry_at || 0) <= now
+      );
+      if (ready.length === 0) break;
+
+      let removedAny = false;
+      for (const item of ready) {
+        if (!networkMonitor.isOnline()) break;
+
+        updateOfflineAction(item.id, (current) => ({ ...current, status:'syncing' }));
+        try {
+          await syncRouteItem(item);
+          removeOfflineAction(item.id);
+          removedAny = true;
+        } catch {
+          if (!networkMonitor.isOnline()) {
+            updateOfflineAction(item.id, (current) => ({
+              ...current,
+              status:'pending',
+              next_retry_at:null,
+            }));
+            break;
+          }
+
+          updateOfflineAction(item.id, (current) => {
+            const retryCount = (current.retry_count || 0) + 1;
+            const exhausted = retryCount >= CONFIG.ROUTE_QUEUE_MAX_RETRIES;
+            return {
+              ...current,
+              retry_count:retryCount,
+              status:exhausted ? 'failed' : 'pending',
+              next_retry_at:exhausted ? null : Date.now() + retryDelayMs(retryCount),
+            };
+          });
         }
       }
+
+      // Failed route heads remain at the front of their own route and block
+      // route_update/route_end until the dependency succeeds or is manually reset.
+      if (!removedAny) break;
     }
   } finally {
     routeSyncing = false;
     mapStats();
     setRouteTrackingState({ syncStatus: 'idle' });
+    scheduleRouteRetry();
   }
+}
+
+export function restoreRouteQueueSync() {
+  recoverInterruptedRouteItems();
+  mapStats();
+  if (networkMonitor.isOnline()) scheduleRouteRetry(0);
+}
+
+export function wakeRouteQueueSync() {
+  if (networkMonitor.isOnline()) scheduleRouteRetry(0);
+}
+
+export function pauseRouteQueueSync() {
+  clearRouteRetryTimer();
 }
 
 export function retryFailedRouteSync() {
   getRouteItems()
     .filter((item) => item.status === 'failed')
     .forEach((item) => {
-      updateOfflineAction(item.id, (current) => ({ ...current, retry_count: 0, status: 'pending' }));
+      updateOfflineAction(item.id, (current) => ({ ...current, retry_count:0, status:'pending', next_retry_at:null }));
     });
   mapStats();
+  if (networkMonitor.isOnline()) scheduleRouteRetry(0);
   return syncRouteQueue();
 }
 
