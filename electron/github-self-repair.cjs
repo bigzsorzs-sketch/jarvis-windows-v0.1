@@ -309,6 +309,24 @@ Publication remains a separate owner action. Unsigned publication requires an ex
       }
     }
   }
+  async function verifyExistingRepairBranch(baseSha,headSha,files) {
+    // A retry may reuse a previously opened repair branch, but checking only
+    // the expected file contents would miss unrelated files pushed later.
+    const commit = await getCommit(headSha);
+    if (!Array.isArray(commit?.parents) || commit.parents.length !== 1
+        || assertSha(commit.parents[0]?.sha) !== assertSha(baseSha)) {
+      throw new Error('GITHUB_REPAIR_BRANCH_BASE_CHANGED');
+    }
+    const diff = await request(`/repos/${repo}/compare/${baseSha}...${headSha}?per_page=100`);
+    const changes = Array.isArray(diff?.files) ? diff.files : null;
+    const allowed = new Set(files.map((item)=>item.path));
+    if (diff?.status !== 'ahead' || Number(diff?.total_commits) !== 1 || !changes
+        || changes.length !== allowed.size || changes.some((item)=>
+          !allowed.has(item?.filename) || !['added','modified'].includes(item?.status)
+        )) {
+      throw new Error('GITHUB_REPAIR_BRANCH_DIFF_MISMATCH');
+    }
+  }
   async function createRepairPullRequest(input={}) {
     const hash = assertHash(input.hash);
     const goal = cleanMessage(input.goal,'Jarvis Self-Repair');
@@ -355,6 +373,7 @@ Publication remains a separate owner action. Unsigned publication requires an ex
       if (assertSha(existingPr?.head?.sha) !== assertSha(existingRef.object.sha)) {
         throw new Error('GITHUB_REPAIR_PR_HEAD_MISMATCH');
       }
+      await verifyExistingRepairBranch(baseSha,assertSha(existingRef.object.sha),allFiles);
       return {
         reused:true,
         repo,
