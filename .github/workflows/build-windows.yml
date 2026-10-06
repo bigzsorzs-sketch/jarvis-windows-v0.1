@@ -13,6 +13,16 @@ on:
         required: true
         default: false
         type: boolean
+      expected_commit:
+        description: 'Exact main commit expected by an automated Self-Repair release dispatch'
+        required: false
+        default: ''
+        type: string
+      expected_version:
+        description: 'Exact package version expected by an automated Self-Repair release dispatch'
+        required: false
+        default: ''
+        type: string
   push:
     branches:
       - main
@@ -213,6 +223,20 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref != 'refs/heads/main'
         shell: pwsh
         run: throw "Release publication is allowed only from main."
+
+      - name: Verify explicit release target binding
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $expectedCommit = "${{ inputs.expected_commit }}"
+          $expectedVersion = "${{ inputs.expected_version }}"
+          if ($expectedCommit -and $expectedCommit -ne "$env:GITHUB_SHA") {
+            throw "RELEASE_DISPATCH_COMMIT_MISMATCH: expected $expectedCommit, running $env:GITHUB_SHA"
+          }
+          if ($expectedVersion -and $expectedVersion -ne [string]$pkg.version) {
+            throw "RELEASE_DISPATCH_VERSION_MISMATCH: expected $expectedVersion, package $($pkg.version)"
+          }
 
       - name: Verify signer before publication
         if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main'
