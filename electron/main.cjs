@@ -694,10 +694,20 @@ async function syncGitHubRepairState() {
   const client = getGitHubSelfRepairClient();
   const next = { ...stored };
 
-  if (next.prNumber && !next.mergeSha) {
+  if (next.prNumber) {
     const pr = await client.getPullRequestStatus(next.prNumber);
+    // Bind every refresh, merge and release transition to the approved PR,
+    // including a PR merged outside Jarvis. Never adopt a changed remote head.
+    if (pr.headSha !== next.headSha) throw new Error('GITHUB_REPAIR_HEAD_CHANGED');
+    if (pr.prNumber !== Number(next.prNumber) || pr.branch !== next.branch
+        || pr.repo !== (next.repo || githubSelfRepair.DEFAULT_REPO)) {
+      throw new Error('GITHUB_REPAIR_PR_IDENTITY_CHANGED');
+    }
+    if (next.mergeSha && (!pr.merged || pr.mergeCommitSha !== next.mergeSha)) {
+      throw new Error('GITHUB_REPAIR_MERGE_CHANGED');
+    }
     next.prStatus = pr;
-    if (pr.merged && pr.mergeCommitSha) {
+    if (pr.merged && pr.mergeCommitSha && !next.mergeSha) {
       next.mergeSha = pr.mergeCommitSha;
       next.phase = 'merged';
     }
@@ -1855,12 +1865,9 @@ function buildLocalDeviceUrl(baseValue, commandValue='') {
 
 function normalizeLocalDevicePowerState(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-  let raw = data.POWER;
-  if (raw === undefined) {
-    const numberedPowerKeys = Object.keys(data).filter((key) => /^POWER\\d+$/i.test(key));
-    if (numberedPowerKeys.length !== 1) return null;
-    raw = data[numberedPowerKeys[0]];
-  }
+  const powerKeys = Object.keys(data).filter((key) => /^POWER(?:\d+)?$/i.test(key));
+  if (powerKeys.length !== 1) return null;
+  const raw = data[powerKeys[0]];
   const value = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
   if (value === 'ON') return 'on';
   if (value === 'OFF') return 'off';

@@ -9,6 +9,14 @@ const github = require('../../electron/github-self-repair.cjs');
 const electronMainSource = fs.readFileSync('electron/main.cjs','utf8');
 
 function reply(status,payload) {
+  // Real GitHub PR responses bind both branches to their repository.
+  if (payload?.number && payload?.head && payload?.base) {
+    payload = {
+      ...payload,
+      head:{repo:{full_name:github.DEFAULT_REPO},...payload.head},
+      base:{repo:{full_name:github.DEFAULT_REPO},...payload.base},
+    };
+  }
   return {
     ok:status >= 200 && status < 300,
     status,

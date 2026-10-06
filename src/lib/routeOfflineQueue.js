@@ -96,7 +96,9 @@ export function enqueueRouteAction(type, payload) {
     status: 'pending',
     next_retry_at: null,
   });
-  saveRouteSnapshot(payload);
+  void Promise.resolve(saveRouteSnapshot(payload)).catch((error) => {
+    console.warn('Route snapshot failed; the route action remains in its local queue', error?.message);
+  });
   // Route actions use this queue as their single source of truth. Conversation
   // sync still uses IndexedDB, but route actions must not be enqueued twice.
   mapStats();

@@ -1,4 +1,5 @@
 import { logger } from '@/lib/logger';
+import { normalizeConversationMessages } from '@/lib/conversationMessages';
 
 const DB_NAME = 'jarvis_mobile_offline_v1';
 const DB_VERSION = 1;
@@ -34,9 +35,14 @@ function openOfflineDb() {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => { db.close(); dbPromise = null; };
+      resolve(db);
+    };
     request.onerror = () => reject(request.error);
   }).catch((error) => {
+    dbPromise = null;
     logger.warn('IndexedDbOfflineStore', 'Open failed', { message: error?.message });
     return null;
   });
@@ -45,20 +51,29 @@ function openOfflineDb() {
 }
 
 async function runStore(storeName, mode, handler) {
-  const db = await openOfflineDb();
-  if (!db) return null;
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
-    const store = tx.objectStore(storeName);
-    const request = handler(store);
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  }).catch((error) => {
+  try {
+    const db = await openOfflineDb();
+    if (!db) throw new Error('OFFLINE_STORAGE_UNAVAILABLE');
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, mode);
+      let result;
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error || new Error('OFFLINE_STORAGE_TRANSACTION_FAILED'));
+      tx.onabort = () => reject(tx.error || new Error('OFFLINE_STORAGE_TRANSACTION_ABORTED'));
+      try {
+        const request = handler(tx.objectStore(storeName));
+        request.onsuccess = () => { result = request.result; };
+        request.onerror = () => reject(request.error || new Error('OFFLINE_STORAGE_REQUEST_FAILED'));
+      } catch (error) {
+        reject(error);
+        try { tx.abort(); } catch {}
+      }
+    });
+  } catch (error) {
     logger.warn('IndexedDbOfflineStore', `${storeName} operation failed`, { message: error?.message });
+    if (mode === 'readwrite') throw error;
     return null;
-  });
+  }
 }
 
 export async function putLocalValue(key, value) {
@@ -76,23 +91,7 @@ export async function saveRouteSnapshot(route) {
 }
 
 function compactOfflineSnapshotMessages(messages) {
-  return (Array.isArray(messages) ? messages : []).slice(-200).map((message) => {
-    if (!message || typeof message !== 'object') return message;
-    const { attachedFiles, ...textAndState } = message;
-    if (!Array.isArray(attachedFiles) || attachedFiles.length === 0) return textAndState;
-    return {
-      ...textAndState,
-      // Keep attachment identity, not megabytes of raw data URLs in IndexedDB
-      // snapshots or queued sync actions. Files must be re-attached to re-use.
-      attachedFiles: attachedFiles.slice(0,20).map((file) => ({
-        name:String(file?.name || 'Csatolmány').slice(0,120),
-        kind:String(file?.kind || 'document').slice(0,30),
-        type:String(file?.type || '').slice(0,120),
-        size:Number.isFinite(file?.size) ? Math.max(0,Math.floor(file.size)) : null,
-        metadataOnly:true
-      }))
-    };
-  });
+  return normalizeConversationMessages(messages);
 }
 
 export async function saveChatSnapshot(messages, metadata = {}) {

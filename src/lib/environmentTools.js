@@ -17,12 +17,9 @@ function normalizePowerStateValue(value) {
 
 function extractPowerState(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-  let raw = data.POWER;
-  if (raw === undefined) {
-    const numberedPowerKeys = Object.keys(data).filter((key) => /^POWER\\d+$/i.test(key));
-    if (numberedPowerKeys.length !== 1) return null;
-    raw = data[numberedPowerKeys[0]];
-  }
+  const powerKeys = Object.keys(data).filter((key) => /^POWER(?:\d+)?$/i.test(key));
+  if (powerKeys.length !== 1) return null;
+  const raw = data[powerKeys[0]];
   return normalizePowerStateValue(raw);
 }
 

@@ -74,6 +74,38 @@ test('local device HTTP success is not state verification', async () => {
   assert.equal(result.observedState, 'on');
   assert.equal(result.success, true);
   assert.equal(result.verified, true);
+
+  for (const payload of [{POWER1:'ON'},{POWER2:'OFF'},{power12:' on '},{POWER:'OFF'}]) {
+    body=JSON.stringify(payload);
+    const expected=Object.values(payload)[0].trim().toLowerCase();
+    result=await requestLocalDevice({base:'http://127.0.0.1',command:'/power',expectedState:expected});
+    assert.equal(result.observedState,expected);
+    assert.equal(result.verified,true);
+  }
+  for (const payload of [{POWER1:'ON',POWER2:'OFF'},{POWER:'ON',POWER1:'ON'},{POWER1:'UNKNOWN'},['ON'],{'POWER\\d':'ON'}]) {
+    body=JSON.stringify(payload);
+    result=await requestLocalDevice({base:'http://127.0.0.1',command:'/power',expectedState:'on'});
+    assert.equal(result.transportSuccess,true);
+    assert.equal(result.observedState,null);
+    assert.equal(result.verified,false);
+  }
+});
+
+test('renderer POWER fallback agrees with main for numbered and ambiguous responses',async()=>{
+  let data;
+  const request=loadScript('src/lib/environmentTools.js',{
+    window:{jarvisDesktop:{localDeviceRequest:async()=>({transportSuccess:true,data})}},
+  },'callDeviceAPI');
+  for (const [payload,expected] of [
+    [{POWER1:'ON'},'on'],[{power2:'OFF'},'off'],[{POWER:' on '},'on'],
+    [{POWER1:'ON',POWER2:'OFF'},null],[{POWER:'ON',POWER1:'ON'},null],
+    [{POWER2:'invalid'},null],[{},null],[['ON'],null],
+  ]) {
+    data=payload;
+    const result=await request({ip_address:'127.0.0.1'},'/power',{expectedState:expected || 'on'});
+    assert.equal(result.observedState,expected);
+    assert.equal(result.verified,expected !== null);
+  }
 });
 
 test('device control never persists or completes an unverified requested state', async () => {

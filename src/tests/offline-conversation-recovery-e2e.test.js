@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { normalizeConversationMessages, mergeConversationMessages } from '../lib/conversationMessages.js';
 
 const syncSource = fs.readFileSync('src/lib/offlineSyncManager.js','utf8');
 const storeSource = fs.readFileSync('src/lib/indexedDbOfflineStore.js','utf8');
@@ -28,7 +29,7 @@ function actualSyncFunction(records) {
     }
   }} };
   return vm.runInNewContext(syncSource.slice(start,end)+'; syncConversationSnapshot',
-    {jarvis,Date});
+    {jarvis,Date,normalizeConversationMessages,mergeConversationMessages});
 }
 
 function actualQueueFunction(entries) {
@@ -168,4 +169,37 @@ test('ordinary online saves also include the offline chat identity',()=>{
   assert.match(history,/offline_sync_id:String\(metadata\.offlineChatId\)/);
   assert.match(chat,/saveConversationHistory,\s*\(savedId, savedSession\)/);
   assert.match(chat,/offlineChatId:offlineChatIdRef\.current/);
+});
+
+test('real recovery preserves attachment metadata, bounded results and message IDs',async()=>{
+  const records=[];
+  const sync=actualSyncFunction(records);
+  const messages=[
+    {id:'user-one',role:'user',content:'Check my archive',attachedFiles:[{name:'project.zip',kind:'archive',size:400,url:'data:secret'}]},
+    {id:'reply-one',role:'assistant',content:'Result',actionResults:Array.from({length:25},(_,i)=>({tool:'example-'+i,result:{success:false}}))}
+  ];
+  const item={id:'conversation_snapshot_session',payload:{metadata:{offlineChatId:'session'},messages}};
+  await sync(item,{email:'owner@jarvis.local'});
+  assert.equal(records[0].messages[0].id,'user-one');
+  assert.equal(records[0].messages[0].attachedFiles[0].name,'project.zip');
+  assert.equal(records[0].messages[0].attachedFiles[0].url,undefined);
+  assert.equal(records[0].messages[0].attachedFiles[0].metadataOnly,true);
+  assert.equal(records[0].messages[1].actionResults.length,20);
+  assert.equal(records[0].messages[1].actionResults[0].result.success,false);
+  await sync(item,{email:'owner@jarvis.local'});
+  assert.equal(records.length,1,'repeated recovery does not execute or duplicate stored actions');
+  assert.equal(records[0].messages.length,2);
+});
+
+test('real recovery accepts a rolling 200-message legacy window',async()=>{
+  const original=Array.from({length:200},(_,i)=>({role:i%2?'assistant':'user',content:'message-'+i}));
+  const records=[{id:'existing',source:'chat',offline_sync_id:'session',messages:original}];
+  const sync=actualSyncFunction(records);
+  await sync({id:'conversation_snapshot_session',payload:{
+    metadata:{offlineChatId:'session',conversationId:'existing'},
+    messages:[...original,{role:'user',content:'message-200'}].slice(-200)
+  }},{email:'owner@jarvis.local'});
+  assert.equal(records[0].messages.length,200);
+  assert.equal(records[0].messages[0].content,'message-1');
+  assert.equal(records[0].messages.at(-1).content,'message-200');
 });

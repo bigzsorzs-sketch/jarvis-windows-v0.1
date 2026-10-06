@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { ensureConversationMessageIdentity } from '../lib/conversationMessages.js';
 
 const source=fs.readFileSync('src/pages/Chat.jsx','utf8');
 
@@ -28,6 +29,7 @@ function makeChatHarness({route,speech=false}={}) {
   let loading=false,loadingStep='';
   const edits=[];
   const context={
+    ensureConversationMessageIdentity,
     input:'old user question',
     loading:false,
     messages:[...messages],
@@ -75,6 +77,10 @@ function makeChatHarness({route,speech=false}={}) {
     getChatErrorMessage:()=> 'error',
     requestAnimationFrame:callback=>queueMicrotask(callback),
     setDegradedMode:()=>{},
+    offlineChatIdRef:{current:'offline-old'},
+    conversationIdRef:{current:'old'},
+    setStorageErrors:()=>{},
+    queueConversationSync:async()=>true,
   };
   const send=extract('sendMessage','const sendMessage = useCallback(async (overrideText) => {','\n  }, [input, loading, messages, ctx, attachedImages, lang, t, detectedLang, userMood, handsFree, speakReply, voice.state.handsFree]);',context);
   return {
@@ -83,6 +89,35 @@ function makeChatHarness({route,speech=false}={}) {
     get state(){return {messages,loading,loadingStep,edits};}
   };
 }
+
+test('failed offline persistence keeps visible messages and reports the failure',async()=>{
+  const h=makeChatHarness();
+  const warnings=[];
+  h.context.networkMonitor.isOffline=()=>true;
+  h.context.queueConversationSync=async()=>{throw new Error('QuotaExceededError');};
+  h.context.setStorageErrors=update=>warnings.push(update({}));
+  await h.send();
+  assert.equal(h.state.messages.some(message=>message.content==='old user question'),true);
+  assert.equal(h.state.messages.some(message=>message.role==='assistant' && /helyben tárolom/.test(message.content)),false);
+  assert.match(warnings.at(-1).queue,/mentése nem sikerült/);
+});
+
+test('late offline storage failure cannot warn in another chat',async()=>{
+  const h=makeChatHarness();
+  const gate=deferred();
+  const warnings=[];
+  let queued=false;
+  h.context.networkMonitor.isOffline=()=>true;
+  h.context.queueConversationSync=()=>{queued=true;return gate.promise;};
+  h.context.setStorageErrors=update=>warnings.push(update({}));
+  const pending=h.send();
+  await until(()=>queued);
+  h.switchToNew();
+  gate.reject(new Error('QuotaExceededError'));
+  await pending;
+  assert.equal(warnings.length,0);
+  assert.deepEqual(h.state.messages,[{role:'assistant',content:'NEW CHAT'}]);
+});
 
 async function until(predicate,limit=100) {
   for(let i=0;i<limit;i++){

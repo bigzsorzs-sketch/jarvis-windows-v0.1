@@ -1,33 +1,13 @@
 import { jarvis } from '@/api/jarvisClient';
 import { getLocalValue, loadChatSnapshot, putLocalValue } from '@/lib/indexedDbOfflineStore';
+import { normalizeConversationMessages } from '@/lib/conversationMessages';
 
 const CHAT_SOURCE = 'chat';
 const LEGACY_MIGRATION_KEY = 'chat_history_legacy_snapshot_migrated_v1';
 const LEGACY_MIGRATION_ID = 'legacy_active_chat_v1';
 
 function normalizeMessages(messages = []) {
-  return (Array.isArray(messages) ? messages : [])
-    .filter((message) => message && (message.role === 'user' || message.role === 'assistant'))
-    .slice(-200)
-    .map((message) => ({
-      role: message.role,
-      content: String(message.content || ''),
-      timestamp: message.timestamp || new Date().toISOString(),
-      ...(Array.isArray(message.actionResults) && message.actionResults.length
-        ? { actionResults: message.actionResults.slice(0, 20) }
-        : {}),
-      // Keep the evidence that an attachment existed, not its potentially
-      // multi-megabyte Base64 data URL in every SQLite conversation snapshot.
-      ...(Array.isArray(message.attachedFiles) && message.attachedFiles.length
-        ? { attachedFiles: message.attachedFiles.slice(0, 20).map((file) => ({
-          name:String(file?.name || 'Csatolmány').slice(0, 120),
-          kind:String(file?.kind || 'document').slice(0, 30),
-          type:String(file?.type || '').slice(0, 120),
-          size:Number.isFinite(file?.size) ? Math.max(0,Math.floor(file.size)) : null,
-          metadataOnly:true,
-        })) }
-        : {}),
-    }));
+  return normalizeConversationMessages(messages);
 }
 
 export function conversationTitle(messages = []) {

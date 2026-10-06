@@ -394,14 +394,17 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       onStateChange?.({ phase: 'listening', isListening: true, isRecognitionActive: true, isRecognitionStarting: false });
     } catch (error) {
       if (segmentGeneration !== captureGeneration || error?.message === 'MICROPHONE_CAPTURE_CANCELLED') return;
-      emitError('microphone_denied', microphoneErrorMessage(error));
       captureGeneration += 1;
+      const failedGeneration = captureGeneration;
       active = false;
       paused = false;
       processing = false;
       stopStream(stream);
       stream = null;
       await closeAudioInputGraph();
+      if (failedGeneration !== captureGeneration || active) return;
+      emitError('microphone_denied', microphoneErrorMessage(error));
+      if (failedGeneration !== captureGeneration || active) return;
       onStateChange?.({ phase: 'error', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
     }
   };
@@ -444,6 +447,8 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
       }
 
       if (active) {
+        captureGeneration += 1;
+        const cleanupGeneration = captureGeneration;
         active = false;
         paused = false;
         processing = false;
@@ -452,6 +457,7 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         stopStream(stream);
         stream = null;
         await closeAudioInputGraph();
+        if (cleanupGeneration !== captureGeneration || active) return false;
       }
 
       captureGeneration += 1;
@@ -466,6 +472,8 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         return true;
       } catch (error) {
         if (generation !== captureGeneration || error?.message === 'MICROPHONE_CAPTURE_CANCELLED') return false;
+        captureGeneration += 1;
+        const failedGeneration = captureGeneration;
         active = false;
         paused = false;
         processing = false;
@@ -474,7 +482,9 @@ export function createRecordedVoiceIO({ onTranscript, onError, onStateChange }) 
         stopStream(stream);
         stream = null;
         await closeAudioInputGraph();
+        if (failedGeneration !== captureGeneration || active) return false;
         emitError('microphone_denied', microphoneErrorMessage(error));
+        if (failedGeneration !== captureGeneration || active) return false;
         onStateChange?.({ phase: 'error', isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
         return false;
       }
