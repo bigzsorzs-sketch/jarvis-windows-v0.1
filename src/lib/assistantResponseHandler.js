@@ -6,10 +6,10 @@ const LEGACY_ACTION_PATTERN = /\[ACTION:[^\]]+\]/gi;
 function isStructuredInternalPayload(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   return Array.isArray(value.tool_calls)
+    || Array.isArray(value.actionResults)
+    || Array.isArray(value.actions)
     || (value.type === 'function' && typeof value.function?.name === 'string')
-    || (typeof value.tool === 'string' && ('params' in value || 'arguments' in value))
-    || (Array.isArray(value.actions) && value.actions.length > 0
-      && value.actions.every((action) => action && typeof action.tool === 'string'));
+    || (typeof value.tool === 'string' && ('params' in value || 'arguments' in value));
 }
 
 export function isInternalAssistantOperationEnvelope(value) {
