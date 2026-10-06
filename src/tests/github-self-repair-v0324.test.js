@@ -539,6 +539,15 @@ test('release manifest must bind version installer checksum main ref and exact r
   },{
     version:'0.3.24',installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:hash,targetCommitish:'4'.repeat(40)
   }),/UPDATE_MANIFEST_RELEASE_TARGET_MISMATCH/);
+  for (const targetCommitish of ['main','',null]) {
+    assert.throws(()=>github.verifyReleaseManifest({
+      version:'0.3.24',commit,ref:'refs/heads/main',
+      installer:'Jarvis-Setup-0.3.24-x64.exe',sha256:hash
+    },{
+      version:'0.3.24',installer:'Jarvis-Setup-0.3.24-x64.exe',
+      sha256:hash,targetCommitish
+    }),/UPDATE_MANIFEST_RELEASE_TARGET_INVALID/);
+  }
 });
 
 test('GitHub client independently blocks Self-Repair trust-core files even if upstream plan validation regresses', async () => {

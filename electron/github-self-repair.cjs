@@ -101,7 +101,12 @@ function verifyReleaseManifest(manifest,input={}) {
   const commit = String(manifest.commit || '').toLowerCase();
   if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('UPDATE_MANIFEST_COMMIT_INVALID');
   const target = String(input.targetCommitish || '').trim().toLowerCase();
-  if (/^[a-f0-9]{40}$/.test(target) && target !== commit) {
+  // An unsigned installer must be bound to a specific verified release
+  // commit; a moving ref such as "main" is not a sufficient trust anchor.
+  if (!/^[a-f0-9]{40}$/.test(target)) {
+    throw new Error('UPDATE_MANIFEST_RELEASE_TARGET_INVALID');
+  }
+  if (target !== commit) {
     throw new Error('UPDATE_MANIFEST_RELEASE_TARGET_MISMATCH');
   }
   return {version,installer,sha256,commit,ref:'refs/heads/main'};
