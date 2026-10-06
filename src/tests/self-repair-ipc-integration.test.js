@@ -151,7 +151,7 @@ test('simultaneous IPC apply requests cannot publish the same plan twice',async(
   assert.equal(publishes,1);
 });
 
-test('failed direct source validation rolls back without GitHub mutation',async()=>{
+test('failed direct source validation restores staging without GitHub mutation or runtime activation',async()=>{
   const h=makeApplyHarness({
     validateDirectOwnerRepair:async()=>({ok:false,results:[{cmd:'syntax',ok:false}]})
   });
@@ -159,7 +159,7 @@ test('failed direct source validation rolls back without GitHub mutation',async(
   assert.equal(result.success,false);
   assert.equal(result.status,'ROLLED_BACK');
   assert.ok(h.events.includes('rollback'));
-  assert.ok(h.events.includes('restore-runtime'));
+  assert.equal(h.events.includes('restore-runtime'),false);
   assert.equal(h.events.includes('github-publish'),false);
   assert.equal(h.patched,false);
 });
@@ -178,13 +178,19 @@ test('unexpected staging source mutation outside the approved patch aborts befor
   assert.ok(fingerprintCalls>=2);
 });
 
-test('failed toolchain build rolls back source and restores the previous runtime',async()=>{
+test('failed toolchain build restores staging and never activates or publishes it',async()=>{
   const h=makeApplyHarness({
     ensureManualRuntimeBuilt:async()=>{throw new Error('BUILD_FAILED');}
   });
   await assert.rejects(()=>h.apply(null,{hash}),/BUILD_FAILED/);
   assert.ok(h.events.includes('rollback'));
-  assert.ok(h.events.includes('restore-runtime'));
+test('failed toolchain build restores staging and never activates or publishes it',async()=>{
+  const h=makeApplyHarness({
+    ensureManualRuntimeBuilt:async()=>{throw new Error('BUILD_FAILED');}
+  });
+  await assert.rejects(()=>h.apply(null,{hash}),/BUILD_FAILED/);
+  assert.ok(h.events.includes('rollback'));
+
   assert.equal(h.events.includes('github-publish'),false);
   assert.equal(h.patched,false);
 });
