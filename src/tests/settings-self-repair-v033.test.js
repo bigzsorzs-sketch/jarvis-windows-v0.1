@@ -67,11 +67,19 @@ test('self repair maps architecture, retrieves relevant source and supports conv
 });
 
 
-test('installed builds include readable source for whole-program Self-Repair mapping', () => {
+test('installed builds include readable source and rebuild locked dependencies for Self-Repair validation', () => {
   assert.equal(pkg.build.files.includes('src/**/*'), true);
   assert.equal(pkg.build.files.includes('electron/**/*'), true);
-  assert.match(main,/async function ensureManualRuntimeBuilt/);
-  assert.match(main,/if \(!fs\.existsSync\(electronPath\)\)[\s\S]*runToolchainNpm\(\['ci'/);
+  const validationStart = main.indexOf('async function ensureManualRuntimeBuilt(');
+  const validationEnd = main.indexOf('function clearLegacyManualRuntimeState(', validationStart);
+  const body = main.slice(validationStart,validationEnd);
+  assert.ok(validationStart >= 0 && validationEnd > validationStart);
+  assert.match(body,/await runToolchainNpm\(\['ci','--no-audit','--no-fund'\]/);
+  assert.match(body,/MANUAL_REPAIR_RUNTIME_DEPENDENCIES_MISSING/);
+  assert.ok(body.indexOf("runToolchainNpm(['ci'") < body.indexOf("runToolchainNode(['scripts/audit-all-source.cjs']"));
+  assert.ok(body.indexOf("runToolchainNpm(['ci'") < body.indexOf("await checkNpm('lint')"));
+  assert.ok(body.indexOf("runToolchainNpm(['ci'") < body.indexOf("await runToolchainNode(['--test'"));
+  assert.ok(body.indexOf("runToolchainNpm(['ci'") < body.indexOf("await checkNpm('build')"));
 });
 
 
