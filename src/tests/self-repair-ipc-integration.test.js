@@ -184,13 +184,7 @@ test('failed toolchain build restores staging and never activates or publishes i
   });
   await assert.rejects(()=>h.apply(null,{hash}),/BUILD_FAILED/);
   assert.ok(h.events.includes('rollback'));
-test('failed toolchain build restores staging and never activates or publishes it',async()=>{
-  const h=makeApplyHarness({
-    ensureManualRuntimeBuilt:async()=>{throw new Error('BUILD_FAILED');}
-  });
-  await assert.rejects(()=>h.apply(null,{hash}),/BUILD_FAILED/);
-  assert.ok(h.events.includes('rollback'));
-
+  assert.equal(h.events.includes('restore-runtime'),false);
   assert.equal(h.events.includes('github-publish'),false);
   assert.equal(h.patched,false);
 });
