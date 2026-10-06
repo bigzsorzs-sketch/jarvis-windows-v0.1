@@ -53,6 +53,7 @@ test('local device HTTP success is not state verification', async () => {
 
   let result = await requestLocalDevice({ base:'http://127.0.0.1', command:'/power-on', expectedState:'on' });
   assert.equal(result.transportSuccess, true);
+  assert.equal(result.success, false);
   assert.equal(result.observedState, 'off');
   assert.equal(result.verified, false);
 
@@ -71,6 +72,7 @@ test('local device HTTP success is not state verification', async () => {
   body = '{"POWER":"ON"}';
   result = await requestLocalDevice({ base:'http://127.0.0.1', command:'/power-on', expectedState:'on' });
   assert.equal(result.observedState, 'on');
+  assert.equal(result.success, true);
   assert.equal(result.verified, true);
 });
 
