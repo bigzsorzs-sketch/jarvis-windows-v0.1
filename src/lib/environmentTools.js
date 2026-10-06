@@ -10,17 +10,47 @@ async function getCurrentUserOwnerFilter() {
 // Physical local-network actions are executed only by Electron's main process.
 // The renderer never sends direct device HTTP requests, so the Policy Engine
 // remains the mandatory gate for Jarvis-initiated physical device actions.
-async function callDeviceAPI(device, command, { readOnly = false } = {}) {
-  if (!device.api_url && !device.ip_address) return null;
-  const bridge = window.jarvisDesktop?.localDeviceRequest;
-  if (!bridge) return null;
-  const base = device.api_url || `http://${device.ip_address}`;
-  try {
-    const result = await bridge({ base, command, timeout:3000, readOnly });
-    return result?.success ? result.data : null;
-  } catch {
-    return null;
+function normalizePowerStateValue(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return normalized === 'on' || normalized === 'off' ? normalized : null;
+}
+
+function extractPowerState(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  let raw = data.POWER;
+  if (raw === undefined) {
+    const numberedPowerKeys = Object.keys(data).filter((key) => /^POWER\\d+$/i.test(key));
+    if (numberedPowerKeys.length !== 1) return null;
+    raw = data[numberedPowerKeys[0]];
   }
+  return normalizePowerStateValue(raw);
+}
+
+async function callDeviceAPI(device, command, { readOnly = false, expectedState = null } = {}) {
+  if (!device.api_url && !device.ip_address) return { transportSuccess:false, verified:false, observedState:null, data:null };
+  const bridge = window.jarvisDesktop?.localDeviceRequest;
+  if (!bridge) return { transportSuccess:false, verified:false, observedState:null, data:null };
+  const base = device.api_url || `http://${device.ip_address}`;
+  const normalizedExpectedState = normalizePowerStateValue(expectedState);
+  try {
+    const result = await bridge({ base, command, timeout:3000, readOnly, expectedState:normalizedExpectedState });
+    const transportSuccess = result?.transportSuccess === true || result?.success === true;
+    const observedState = normalizePowerStateValue(result?.observedState) || extractPowerState(result?.data);
+    const verified = normalizedExpectedState
+      ? transportSuccess && result?.verified !== false && observedState === normalizedExpectedState
+      : transportSuccess && result?.verified !== false && observedState !== null;
+    return { transportSuccess, verified, observedState, data:result?.data ?? null };
+  } catch {
+    return { transportSuccess:false, verified:false, observedState:null, data:null };
+  }
+}
+
+function isVerifiedStepSuccess(result) {
+  if (result?.success !== true) return false;
+  if (result?.data && Object.prototype.hasOwnProperty.call(result.data, 'verified')) {
+    return result.data.verified === true;
+  }
+  return true;
 }
 
 export const ENV_TOOLS = {
@@ -35,8 +65,12 @@ export const ENV_TOOLS = {
     if (device.created_by !== currentUser.email) return { success: false, message: '❌ Ezt az eszközt nem vezérelheted.' };
 
     const newStatus = command === 'on' ? 'on' : command === 'off' ? 'off' : device.status;
-    const apiResult = await callDeviceAPI(device, command === 'on' ? '/cm?cmnd=Power%20On' : '/cm?cmnd=Power%20Off');
-    if (!apiResult) {
+    const apiResult = await callDeviceAPI(
+      device,
+      command === 'on' ? '/cm?cmnd=Power%20On' : '/cm?cmnd=Power%20Off',
+      { expectedState:newStatus }
+    );
+    if (!apiResult.verified || apiResult.observedState !== newStatus) {
       await jarvis.entities.ActionLog.create({
         action_type: 'control_device',
         description: `${device.name} → ${command} (not verified)`,
@@ -46,7 +80,7 @@ export const ENV_TOOLS = {
       return {
         success: false,
         message: `⚠️ ${device.name}: a parancsot nem tudtam a fizikai eszközön igazolni, ezért az alkalmazásban sem módosítottam az állapotát.`,
-        data: { device, command, real_control:false, verified:false }
+        data: { device, command, real_control:false, verified:false, observedState:apiResult.observedState }
       };
     }
     const updated = await jarvis.entities.SmartDevice.update(device.id, { status: newStatus, last_seen: new Date().toISOString() });
@@ -54,7 +88,7 @@ export const ENV_TOOLS = {
     return {
       success: true,
       message: `${command === 'on' ? '💡' : '🔌'} ${device.name}: ${command.toUpperCase()} ✅ (fizikai eszköz válasza alapján)`,
-      data: { device:updated, command, real_control:true, verified:true, apiResult }
+      data: { device:updated, command, real_control:true, verified:true, observedState:apiResult.observedState, apiResult:apiResult.data }
     };
   },
 
@@ -68,7 +102,7 @@ export const ENV_TOOLS = {
     const device = devices.find(d => d.name.toLowerCase().includes(device_name.toLowerCase()));
     if (!device) return { success: false, message: `❌ Nem találom: "${device_name}"` };
     const live = await callDeviceAPI(device, '/cm?cmnd=Power', { readOnly:true });
-    if (!live) {
+    if (!live.verified || !live.observedState) {
       return {
         success: true,
         message: `${device.type === 'light' ? '💡' : '🔌'} ${device.name} – Mentett állapot: ${device.status}. A fizikai eszköz aktuális állapota nem volt ellenőrizhető.`,
@@ -78,7 +112,7 @@ export const ENV_TOOLS = {
     return {
       success: true,
       message: `${device.type === 'light' ? '💡' : '🔌'} ${device.name} – Élő állapot lekérve.`,
-      data: { ...device, verified:true, live }
+      data: { ...device, status:live.observedState, verified:true, live:live.data }
     };
   },
 
@@ -98,7 +132,7 @@ export const ENV_TOOLS = {
         results.push({ success:false, message:`Nem támogatott jelenetlépés: ${action.type}` });
       }
     }
-    const success = results.length > 0 && results.every(result => result.success === true);
+    const success = results.length > 0 && results.every(isVerifiedStepSuccess);
     if (success) await jarvis.entities.Scene.update(scene.id, { last_triggered: new Date().toISOString() });
     await jarvis.entities.ActionLog.create({ action_type: 'trigger_scene', description: `Scene: ${scene.name}`, status: success ? 'completed' : 'failed', created_by: currentUser.email });
     return { success, message: `🎬 "${scene.name}" jelenet: ${success ? 'kész' : 'nem minden lépés sikerült'}.\n${results.map(result => result.message).join('\n')}`, data: { scene, results } };
@@ -117,7 +151,7 @@ export const ENV_TOOLS = {
       else if (step.tool === 'trigger_scene') results.push(await ENV_TOOLS.trigger_scene(step.params));
       else results.push({ success:false, message:`Nem támogatott rutinlépés: ${step.tool}` });
     }
-    const success = results.length > 0 && results.every(result => result.success === true);
+    const success = results.length > 0 && results.every(isVerifiedStepSuccess);
     if (success) await jarvis.entities.Routine.update(routine.id, {
       last_run: new Date().toISOString(),
       run_count: (routine.run_count || 0) + 1
