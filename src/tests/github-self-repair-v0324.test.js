@@ -466,15 +466,24 @@ test('GitHub client independently blocks Self-Repair trust-core files even if up
 
 
 test('desktop updater requires and verifies release-manifest.json before signer or installer handoff', () => {
-  const start=electronMainSource.indexOf('async function fetchLatestRelease()');
+  const fetchStart=electronMainSource.indexOf('async function fetchLatestRelease()');
+  const fetchEnd=electronMainSource.indexOf('async function downloadFile(',fetchStart);
+  const fetchBody=electronMainSource.slice(fetchStart,fetchEnd);
+  assert.ok(fetchStart>=0 && fetchEnd>fetchStart);
+  assert.match(fetchBody,/UPDATE_MANIFEST_NOT_FOUND/);
+  assert.match(fetchBody,/release-manifest\.json/);
+
+  const start=electronMainSource.indexOf('async function oneClickUpdate()');
   const end=electronMainSource.indexOf('function payloadContainsSensitiveContext',start);
   const body=electronMainSource.slice(start,end);
   assert.ok(start>=0 && end>start);
-  assert.match(body,/UPDATE_MANIFEST_NOT_FOUND/);
-  assert.match(body,/release-manifest\.json/);
   assert.match(body,/await downloadFile\(release\.manifest\.browser_download_url,manifestPath\)/);
   assert.match(body,/githubSelfRepair\.verifyReleaseManifest\(releaseManifest/);
-  assert.ok(body.indexOf('verifyReleaseManifest') < body.indexOf('verifyUpdateSigner'));
+  const manifestGate=body.indexOf('githubSelfRepair.verifyReleaseManifest');
+  const signerGate=body.indexOf('const signer = await verifyUpdateSigner');
+  const installerHandoff=body.indexOf("const child=spawn('powershell.exe'");
+  assert.ok(manifestGate>=0 && signerGate>manifestGate);
+  assert.ok(installerHandoff>signerGate);
 });
 
 test('an existing closed exact repair PR is cleaned up instead of being reused as success', async () => {
