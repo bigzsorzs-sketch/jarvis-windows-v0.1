@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 
