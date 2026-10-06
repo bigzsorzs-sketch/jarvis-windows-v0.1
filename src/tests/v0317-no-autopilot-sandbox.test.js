@@ -51,18 +51,18 @@ test('manual repair uses explicit owner plan, backup, direct apply and rollback'
   assert.equal(fs.readFileSync(path.join(root,'src','sample.js'),'utf8'),'const value = 1;\n');
 });
 
-test('manual conversation repair builds and restarts into the accepted source', () => {
+test('manual conversation repair validates locally then opens a GitHub repair PR', () => {
   const main = read('electron/main.cjs');
   const system = read('src/pages/SystemCenter.jsx');
   const preload = read('electron/preload.cjs');
   assert.match(main,/jarvis:self-repair:manual:apply/);
   assert.match(main,/validateDirectOwnerRepair/);
   assert.match(main,/ensureManualRuntimeBuilt/);
-  assert.match(main,/scheduleManualRuntimeRestart/);
-  assert.match(main,/handOffToManualRuntimeIfReady/);
-  assert.match(main,/APPLIED_AND_RESTARTING/);
+  assert.match(main,/createRepairPullRequest/);
+  assert.match(main,/GITHUB_PR_OPENED/);
+  assert.doesNotMatch(main,/scheduleManualRuntimeRestart|handOffToManualRuntimeIfReady|APPLIED_AND_RESTARTING/);
   assert.match(system,/applyPendingRepair/);
-  assert.match(system,/Build \+ újraindítás/);
+  assert.match(system,/GitHub|Pull Request|PR/);
   assert.match(preload,/applyPending/);
 });
 
