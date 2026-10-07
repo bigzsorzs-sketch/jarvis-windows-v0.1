@@ -65,7 +65,7 @@ test('Accept uses exact plan owner confirmation backup validation activation and
 
 test('full local gate writes runtime activation state only after every required command', () => {
   const start=main.indexOf('async function ensureManualRuntimeBuilt(');
-  const end=main.indexOf('function clearLegacyManualRuntimeState(',start);
+  const end=main.indexOf('function crashLogPath(',start);
   const body=main.slice(start,end);
   assert.ok(start>=0 && end>start);
   for(const step of [
