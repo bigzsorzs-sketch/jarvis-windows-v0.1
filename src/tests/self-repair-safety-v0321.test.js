@@ -65,7 +65,7 @@ test('Accept follows exact hash confirmation backup validation activation and re
 
 test('full local gate activates only after all required validation commands', () => {
   const start=main.indexOf('async function ensureManualRuntimeBuilt(');
-  const end=main.indexOf('function clearLegacyManualRuntimeState(',start);
+  const end=main.indexOf('function scheduleManualRuntimeRestart(',start);
   const body=main.slice(start,end);
   assert.ok(start>=0 && end>start);
   for(const step of [
