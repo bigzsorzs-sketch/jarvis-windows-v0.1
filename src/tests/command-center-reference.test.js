@@ -14,8 +14,8 @@ test('approved Jarvis reference layout remains the command center contract', () 
   const css = read('styles/command-center.css');
 
   assert.match(app, /path="\/" element={<Chat \/>}/);
-  assert.doesNotMatch(app, /import LiveAssistant/);
-  assert.match(app, /path="\/live-assistant" element={<Chat \/>}/);
+  assert.match(app, /LiveAssistant = lazy/);
+  assert.match(app, /path="\/live-assistant" element={<LiveAssistant \/>}/);
 
   assert.match(layout, /jarvis-reference-sidebar/);
   assert.match(layout, /jarvis-reference-logo-orb/);
