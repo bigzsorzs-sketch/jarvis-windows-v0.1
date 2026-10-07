@@ -9,7 +9,6 @@ const PROTECTED = [
   /^security[\\/]/i,
   /^electron[\\/]main\.cjs$/i,
   /^electron[\\/]developer-repair\.cjs$/i,
-  /^electron[\\/]github-self-repair\.cjs$/i,
   /^electron[\\/]preload\.cjs$/i,
   /^src[\\/]pages[\\/]SystemCenter\.jsx$/i,
   /^electron[\\/]admin-diagnostics\.cjs$/i,
@@ -62,7 +61,7 @@ function isExplicitRepairRequest(input='') {
   if (!text) return false;
 
   // Direct imperatives: "javítsd", "old meg", "apply the fix", etc.
-  if (/\b(?:javits(?:d|ad)?|kijavits(?:d|ad)?|old\s+meg|csinald\s+meg|modosits(?:d|ad)?|alkalmazd|fix\s+(?:it|this)|repair\s+(?:it|this)|apply\s+(?:the\s+)?fix|make\s+the\s+change)\b/i.test(text)) {
+  if (/\b(?:javits(?:d|ad)?|kijavits(?:d|ad)?|old\s+meg|csinald\s+meg|modosits(?:d|ad)?|alakits(?:d|ad)?\s+at|torold|vedd\s+ki|tavolitsd\s+el|add\s+hozza|epitsd\s+be|csereld|implementald|alkalmazd|fix\s+(?:it|this)|repair\s+(?:it|this)|apply\s+(?:the\s+)?fix|make\s+the\s+change|remove\s+(?:it|this)|delete\s+(?:it|this)|add\s+(?:it|this)|implement\s+(?:it|this))\b/i.test(text)) {
     return true;
   }
 
