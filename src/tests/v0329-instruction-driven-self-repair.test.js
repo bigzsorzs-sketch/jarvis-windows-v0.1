@@ -58,6 +58,14 @@ test('repaired runtime reuses the installed Jarvis user-data profile',()=>{
   assert.match(main,/--jarvis-user-data=' \+ app\.getPath\('userData'\)/);
 });
 
+test('validated workspace fingerprint is rechecked before and during local runtime launch',()=>{
+  assert.match(main,/runtimeFingerprint:selfRepairSourceFingerprint\(workspace\)/);
+  assert.match(main,/MANUAL_REPAIR_RUNTIME_FINGERPRINT_MISMATCH/);
+  assert.match(main,/function validateManualRuntimeLaunch/);
+  assert.match(main,/MANUAL_REPAIR_RUNTIME_NOT_VERIFIED/);
+  assert.match(main,/if \(isManualRepairRuntime\) validateManualRuntimeLaunch\(\)/);
+});
+
 test('Accept uses validated local activation and restart',()=>{
   const start=main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
   const end=main.indexOf("ipcMain.handle('jarvis:repair:apply'",start);
