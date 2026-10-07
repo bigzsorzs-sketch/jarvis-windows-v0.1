@@ -51,15 +51,6 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   developerRepair: {
     getPending: () => ipcRenderer.invoke('jarvis:self-repair:manual:pending'),
     applyPending: (hash) => ipcRenderer.invoke('jarvis:self-repair:manual:apply', { hash }),
-    github: {
-      status: () => ipcRenderer.invoke('jarvis:self-repair:github:status'),
-      connect: (token) => ipcRenderer.invoke('jarvis:self-repair:github:connect', { token }),
-      disconnect: () => ipcRenderer.invoke('jarvis:self-repair:github:disconnect'),
-      refresh: () => ipcRenderer.invoke('jarvis:self-repair:github:refresh'),
-      abandon: () => ipcRenderer.invoke('jarvis:self-repair:github:abandon'),
-      merge: () => ipcRenderer.invoke('jarvis:self-repair:github:merge'),
-      publish: (allowUnsigned=false) => ipcRenderer.invoke('jarvis:self-repair:github:publish', { allowUnsigned:Boolean(allowUnsigned) }),
-    },
   },
   obd: {
     listPorts: () => ipcRenderer.invoke('jarvis:obd:list-ports'),

@@ -71,22 +71,19 @@ test('voice prompt knows voice conversation is active', () => {
   assert.match(chat,/Never claim that voice conversation is unavailable or text-only/);
 });
 
-test('System Center provides source-aware conversation and the owner-controlled GitHub Self-Repair lifecycle', () => {
+test('System Center provides owner-directed local Self-Repair without GitHub or automatic bug hunting', () => {
   assert.match(system,/Self-Repair párbeszéd/);
   assert.match(system,/Program feltérképezése/);
-  assert.match(system,/Hibák keresése/);
+  assert.match(system,/Írd le, mit szeretnél/);
   assert.match(system,/Elfogadom/);
   assert.match(system,/const applyPendingRepair = async \(\) =>/);
   assert.match(system,/const hash = pendingRepair\?\.hash/);
   assert.match(system,/developerRepair\?\.applyPending\?\.\(hash\)/);
-  assert.match(system,/status !== 'GITHUB_PR_OPENED'/);
-  assert.match(system,/GitHub Self-Repair kapcsolat/);
-  assert.match(system,/developerRepair\?\.github\?\.status/);
-  assert.match(system,/developerRepair\.github\.merge\(\)/);
-  assert.match(system,/developerRepair\.github\.publish\(allowUnsignedRelease\)/);
+  assert.match(system,/status !== 'APPLIED_AND_RESTARTING'/);
   assert.match(system,/onClick=\{applyPendingRepair\}/);
   assert.match(system,/disabled=\{manualApplyBusy \|\| chatBusy \|\| !pendingRepair\?\.hash\}/);
   assert.match(system,/status === 'ROLLED_BACK'/);
   assert.match(system,/setPendingRepair\(null\)/);
-  assert.doesNotMatch(system,/Autopilot önfejlesztés/);
+  assert.doesNotMatch(system,/Hibák keresése|Find bugs|GitHub Self-Repair|github_pat_/);
+  assert.doesNotMatch(preload,/self-repair:github/);
 });

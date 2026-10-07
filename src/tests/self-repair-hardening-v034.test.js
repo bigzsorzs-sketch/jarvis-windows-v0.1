@@ -60,15 +60,21 @@ test('Self-Repair maps reachability, routes, dependencies and IPC', () => {
 
 test('Self-Repair recognizes natural Hungarian repair execution requests', () => {
   const cases = [
-    'nézd meg miért nem tudod végre hajtani a javítást és miért nem működik az elfogadom gomb?',
     'végezd el a javítást',
     'készíts konkrét javítási tervet az electron/main.cjs fájlhoz',
     'javítsd ki ezt a hibát',
+    'töröld ezt a régi modult',
+    'add hozzá ezt a funkciót',
+    'implementáld ezt a változtatást',
     'apply the fix'
   ];
   for (const value of cases) assert.equal(repair.isExplicitRepairRequest(value),true,value);
-  assert.equal(repair.isExplicitRepairRequest('magyarázd el hogyan működik a javítás'),false);
-  assert.equal(repair.isExplicitRepairRequest('mi a javítás állapota?'),false);
+  for (const value of [
+    'nézd meg miért nem tudod végre hajtani a javítást',
+    'ellenőrizd a javítási folyamatot',
+    'magyarázd el hogyan működik a javítás',
+    'mi a javítás állapota?'
+  ]) assert.equal(repair.isExplicitRepairRequest(value),false,value);
 });
 
 test('Self-Repair trust core and release metadata cannot be modified by AI repair plans', () => {
@@ -79,13 +85,11 @@ test('Self-Repair trust core and release metadata cannot be modified by AI repai
     fs.mkdirSync(path.join(root,'src','lib'),{recursive:true});
     fs.mkdirSync(path.join(root,'release-notes'),{recursive:true});
     fs.writeFileSync(path.join(root,'electron','main.cjs'),'module.exports = {};\n');
-    fs.writeFileSync(path.join(root,'electron','github-self-repair.cjs'),'module.exports = {};\n');
     fs.writeFileSync(path.join(root,'src','lib','appVersion.js'),"export const APP_VERSION = '0.3.24';\n");
     fs.writeFileSync(path.join(root,'release-notes','v0.3.24.md'),'# Jarvis v0.3.24\n');
 
     for (const file of [
       'electron/main.cjs',
-      'electron/github-self-repair.cjs',
       'src/pages/SystemCenter.jsx',
       'src/lib/appVersion.js',
       'release-notes/v0.3.24.md',
@@ -109,7 +113,7 @@ test('Self-Repair trust core and release metadata cannot be modified by AI repai
   }
 });
 
-test('Self-Repair canonicalizes approved text bytes before validation and GitHub staging', () => {
+test('Self-Repair canonicalizes approved text bytes before local validation and activation', () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-canonical-repair-'));
   try {
     fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({name:'jarvis-desktop',version:'0.3.23'}));
@@ -160,13 +164,17 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(main,/sourceState\.sourceFingerprint !== installedSourceFingerprint/);
   assert.match(main,/workspaceDirty = selfRepairSourceFingerprint\(target\) !== installedSourceFingerprint/);
   assert.match(main,/function writeJsonAtomic/);
-  assert.match(main,/GITHUB_REPAIR_STATE_PERSIST_FAILED/);
+  assert.doesNotMatch(main,/GITHUB_REPAIR_STATE_PERSIST_FAILED|createRepairPullRequest|jarvis:self-repair:github/);
   assert.match(main,/const workspace = entry\?\.workspace/);
   assert.match(main,/MANUAL_REPAIR_WORKSPACE_REQUIRED/);
   assert.match(main,/sourceFingerprint:readJson\(manualWorkspaceSourceStatePath\(workspace\), \{\}\)\.sourceFingerprint/);
   assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(entry\.workspace\)/);
-  assert.doesNotMatch(main,/isManualRepairRuntime|--jarvis-manual-runtime|scheduleManualRuntimeRestart|handOffToManualRuntimeIfReady/);
-  assert.match(main,/function clearLegacyManualRuntimeState/);
+  assert.match(main,/isManualRepairRuntime/);
+  assert.match(main,/--jarvis-manual-runtime/);
+  assert.match(main,/scheduleManualRuntimeRestart/);
+  assert.match(main,/handOffToManualRuntimeIfReady/);
+  assert.match(main,/status:'APPLIED_AND_RESTARTING'/);
+  assert.doesNotMatch(main,/function clearLegacyManualRuntimeState/);
   assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);
   assert.match(preload,/apply: \(repairId, reportId\)/);

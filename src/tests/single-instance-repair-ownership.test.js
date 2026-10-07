@@ -12,7 +12,7 @@ function harness({ acquired = true, helper = null } = {}) {
   const start = main.indexOf('const isDev =');
   const end = main.indexOf('const manualRepairPlans =', start);
   const context = {
-    path, os, process, parseHelperArgs:() => helper,
+    path, os, process, parseHelperArgs:() => helper, isManualRepairRuntime:false,
     fs:{ mkdirSync:() => events.push('helper-profile') },
     app:{ isPackaged:true, setPath:() => events.push('helper-user-data'),
       requestSingleInstanceLock:() => { events.push('lock'); return acquired; },
@@ -27,7 +27,7 @@ test('a second main process exits before taking ownership of repair/profile stat
   assert.deepEqual(h.events, ['lock', 'quit']);
   assert.equal(h.api.isPrimary(), false);
   const start = main.indexOf('app.whenReady().then(async () => {') + 'app.whenReady().then(async () => {'.length;
-  const end = main.indexOf('clearLegacyManualRuntimeState();', start);
+  const end = main.indexOf('seedInitialSettings();', start);
   const ready = vm.runInNewContext('(async() => {' + main.slice(start, end) + ';return "initialized";})', {
     primaryInstance:h.api.isPrimary(), adminHelperConfig:null,
   });

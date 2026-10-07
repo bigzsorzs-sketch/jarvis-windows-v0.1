@@ -51,19 +51,22 @@ test('manual repair uses explicit owner plan, backup, direct apply and rollback'
   assert.equal(fs.readFileSync(path.join(root,'src','sample.js'),'utf8'),'const value = 1;\n');
 });
 
-test('manual conversation repair validates locally then opens a GitHub repair PR', () => {
+test('manual conversation repair validates locally then restarts into the repaired runtime', () => {
   const main = read('electron/main.cjs');
   const system = read('src/pages/SystemCenter.jsx');
   const preload = read('electron/preload.cjs');
   assert.match(main,/jarvis:self-repair:manual:apply/);
   assert.match(main,/validateDirectOwnerRepair/);
   assert.match(main,/ensureManualRuntimeBuilt/);
-  assert.match(main,/createRepairPullRequest/);
-  assert.match(main,/GITHUB_PR_OPENED/);
-  assert.doesNotMatch(main,/scheduleManualRuntimeRestart|handOffToManualRuntimeIfReady|APPLIED_AND_RESTARTING/);
+  assert.match(main,/scheduleManualRuntimeRestart/);
+  assert.match(main,/handOffToManualRuntimeIfReady/);
+  assert.match(main,/APPLIED_AND_RESTARTING/);
+  assert.doesNotMatch(main,/createRepairPullRequest|jarvis:self-repair:github/);
   assert.match(system,/applyPendingRepair/);
-  assert.match(system,/GitHub|Pull Request|PR/);
+  assert.match(system,/APPLIED_AND_RESTARTING/);
+  assert.doesNotMatch(system,/GitHub Self-Repair|Hibák keresése/);
   assert.match(preload,/applyPending/);
+  assert.doesNotMatch(preload,/self-repair:github/);
 });
 
 test('Chromium renderer security sandbox remains enabled independently', () => {
