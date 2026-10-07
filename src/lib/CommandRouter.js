@@ -1,6 +1,6 @@
 import { runAssistantTurn } from '@/lib/chatOrchestrator';
 import { executeGlobalVoiceCommand } from '@/lib/globalVoiceActions';
-import { findLocalUiCommand, findWorkflowCommand } from '@/lib/commandIntents';
+import { findLocalUiCommand, findWorkflowCommand, findAIToolCommand } from '@/lib/commandIntents';
 import { findSupportResponse } from '@/lib/supportAssistant';
 import { isCallCommand, extractCallTarget, isGlobalVoiceCommand } from '@/lib/voiceCommandRouter';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
@@ -11,7 +11,6 @@ import { shouldUseAgentPlanner, runAgentTask } from '@/lib/agentOrchestrator';
 async function findLegacyCallCommand(text, handlers = {}) {
   const lower = text.toLowerCase();
   if (!isCallCommand(lower)) return null;
-
   const target = extractCallTarget(lower);
   if (!target) return null;
 
@@ -50,6 +49,9 @@ export async function routeUserCommand({
   const workflowCommand = findWorkflowCommand(input, ctx);
   if (workflowCommand) return workflowCommand;
 
+  const aiToolCommand = await findAIToolCommand(input);
+  if (aiToolCommand?.handled) return aiToolCommand;
+
   const supportResponse = findSupportResponse(input, ctx, lang);
   if (supportResponse) return supportResponse;
 
@@ -70,7 +72,7 @@ export async function routeUserCommand({
 
   if (attachedFiles.length === 0 && shouldUseAgentPlanner(input)) {
     const agentResult = await runAgentTask({
-      goal:input,
+      goal: input,
       ctx,
       lang,
       source,

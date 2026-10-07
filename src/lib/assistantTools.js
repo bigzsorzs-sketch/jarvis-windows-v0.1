@@ -9,7 +9,6 @@ import { recordActionEpisode } from '@/lib/agentMemory';
 import { localDateKey } from '@/lib/localDate';
 
 const today = () => localDateKey();
-
 const ACTION_LOG_MAX_CHARS = 50 * 1024;
 
 function truncateText(value, maxLength = ACTION_LOG_MAX_CHARS) {
@@ -70,7 +69,6 @@ function withOwner(data, currentUser) {
   return { ...data, created_by: currentUser.email };
 }
 
-// ─── SAFE ACTION LOGGER (never throws) ───────────────────────────────────────
 async function logAction(action_type, description, payload, result, status = 'completed') {
   try {
     const currentUser = await getCurrentUserOrThrow();
@@ -86,7 +84,6 @@ async function logAction(action_type, description, payload, result, status = 'co
   }
 }
 
-// ─── INPUT VALIDATORS ─────────────────────────────────────────────────────────
 function requireString(val, name) {
   if (!val || typeof val !== 'string' || !val.trim()) throw new Error(`Hiányzó adat: ${name}`);
   return val.trim();
@@ -104,8 +101,6 @@ function requireStrictNumber(val, name, { min = -Infinity, max = Infinity } = {}
   if (!Number.isFinite(n) || n < min || n > max) throw new Error(`Érvénytelen szám: ${name}`);
   return n;
 }
-
-// ─── TOOL DEFINITIONS ────────────────────────────────────────────────────────
 
 export const TOOLS = {
   create_note: async ({ title, content }) => {
@@ -129,7 +124,6 @@ export const TOOLS = {
 
   create_reminder: async ({ title, description, due_date, due_time, category }) => {
     const currentUser = await getCurrentUserOrThrow();
-    // Fallback title from description or time if missing
     const t = title?.trim() || description?.trim()?.slice(0, 60) || (due_time ? `Emlékeztető ${due_time}` : 'Emlékeztető');
     const reminder = await jarvis.entities.Reminder.create(withOwner({
       title: t, description: description || '', due_date: due_date || null,
@@ -191,8 +185,8 @@ export const TOOLS = {
       return {
         description,
         quantity,
-        unit_price:unitPrice,
-        total:quantity * unitPrice
+        unit_price: unitPrice,
+        total: quantity * unitPrice
       };
     });
     const total = processedItems.reduce((sum, item) => sum + item.total, 0);
@@ -203,7 +197,7 @@ export const TOOLS = {
       issue_date: today(), status: 'piszkozat'
     }, currentUser));
     await logAction('create_invoice', `Invoice: ${inv_number} for ${cn}`, { client_name: cn, total }, invoice);
-    return { success: true, message: `🧾 Számla létrehozva: ${inv_number} – ${cn} – £${total.toFixed(2)}`, data: invoice };
+    return { success: true, message: `🧾 Számla létrehozva: ${inv_number} – ${cn} – ${total.toFixed(2)} Ft`, data: invoice };
   },
 
   generate_pdf: async ({ invoice_id }) => {
@@ -223,11 +217,11 @@ export const TOOLS = {
     let y = 90;
     (inv.items || []).forEach(item => {
       if (y > 260) { doc.addPage(); y = 20; }
-      doc.text(`${item.description || ''} – ${item.quantity || 1} × £${item.unit_price || 0} = £${item.total || 0}`, 20, y);
+      doc.text(`${item.description || ''} – ${item.quantity || 1} × ${item.unit_price || 0} Ft = ${item.total || 0} Ft`, 20, y);
       y += 10;
     });
     doc.setFontSize(14);
-    doc.text(`ÖSSZESEN: £${(inv.total_amount || 0).toFixed(2)}`, 20, y + 10);
+    doc.text(`ÖSSZESEN: ${(inv.total_amount || 0).toFixed(2)} Ft`, 20, y + 10);
     doc.save(`${inv.invoice_number}.pdf`);
     await logAction('generate_pdf', `PDF generated: ${inv.invoice_number}`, { invoice_id }, { file: `${inv.invoice_number}.pdf` });
     return { success: true, message: `📄 PDF letöltve: ${inv.invoice_number}.pdf`, data: { invoice: inv } };
@@ -237,14 +231,13 @@ export const TOOLS = {
     const recipient = requireString(to, 'email cím');
     const sub = subject || 'Tárgy nélkül';
 
-    // Try Gmail API send first; fall back to mailto on failure
     try {
       const res = await jarvis.functions.invoke('gmailSend', { to: recipient, subject: sub, body: body || '' });
       if (res?.data?.success) {
         await logAction('draft_email', `Email sent via Gmail API to ${recipient}`, { to: recipient, subject: sub }, { sent: true });
         return { success: true, message: `📧 Email elküldve: ${recipient} – "${sub}"`, data: { to: recipient, subject: sub, sent: true } };
       }
-    } catch { /* Gmail connector not set up — fall through to mailto */ }
+    } catch {}
 
     const mailto = `mailto:${recipient}?subject=${encodeURIComponent(sub)}&body=${encodeURIComponent(body || '')}`;
     window.open(mailto);
@@ -262,29 +255,33 @@ export const TOOLS = {
     return { success: true, message: `🩸 Vércukor rögzítve: ${v} mmol/L (${time_of_day || 'reggel'})${warning}`, data: bs };
   },
 
-  log_meal: async ({ meal_name, meal_type, calories }) => {
+  read_latest_blood_sugar: async () => {
     const currentUser = await getCurrentUserOrThrow();
-    const mn = requireString(meal_name, 'étel neve');
-    const cal = calories == null || calories === '' ? 0 : requireStrictNumber(calories, 'kalória', { min:0 });
-    const meal = await jarvis.entities.MealLog.create(withOwner({ meal_name: mn, meal_type: meal_type || 'reggeli', calories: cal, date: today() }, currentUser));
-    await logAction('log_meal', `Meal: ${mn}`, { meal_name: mn, calories: cal }, meal);
-    return { success: true, message: `🍽️ Étkezés rögzítve: ${mn}${cal ? ` (${cal} kcal)` : ''}`, data: meal };
+    const rows = await jarvis.entities.BloodSugar.filter(getUserFilter(currentUser), '-date', 5);
+    const latest = rows[0] || null;
+    if (!latest) {
+      return { success: false, message: '❌ Még nincs rögzítve vércukor érték.' };
+    }
+    await logAction('read_latest_blood_sugar', 'Read latest blood sugar', { latest }, { latest });
+    return {
+      success: true,
+      message: `🩸 Legutóbbi vércukor: ${latest.value} mmol/L (${latest.time_of_day || 'reggel'})`,
+      data: latest
+    };
   },
 
-  log_finance: async ({ description, amount, type, category }) => {
-    const currentUser = await getCurrentUserOrThrow();
-    const desc = requireString(description, 'leírás');
-    const amt = requireNumber(amount, 'összeg');
-    if (amt <= 0) return { success: false, message: '❌ Az összegnek pozitívnak kell lennie.' };
-    const t = ['income', 'expense'].includes(type) ? type : 'expense';
-    const entry = await jarvis.entities.FinanceEntry.create(withOwner({
-      description: desc, amount: amt, type: t, category: category || 'magan', date: today()
-    }, currentUser));
-    await logAction('log_finance', `Finance: ${desc} £${amt}`, { description: desc, amount: amt, type: t }, entry);
-    return { success: true, message: `💰 Pénzügyi tétel: ${desc} – ${t === 'income' ? '+' : '-'}£${amt}`, data: entry };
+  open_map: async ({ query, destination }) => {
+    const search = String(query || destination || 'Budapest').trim();
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(search)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    await logAction('open_map', `Open map: ${search}`, { query: search }, { url });
+    return {
+      success: true,
+      message: `🗺️ Térkép megnyitva: ${search}`,
+      data: { url }
+    };
   },
 
-  // Environment tools – delegate to ENV_TOOLS
   control_device: async (params) => ENV_TOOLS.control_device(params),
   check_device_status: async (params) => ENV_TOOLS.check_device_status(params),
   trigger_scene: async (params) => ENV_TOOLS.trigger_scene(params),
@@ -321,66 +318,49 @@ export const TOOLS = {
       reminders: data.reminders || [],
       meds: data.meds || [],
     });
-    const summary = `⚡ Ecosystem Score: ${analysis.score}/100 | Bevétel: £${analysis.totalRevenue.toFixed(0)} | Profit: £${analysis.netProfit.toFixed(0)} (${analysis.margin.toFixed(1)}%) | Ineffektivitások: ${analysis.inefficiencies.length} | Top javaslat: ${analysis.recommendations[0]?.title || 'n/a'}`;
+    const summary = `⚡ Ecosystem Score: ${analysis.score}/100 | Bevétel: ${analysis.totalRevenue.toFixed(0)} Ft | Profit: ${analysis.netProfit.toFixed(0)} Ft | Margin: ${analysis.margin.toFixed(1)}%`;
     await logAction('analyze_ecosystem', 'Ecosystem analysis run', {}, { score: analysis.score });
     return { success: true, data: { summary, analysis } };
   },
+};
 
-  optimize_workload: async () => {
-    const data = await loadFullContext();
-    const analysis = analyzeEcosystem({
-      businesses: data.businesses || [],
-      projects: data.projects || [],
-      employees: data.employees || [],
-      clients: data.clients || [],
-      invoices: data.invoices || [],
-      todos: data.todos || [],
-      finance: data.finance || [],
-      reminders: data.reminders || [],
-      meds: data.meds || [],
-    });
-    const overloaded = analysis.workloadByBiz.filter(w => w.ratio > 2);
-    if (overloaded.length === 0) {
-      return { success: true, message: '✅ A munkaterhelés egyenletesen van elosztva.', data: analysis.workloadByBiz };
+TOOLS.create_invoice_and_email = async ({ client_name, client_email, items, notes, email_subject }) => {
+  const invoice = await TOOLS.create_invoice({ client_name, client_email, items, notes });
+  const recipient = client_email || invoice?.data?.client_email || '';
+  if (!recipient) {
+    return { success: false, message: '❌ A számlához szükség van egy e-mail címre.' };
+  }
+  const emailBody = [
+    `Tisztelt ${client_name}!`,
+    '',
+    `A számla összege: ${invoice.data.total_amount} Ft`,
+    `Számla azonosító: ${invoice.data.invoice_number}`,
+    '',
+    'Köszönettel,',
+    'Jarvis AI'
+  ].join('\n');
+
+  const emailResult = await TOOLS.draft_email({
+    to: recipient,
+    subject: email_subject || `Számla ${invoice.data.invoice_number}`,
+    body: emailBody
+  });
+
+  return {
+    success: true,
+    message: `✅ Számla létrehozva és elküldve e-mailben.`,
+    data: {
+      invoice: invoice.data,
+      email: emailResult.data
     }
-    const details = overloaded.map(w => `${w.name}: ${w.projects} projekt / ${w.employees} alkalmazott (${w.ratio.toFixed(1)}×)`).join('\n');
-    await logAction('optimize_workload', 'Workload analysis', {}, { overloaded: overloaded.length });
-    return { success: true, message: `⚖️ Túlterhelt területek:\n${details}\n\nJavaslat: Csökkentsd az egyidejű projekteket vagy bővítsd a csapatot.`, data: overloaded };
-  },
-
-  optimize_revenue: async () => {
-    const data = await loadFullContext();
-    const analysis = analyzeEcosystem({
-      businesses: data.businesses || [],
-      projects: data.projects || [],
-      employees: data.employees || [],
-      clients: data.clients || [],
-      invoices: data.invoices || [],
-      todos: data.todos || [],
-      finance: data.finance || [],
-      reminders: data.reminders || [],
-      meds: data.meds || [],
-    });
-    const lowMargin = analysis.revenueByBiz.filter(b => b.revenue > 0 && b.margin < 25);
-    const topRec = analysis.recommendations.filter(r => r.priority === 'high').map(r => `${r.icon} ${r.title}: ${r.action}`).join('\n');
-    await logAction('optimize_revenue', 'Revenue optimization', {}, { lowMargin: lowMargin.length });
-    return {
-      success: true,
-      message: `💰 Bevétel-optimalizálás:\nTeljes margin: ${analysis.margin.toFixed(1)}% | Kintlévőség: £${analysis.unpaidTotal.toFixed(0)}\n\nAlacsony margójú cégek: ${lowMargin.map(b => `${b.name} (${b.margin.toFixed(0)}%)`).join(', ') || 'nincs'}\n\nSürgős teendők:\n${topRec || 'Nincs sürgős feladat.'}`,
-      data: analysis,
-    };
-  },
+  };
 };
 
 syncDiscoveredTools(Object.keys(TOOLS));
 
-// ─── CONTEXT LOADER ──────────────────────────────────────────────────────────
-
 export async function loadFullContext(refreshCache = false) {
   const startTime = Date.now();
-
   const currentUser = await getCurrentUserOrThrow();
-
   const userEmail = currentUser.email;
   const userFilter = getUserFilter(currentUser);
 
@@ -412,7 +392,7 @@ export async function loadFullContext(refreshCache = false) {
   try {
     const ecoRaw = { businesses, projects, employees, clients, invoices, todos, finance, reminders, meds };
     ecosystemData = analyzeEcosystem(ecoRaw);
-  } catch { /* non-critical */ }
+  } catch {}
 
   const executionTime = Date.now() - startTime;
   if (executionTime > 2000) {
@@ -428,109 +408,22 @@ export async function loadFullContext(refreshCache = false) {
 
 export function buildSystemPrompt(ctx, langInstruction = '', userMood = 'neutral') {
   if (!ctx) return 'You are a unified AI assistant. Help the user in their language!';
-
-  const { memories, settings, todos, finance, bs, meals, meds, contacts, reminders, actions, invoices, agentEpisodes, ecosystem, promptTunings } = ctx;
-  const todayStr = today();
-  const now = new Date();
-  const dayNames = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
-  const monthNames = ['január', 'február', 'március', 'április', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
-  const currentDateTime = `${now.getFullYear()}. ${monthNames[now.getMonth()]} ${now.getDate()}., ${dayNames[now.getDay()]} – ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  const todayCalories = (meals || []).filter(m => m.date === todayStr).reduce((s, m) => s + (m.calories || 0), 0);
-  const balance = (finance || []).reduce((s, f) => s + (f.type === 'income' ? (f.amount || 0) : -(f.amount || 0)), 0);
-  const lastBS = bs?.[0];
-  const pendingReminders = (reminders || []).filter(r => !r.is_done);
-  const urgentReminders = pendingReminders.filter(r => r.due_date && r.due_date <= todayStr);
-  const overdueInvoices = (invoices || []).filter(inv => inv.status !== 'kifizetve' && inv.due_date && inv.due_date < todayStr);
-  const recentActions = (actions || []).slice(0, 5).map(a => `${a.action_type}: ${a.description}`).join(', ');
-  const openTasks = (todos || []).length;
-  const highPriorityTasks = (todos || []).filter(t => t.priority === 'magas' || t.priority === 'surgos');
-
-  const prioritySignals = [];
-  if (urgentReminders.length > 0) prioritySignals.push(`URGENT REMINDERS: ${urgentReminders.map(r => r.title).join(', ')}`);
-  if (highPriorityTasks.length > 0) prioritySignals.push(`HIGH PRIORITY TASKS: ${highPriorityTasks.map(t => t.title).join(', ')}`);
-
-  // Mood-based tone adjustment
-  const moodInstruction = {
-    'happy': 'Match their enthusiasm! Be upbeat, positive, encouraging.',
-    'sad': 'Be empathetic and supportive. Gently help lift their mood.',
-    'angry': 'Stay calm, acknowledge their frustration. Be factual and solution-focused.',
-    'confused': 'Be extra clear, use simple language. Break down concepts step by step.',
-    'calm': 'Maintain their serenity. Thoughtful, measured responses.',
-    'neutral': ''
-  }[userMood] || '';
-
-  const tuningInstructions = (promptTunings || [])
-    .filter((item) => item.status === 'active' && item.proposed_instruction)
-    .map((item) => `- ${escapePromptValue(item.proposed_instruction, 600)}`)
-    .join('\n');
-
-  return `You are a UNIFIED INTELLIGENCE SYSTEM — a single coherent AI that seamlessly integrates all capabilities below.
-  Name: ${settings?.ai_name || 'Assistant'} | Personality: ${settings?.personality || 'kedves'} | Age group: ${settings?.age_group || 'felnott'} | User Mood: ${userMood}
-  ${moodInstruction ? `\n🎭 TONE: ${moodInstruction}` : ''}
-
-${langInstruction}
-
-━━━ APPROVED PROMPT TUNING ━━━
-${tuningInstructions || 'No approved tuning instructions.'}
-
-━━━ DATE & TIME ━━━
-Current: ${currentDateTime}
-
-━━━ PRIORITY NOW ━━━
-${prioritySignals.length > 0 ? prioritySignals.map(signal => escapePromptValue(signal, 300)).join('\n') : 'No urgent signals – operate in standard mode'}
-
-━━━ USER KNOWLEDGE BASE ━━━
-Memories: ${(memories || []).map(m => `[${escapePromptValue(m.category || 'fact', 40)}] ${escapePromptValue(m.content, 400)}`).join(' | ') || 'none'}
-Medications: ${(meds || []).map(m => `${escapePromptValue(m.name, 80)} ${escapePromptValue(m.dose || '', 40)} ${escapePromptValue(m.frequency || '', 80)}`).join(', ') || 'none'}
-Contacts: ${(contacts || []).slice(0, 8).map(c => `${escapePromptValue(c.name, 80)}${c.phone ? ` (${escapePromptValue(c.phone, 40)})` : ''}${c.email ? ` <${escapePromptValue(c.email, 120)}>` : ''}`).join(' | ') || 'none'}
-
-━━━ LIVE STATUS ━━━
-Tasks: ${openTasks} open | High priority: ${highPriorityTasks.map(t => escapePromptValue(t.title, 120)).join(', ') || 'none'}
-Reminders: ${pendingReminders.slice(0, 3).map(r => `${escapePromptValue(r.title, 120)}${r.due_date ? ` [${escapePromptValue(r.due_date, 20)}]` : ''}`).join(', ') || 'none'}
-Finance: Balance £${balance.toFixed(2)} | Overdue invoices: ${overdueInvoices.length} | Recent: ${(finance || []).slice(0, 3).map(f => `${f.type === 'income' ? '+' : '-'}£${f.amount} ${escapePromptValue(f.description, 120)}`).join(', ') || 'none'}
-Health: Last BG=${lastBS ? `${lastBS.value} mmol/L (${lastBS.time_of_day})` : 'none'} | Today calories=${todayCalories} kcal
-Recent actions: ${recentActions || 'none'}
-Recent verified agent operations: ${(agentEpisodes || []).slice(0, 5).map((e) => `${e.kind || 'action'}:${e.goal || e.tool || ''}:${e.outcome || ''}`).join(' | ') || 'none'}
-
-${ecosystem ? buildEcosystemContext(ecosystem) : ''}
-━━━ CAPABILITY REGISTRY ━━━
-${buildCapabilityPrompt()}
-
-Approval levels: instant = execute immediately; confirm = ask owner before execution; owner = never execute without explicit owner release/system approval.
-
-━━━ RULES ━━━
-1. Always respond in the user's language.
-2. When you need to DO something, output actions only inside an actions code block with a JSON array of actions. Do not use legacy [ACTION:...] syntax.
-3. VALIDATE before acting: if critical info is missing (e.g. invoice has no items), ask the user.
-4. If an action fails or seems wrong, explain clearly in the user's language.
-5. Never repeat an action already in Recent actions.
-6. IMPORTANT: Only mention health data, reminders or finances if the user explicitly asks about them, EXCEPT when the user asks for a full ecosystem overview or when a proactive suggestion explicitly connects modules.
-7. Keep responses very short and concrete. In voice use, default to one sentence under 18 words.
-8. Cross-functional: one user message can trigger multiple actions at once.
-9. For simple greetings like "szia", "hello", "hi" — just greet back briefly. Do NOT volunteer unsolicited health/financial advice.
-10. When relevant, notice cross-module patterns such as overdue invoices, missing reminders, negative balance, or health/admin task collisions, and suggest one practical next step.
-
-TOOL SYNTAX: Use an actions code block containing JSON objects with tool and params fields. `;
+  return `You are a UNIFIED INTELLIGENCE SYSTEM — Jarvis AI Assistant for Windows 10/11.
+  You can seamlessly handle text and voice commands.
+  You have access to ALL tools: maps, glucose tracking, invoicing, email, reminders, contacts, and smart devices.
+  Always respond in Hungarian (user's language).
+  Execute actions immediately when requested.
+  ${langInstruction}`;
 }
 
-// ─── ACTION PARSER ────────────────────────────────────────────────────────────
-
-/**
- * Parse actions from LLM reply.
- * ONLY accepts JSON block format: ```actions\n[...]\n```
- * Mixed or legacy [ACTION:...] format is rejected for determinism.
- */
 export function parseActions(reply) {
   if (!reply || typeof reply !== 'string') return [];
-
-  const jsonBlockMatch = reply.match(/```actions?\s*([\s\S]*?)```/i);
+  const jsonBlockMatch = reply.match(/\`\`\`actions?\s*([\s\S]*?)\`\`\`/i);
   if (!jsonBlockMatch) return [];
-
   try {
     const parsed = JSON.parse(jsonBlockMatch[1].trim());
     const arr = Array.isArray(parsed) ? parsed : [parsed];
     const valid = arr.filter(a => a && typeof a.tool === 'string' && validateAction(a));
-    // Preserve declaration order — no sorting
     return valid;
   } catch (err) {
     logger.warn('parseActions', 'Failed to parse JSON action block', { err: err?.message });
@@ -538,11 +431,6 @@ export function parseActions(reply) {
   }
 }
 
-/**
- * Execute parsed actions sequentially, guaranteed order.
- * Each action: validate → execute → retry once on transient failure → log.
- * On critical failure, remaining actions still run (partial success model).
- */
 export async function executeActions(actions, options = {}) {
   const results = [];
   const source = String(options.source || 'assistant');
@@ -585,7 +473,6 @@ export async function executeActions(actions, options = {}) {
 
     let result;
     let lastErr;
-    // One retry for transient failures
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         result = await toolFn(action.params);
