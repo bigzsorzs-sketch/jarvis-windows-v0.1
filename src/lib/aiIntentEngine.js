@@ -1,4 +1,4 @@
-const GLUCOSE_TERM = /(vércukor|vercukor|blood\s*sugar|glucose)/i;
+const GLUCOSE_TERM = /(vércuk|vercuk|blood\s*sugar|glucose)/i;
 const GLUCOSE_LOG_VERB = /(rögzíts|rogzits|rögzíteni|rogziteni|naplózd|naplozd|logold|mentsd|menteni|írd\s+be|ird\s+be)/i;
 const MAP_TERM = /(térkép|terkep|google\s*maps|maps)/i;
 const OPEN_VERB = /(nyisd\s+meg|nyit(?:sd)?|mutasd|keresd|keress|open|show)/i;
