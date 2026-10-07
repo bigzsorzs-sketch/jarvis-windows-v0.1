@@ -1,130 +1,85 @@
-import { TOOLS } from './assistantTools';
-import { logger } from './logger';
+const GLUCOSE_TERM = /\b(vércukor|vercukor|blood\s*sugar|glucose)\b/i;
+const GLUCOSE_LOG_VERB = /\b(rögzíts|rogzits|rögzíteni|rogziteni|naplózd|naplozd|logold|mentsd|menteni|írd\s+be|ird\s+be)\b/i;
+const MAP_TERM = /\b(térkép|terkep|google\s*maps|maps)\b/i;
+const OPEN_VERB = /\b(nyisd\s+meg|nyit(?:sd)?|mutasd|keresd|keress|open|show)\b/i;
 
-const INTENT_PATTERNS = {
-  // Térkép és navigáció
-  MAP: /térkép|google maps|nyisd meg|navigál|hova/i,
-  NAVIGATE: /navigálj|megy|út|route/i,
-  
-  // Vércukor és egészség
-  GLUCOSE: /vércukor|cukor|vérnyomás|egészség/i,
-  HEALTH_LOG: /rögzít|log|jegyzet|felírás/i,
-  
-  // Számlázás
-  INVOICE: /számla|invoice|számla készítés/i,
-  EMAIL_INVOICE: /számla.*email|email.*számla|küldd.*számlá|számla.*küld/i,
-  
-  // Hívás
-  CALL: /hívj|hívás|telefon|call/i,
-  
-  // Emlékek és feljegyzések
-  MEMORY: /emlékez|megjegyez|memória|jegyzet/i,
-  REMINDER: /emlékeztet|remind|figyelmeztess/i,
-  
-  // Okosotthon
-  DEVICE: /lámpa|fény|ajtó|zár|eszköz|device/i,
-  
-  // Adatkezelés
-  SEARCH: /keres|find|search|hol van/i,
-};
-
-export async function recognizeIntent(userMessage) {
-  const lower = userMessage.toLowerCase();
-  const confidence = 0;
-  let intent = null;
-  let params = {};
-  let tool = null;
-
-  // Térkép parancsok
-  if (INTENT_PATTERNS.MAP.test(lower)) {
-    intent = 'open_map';
-    tool = 'open_map';
-    params = { query: userMessage };
-  }
-  // Vércukor lekérdezés
-  else if (INTENT_PATTERNS.GLUCOSE.test(lower) && !INTENT_PATTERNS.HEALTH_LOG.test(lower)) {
-    intent = 'read_glucose';
-    tool = 'read_latest_blood_sugar';
-    params = {};
-  }
-  // Vércukor rögzítés
-  else if (INTENT_PATTERNS.GLUCOSE.test(lower) && INTENT_PATTERNS.HEALTH_LOG.test(lower)) {
-    intent = 'log_glucose';
-    tool = 'log_blood_sugar';
-    const match = userMessage.match(/(\d+)/);
-    params = { value: match ? parseInt(match[1]) : 0, time_of_day: 'reggel' };
-  }
-  // Számla + Email
-  else if (INTENT_PATTERNS.EMAIL_INVOICE.test(lower)) {
-    intent = 'invoice_and_email';
-    tool = 'create_invoice_and_email';
-    params = {
-      client_name: 'Ügyfél',
-      client_email: 'owner@jarvis.local',
-      items: [{ description: 'Szolgáltatás', quantity: 1, unit_price: 0 }],
-      notes: 'AI által létrehozott'
-    };
-  }
-  // Számla
-  else if (INTENT_PATTERNS.INVOICE.test(lower)) {
-    intent = 'create_invoice';
-    tool = 'create_invoice';
-    params = {
-      client_name: 'Ügyfél',
-      client_email: '',
-      items: [{ description: 'Tétel', quantity: 1, unit_price: 0 }],
-      notes: ''
-    };
-  }
-  // Hívás
-  else if (INTENT_PATTERNS.CALL.test(lower)) {
-    intent = 'call_contact';
-    tool = 'call_contact';
-    const nameMatch = userMessage.match(/hívj? ([a-záéíóöőúüű\s]+)/i);
-    params = { name: nameMatch ? nameMatch[1].trim() : 'Ismeretlen', phone: '' };
-  }
-  // Emlékeztetőt
-  else if (INTENT_PATTERNS.REMINDER.test(lower)) {
-    intent = 'create_reminder';
-    tool = 'create_reminder';
-    params = {
-      title: userMessage.substring(0, 100),
-      description: userMessage,
-      due_date: null,
-      due_time: null,
-      category: 'other'
-    };
-  }
-  // Memória mentés
-  else if (INTENT_PATTERNS.MEMORY.test(lower)) {
-    intent = 'save_memory';
-    tool = 'save_memory';
-    params = { content: userMessage, category: 'fact', importance: 7 };
-  }
-  // Keresés
-  else if (INTENT_PATTERNS.SEARCH.test(lower)) {
-    intent = 'search_data';
-    tool = 'search_data';
-    params = { query: userMessage, entity: null };
-  }
-
-  if (!tool) {
-    return { handled: false, confidence: 0 };
-  }
-
-  return {
-    handled: true,
-    intent,
-    tool,
-    params,
-    confidence: 0.85,
-    explanation: `Jarvis: ${intent} – ${userMessage.substring(0, 50)}`
-  };
+function normalizeDecimal(value) {
+  const n = Number(String(value || '').replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
 }
 
-export async function executeTool(toolName, params) {
-  if (!TOOLS[toolName]) {
-    throw new Error(`❌ Ismeretlen eszköz: ${toolName}`);
+function extractGlucoseValue(text) {
+  const decimal = String(text || '').match(/\b(\d{1,2}[.,]\d{1,2})\b/);
+  const integer = String(text || '').match(/\b(\d{1,2})\b/);
+  const value = normalizeDecimal(decimal?.[1] || integer?.[1]);
+  return value != null && value >= 1 && value <= 40 ? value : null;
+}
+
+function extractMapTarget(text) {
+  return String(text || '')
+    .replace(/google\s*maps/ig, '')
+    .replace(/\b(térkép(?:et|en)?|terkep(?:et|en)?|maps)\b/ig, '')
+    .replace(/\b(nyisd\s+meg|nyit(?:sd)?|mutasd|keresd|keress|open|show)\b/ig, '')
+    .replace(/\b(ide|erre|nekem|kérlek|kerlek)\b/ig, '')
+    .replace(/^\s*(?:-+|:)+\s*/, '')
+    .trim();
+}
+
+export function recognizeIntent(userMessage) {
+  const text = String(userMessage || '').trim();
+  if (!text) return { handled:false, confidence:0 };
+
+  if (GLUCOSE_TERM.test(text) && GLUCOSE_LOG_VERB.test(text)) {
+    const value = extractGlucoseValue(text);
+    if (value == null) {
+      return {
+        handled:true,
+        intent:'log_glucose_missing_value',
+        tool:null,
+        params:{},
+        confidence:0.99,
+        reply:'Milyen vércukorértéket rögzítsek mmol/L-ben?',
+      };
+    }
+    return {
+      handled:true,
+      intent:'log_glucose',
+      tool:'log_blood_sugar',
+      params:{ value },
+      confidence:0.99,
+    };
   }
-  return await TOOLS[toolName](params);
+
+  if (GLUCOSE_TERM.test(text) && /\b(mi|mennyi|legutóbbi|legutobbi|utolsó|utolso|érték|ertek|mutasd|olvasd|read|latest)\b/i.test(text)) {
+    return {
+      handled:true,
+      intent:'read_glucose',
+      tool:'read_latest_blood_sugar',
+      params:{},
+      confidence:0.98,
+    };
+  }
+
+  if (MAP_TERM.test(text) && OPEN_VERB.test(text)) {
+    const target = extractMapTarget(text);
+    if (!target) {
+      return {
+        handled:true,
+        intent:'open_map_missing_target',
+        tool:null,
+        params:{},
+        confidence:0.98,
+        reply:'Melyik helyet nyissam meg a térképen?',
+      };
+    }
+    return {
+      handled:true,
+      intent:'open_map',
+      tool:'open_map',
+      params:{ destination:target },
+      confidence:0.98,
+    };
+  }
+
+  return { handled:false, confidence:0 };
 }
