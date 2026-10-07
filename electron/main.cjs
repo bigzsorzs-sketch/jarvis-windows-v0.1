@@ -42,8 +42,21 @@ if (adminHelperConfig) {
   fs.mkdirSync(helperUserData,{recursive:true});
   app.setPath('userData',helperUserData);
 }
+const primaryInstance = Boolean(adminHelperConfig) || app.requestSingleInstanceLock();
+if (!primaryInstance) {
+  app.quit();
+} else if (!adminHelperConfig) {
+  app.on('second-instance',() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 const manualRepairPlans = new Map();
 let manualRepairApplyInFlight = false;
+let manualRepairRequestEpoch = 0;
+let oneClickUpdatePromise = null;
 let latestSystemReport = null;
 
 const DEFAULT_STT_MODEL = 'openai/whisper-large-v3-turbo';
@@ -216,7 +229,8 @@ function mostRecentPendingManualRepair() {
     goal:newest.plan.goal,
     rationale:newest.plan.rationale,
     risk:newest.plan.risk,
-    files:newest.plan.patches.map((patch)=>patch.file)
+    files:newest.plan.patches.map((patch)=>patch.file),
+    patches:newest.plan.patches
   };
 }
 
@@ -376,6 +390,14 @@ async function ensureManualRuntimeBuilt(workspace) {
   }
 
   const checks=[];
+  await runToolchainNpm(['audit','--omit=dev','--audit-level=moderate'],{
+    cwd:workspace,
+    windowsHide:true,
+    timeout:300000,
+    shell:false,
+    maxBuffer:16 * 1024 * 1024
+  });
+  checks.push({cmd:'npm audit --omit=dev --audit-level=moderate',ok:true});
   const checkNpm = async (command, timeout=300000) => {
     await runToolchainNpm(['run',command],{
       cwd:workspace,
@@ -580,7 +602,7 @@ function seedInitialSettings() {
   writeJson(file, { language, aiProvider:'openrouter', aiModel:'openrouter/auto' });
 }
 function readJson(file, fallback={}) { try { return JSON.parse(fs.readFileSync(file,'utf8')); } catch { return fallback; } }
-function writeJson(file, value) { fs.mkdirSync(path.dirname(file), {recursive:true}); fs.writeFileSync(file, JSON.stringify(value,null,2),'utf8'); }
+function writeJson(file, value) { writeJsonAtomic(file,value); }
 function writeJsonAtomic(file, value) {
   fs.mkdirSync(path.dirname(file), {recursive:true});
   const temp=file+'.tmp-'+process.pid+'-'+Date.now();
@@ -1360,11 +1382,18 @@ async function selfRepairChat(payload={}) {
   if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
   const message = String(payload?.message || '').trim();
   if (!message) throw new Error('SELF_REPAIR_MESSAGE_REQUIRED');
+  const requestEpoch = ++manualRepairRequestEpoch;
+  const assertCurrentRequest = () => {
+    if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
+    if (requestEpoch !== manualRepairRequestEpoch) throw new Error('SELF_REPAIR_REQUEST_SUPERSEDED');
+  };
   // A new owner request makes all previous unaccepted proposals obsolete.
   clearPendingManualRepairPlans();
   const language = String(payload?.language || 'hu').toLowerCase();
   const history = Array.isArray(payload?.history) ? payload.history.slice(-10) : [];
   const workspace = await getSelfRepairRoot();
+  assertCurrentRequest();
+  const sourceFingerprint = selfRepairSourceFingerprint(workspace);
   const contextQuery = [
     message,
     ...history.slice(-4).map((item) => String(item?.content || '').slice(0,2400))
@@ -1376,7 +1405,7 @@ async function selfRepairChat(payload={}) {
     : '(no verified prior lessons)';
   const mapSummary = JSON.stringify(context.map, null, 2);
   const excerpts = context.excerpts.map((item) =>
-    `--- ${item.path} (score=${item.score}, lines=${item.lines}) ---\n${item.excerpt}`
+    `--- ${item.path} (score=${item.score}, lines=${item.lines}, ${item.complete ? 'FULL SOURCE' : 'PARTIAL EXCERPT'}) ---\n${item.excerpt}`
   ).join('\n\n');
   const historyText = history.map(item => `${item.role === 'assistant' ? 'Jarvis Self-Repair' : 'Owner'}: ${String(item.content || '').slice(0,1800)}`).join('\n');
   let adminSystemText = '(administrator diagnostics session is not active)';
@@ -1447,12 +1476,13 @@ Keep it concise unless the owner asks for deep detail.`;
     timeout_ms:90000,
     contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
   });
+  assertCurrentRequest();
 
   let pendingRepair = null;
   const explicitRepairRequest = developerRepair.isExplicitRepairRequest(message);
   if (explicitRepairRequest) {
     const source = context.excerpts.map((item) =>
-      `--- ${item.path} [${item.protected ? 'OWNER-BLOCKED-OR-CORE' : 'EDITABLE'}] ---\n${item.excerpt}`
+      `--- ${item.path} [${item.protected ? 'OWNER-BLOCKED-OR-CORE' : 'EDITABLE'}; ${item.complete ? 'FULL SOURCE' : 'PARTIAL EXCERPT: exact replacements only'}] ---\n${item.excerpt}`
     ).join('\n\n');
     const planPrompt = `You are preparing a MANUAL, owner-approved Jarvis repair plan.
 The owner explicitly asked to fix the issue. Create the smallest concrete patch from the exact current source below.
@@ -1463,6 +1493,7 @@ Rules:
 - Repair ordinary application/module source only. The Self-Repair trust core is intentionally immutable to AI patches.
 - Never target electron/main.cjs, electron/developer-repair.cjs, electron/github-self-repair.cjs, electron/preload.cjs, electron/admin-diagnostics.cjs, src/pages/SystemCenter.jsx, security/**, electron/security/**, .github/**, scripts/**, package.json, package-lock.json, src/lib/appVersion.js, release-notes/**, eslint.config.js, tsconfig.json, vite.config.js, or src/tests/**.
 - Prefer exact replacements over whole-file replacement.
+- Existing files shown only as PARTIAL EXCERPT may use exact replacements only. Never replace an entire file from an excerpt.
 - Maximum 6 files and 8 replacements per file.
 - Do not change release/version metadata.
 - If no safe concrete patch can be formed from the supplied source, return {"goal":"...","rationale":"NO_SAFE_PATCH: explain why","risk":"high","patches":[]}.
@@ -1482,8 +1513,12 @@ ${source}`;
         task_type:'repair',
         response_json_schema:{type:'object'},
         timeout_ms:120000,
-        contains_sensitive_context:false
+        contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
       });
+      assertCurrentRequest();
+      if (selfRepairSourceFingerprint(workspace) !== sourceFingerprint) {
+        throw new Error('SELF_REPAIR_SOURCE_CHANGED');
+      }
       const proposal = parseRepairModelJson(planResponse?.data?.result);
       if (Array.isArray(proposal?.patches) && proposal.patches.length) {
         const plan = developerRepair.validateOwnerPlan(workspace,{
@@ -1492,15 +1527,22 @@ ${source}`;
           risk:proposal.risk || 'medium',
           patches:proposal.patches
         });
+        for (const patch of plan.patches) {
+          if (typeof patch.content === 'string' && fs.existsSync(path.join(workspace,patch.file))
+              && !context.excerpts.some((item)=>item.path === patch.file && item.complete)) {
+            throw new Error('SELF_REPAIR_FULL_SOURCE_REQUIRED:' + patch.file);
+          }
+        }
         const planEntry = {workspace,plan,createdAt:Date.now()};
-        manualRepairPlans.set(plan.hash,planEntry);
         persistManualRepairPlan(planEntry);
+        manualRepairPlans.set(plan.hash,planEntry);
         pendingRepair = {
           hash:plan.hash,
           goal:plan.goal,
           rationale:plan.rationale,
           risk:plan.risk,
-          files:plan.patches.map((patch)=>patch.file)
+          files:plan.patches.map((patch)=>patch.file),
+          patches:plan.patches
         };
       }
     } catch (error) {
@@ -1734,15 +1776,26 @@ async function verifyUpdateSigner(installerPath) {
 }
 
 async function oneClickUpdate() {
+  if (!oneClickUpdatePromise) {
+    oneClickUpdatePromise = performOneClickUpdate().then((result) => {
+      if (result.status !== 'installing') oneClickUpdatePromise = null;
+      return result;
+    }, (error) => {
+      oneClickUpdatePromise = null;
+      throw error;
+    });
+  }
+  return oneClickUpdatePromise;
+}
+
+async function performOneClickUpdate() {
   const currentVersion=app.getVersion();
   const release=await fetchLatestRelease();
   if(compareVersions(release.latestVersion,currentVersion)<=0) {
     return {status:'up-to-date',currentVersion,latestVersion:release.latestVersion};
   }
 
-  const tempDir=path.join(app.getPath('temp'),`Jarvis-Upgrade-${release.latestVersion}`);
-  fs.rmSync(tempDir,{recursive:true,force:true});
-  fs.mkdirSync(tempDir,{recursive:true});
+  const tempDir=fs.mkdtempSync(path.join(app.getPath('temp'),`Jarvis-Upgrade-${release.latestVersion}-`));
   const installerPath=path.join(tempDir,release.exe.name);
   const checksumPath=`${installerPath}.sha256`;
   const manifestPath=path.join(tempDir,'release-manifest.json');
@@ -1796,12 +1849,15 @@ $p = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
 if ($p.ExitCode -ne 0) { exit $p.ExitCode }
 Start-Process -FilePath $appExe
 `;
-  fs.writeFileSync(helperPath,helper,'utf8');
+  fs.writeFileSync(helperPath,'\uFEFF'+helper,'utf8');
 
-  const child=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',helperPath],{
-    detached:true,stdio:'ignore',windowsHide:true
+  await new Promise((resolve,reject) => {
+    const child=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',helperPath],{
+      detached:true,stdio:'ignore',windowsHide:true
+    });
+    child.once('error',reject);
+    child.once('spawn',() => { child.unref(); resolve(); });
   });
-  child.unref();
   setTimeout(()=>app.quit(),700);
   return {
     status:'installing',
@@ -2260,6 +2316,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (!primaryInstance) return;
   if (adminHelperConfig) {
     await startAdminHelper(adminHelperConfig,{ onClose:() => app.quit() });
     return;
@@ -2485,6 +2542,7 @@ app.whenReady().then(async () => {
     if (manualRepairApplyInFlight) throw new Error('MANUAL_REPAIR_ALREADY_IN_PROGRESS');
     manualRepairApplyInFlight = true;
     try {
+      manualRepairRequestEpoch += 1;
       const hash=String(request.hash || '').trim().toLowerCase();
       const entry=loadPersistedManualRepairPlan(hash);
       if (!entry) throw new Error('MANUAL_REPAIR_PLAN_NOT_FOUND');

@@ -117,6 +117,7 @@ function preflightReplacementSearches(currentContent, replacements=[], file='unk
     // the existing "never guess which occurrence to edit" rule.
     current = edit.all ? current.split(search).join(replace) : current.replace(search,replace);
   }
+  return restoreLineEndings(current, String(currentContent).includes('\r\n') ? '\r\n' : '\n');
 }
 function isProtectedRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
@@ -200,8 +201,12 @@ function validateOwnerPlan(root, input={}) {
       return { search, replace, all:edit?.all === true };
     });
     if (cleanReplacements.length && !fs.existsSync(target)) throw new Error('DEV_REPAIR_REPLACEMENT_TARGET_MISSING');
-    if (cleanReplacements.length) {
-      preflightReplacementSearches(fs.readFileSync(target,'utf8'), cleanReplacements, file);
+    const currentContent = fs.existsSync(target) ? fs.readFileSync(target,'utf8') : null;
+    const nextContent = hasFullContent
+      ? p.content
+      : preflightReplacementSearches(currentContent, cleanReplacements, file);
+    if (currentContent !== null && normalizeLineEndings(nextContent) === normalizeLineEndings(currentContent)) {
+      throw new Error('DEV_REPAIR_NO_CHANGES:' + file);
     }
     return hasFullContent
       ? { file, content:p.content }
@@ -662,7 +667,8 @@ function buildDiagnosticContext(root, query='', options={}) {
       protected:isProtectedRelative(file.path),
       routes:inspection.architecture.routes.filter((route) => route.file === file.path),
       ipc:inspection.architecture.ipc.filter((item) => item.renderer.includes(file.path) || item.main.includes(file.path)),
-      excerpt
+      excerpt,
+      complete:excerpt === file.content
     });
   }
 

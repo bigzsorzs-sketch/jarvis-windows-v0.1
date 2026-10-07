@@ -50,7 +50,7 @@ function openOfflineDb() {
   return dbPromise;
 }
 
-async function runStore(storeName, mode, handler) {
+async function runStore(storeName, mode, handler, { strict = false } = {}) {
   try {
     const db = await openOfflineDb();
     if (!db) throw new Error('OFFLINE_STORAGE_UNAVAILABLE');
@@ -71,7 +71,7 @@ async function runStore(storeName, mode, handler) {
     });
   } catch (error) {
     logger.warn('IndexedDbOfflineStore', `${storeName} operation failed`, { message: error?.message });
-    if (mode === 'readwrite') throw error;
+    if (mode === 'readwrite' || strict) throw error;
     return null;
   }
 }
@@ -80,8 +80,8 @@ export async function putLocalValue(key, value) {
   return runStore(STORES.kv, 'readwrite', (store) => store.put({ key, value, updatedAt: Date.now() }));
 }
 
-export async function getLocalValue(key, fallback = null) {
-  const record = await runStore(STORES.kv, 'readonly', (store) => store.get(key));
+export async function getLocalValue(key, fallback = null, options = {}) {
+  const record = await runStore(STORES.kv, 'readonly', (store) => store.get(key), options);
   return record?.value ?? fallback;
 }
 
@@ -108,8 +108,8 @@ export async function saveChatSnapshot(messages, metadata = {}) {
   return snapshot;
 }
 
-export async function loadChatSnapshot() {
-  return runStore(STORES.conversations, 'readonly', (store) => store.get('active_chat'));
+export async function loadChatSnapshot(options = {}) {
+  return runStore(STORES.conversations, 'readonly', (store) => store.get('active_chat'), options);
 }
 
 export async function enqueueSyncAction(action) {

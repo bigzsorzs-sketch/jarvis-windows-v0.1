@@ -1,4 +1,32 @@
 const messageIdentities = new WeakMap();
+const conversationWrites = new Map();
+
+// History saves and offline recovery share these locks. A read/merge/write
+// must finish before another writer reads the same conversation in this app.
+export function withConversationWrite(key, operation) {
+  const previous = conversationWrites.get(key) || Promise.resolve();
+  const work = previous.catch(() => {}).then(operation);
+  const pending = work.finally(() => {
+    if (conversationWrites.get(key) === pending) conversationWrites.delete(key);
+  });
+  conversationWrites.set(key, pending);
+  return pending;
+}
+
+// A deletion marker contains only identity, never the removed message text.
+// Offline snapshots can arrive after deletion, including snapshots captured
+// before their first SQLite ID was assigned.
+export async function hasConversationDeletion(api, conversationId, offlineId) {
+  const identities = [
+    conversationId && { deleted_conversation_id:String(conversationId) },
+    offlineId && { offline_sync_id:String(offlineId) },
+  ].filter(Boolean);
+  for (const identity of identities) {
+    const found = await api.filter({ source:'chat-deletion', ...identity }, '-created_date', 1);
+    if (found?.length) return true;
+  }
+  return false;
+}
 
 // A UI message can be used by several concurrent save paths. Give the source
 // object the same identity each time without mutating React state or file data.

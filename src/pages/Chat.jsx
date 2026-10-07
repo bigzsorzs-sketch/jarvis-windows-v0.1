@@ -28,8 +28,9 @@ import {
   listConversationHistory,
   migrateLegacyChatSnapshotOnce,
   saveConversationHistory,
+  queueConversationSyncAfterMigration as queueConversationSync,
+  saveChatSnapshotAfterMigration as saveChatSnapshot,
 } from '@/lib/conversationHistory';
-import { queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
 import { createConversationSaveSession, enqueueConversationSave } from '@/lib/chatSessionPersistence';
 import { ensureConversationMessageIdentity } from '@/lib/conversationMessages';
 import { startOfflineAutoSync, syncOfflineData } from '@/lib/offlineSyncManager';
@@ -187,7 +188,7 @@ export default function Chat() {
     if (!conversation?.id || !Array.isArray(conversation?.messages)) return;
     conversationSaveSessionRef.current = createConversationSaveSession(conversation.id);
     conversationIdRef.current = conversation.id;
-    offlineChatIdRef.current = conversation.id;
+    offlineChatIdRef.current = conversation.offline_sync_id || conversation.id;
     setStorageErrors({});
     try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
     setPendingConfirm(null);
@@ -229,7 +230,7 @@ export default function Chat() {
         if (activeConversation?.messages?.length) {
           conversationSaveSessionRef.current = createConversationSaveSession(activeConversation.id);
           conversationIdRef.current = activeConversation.id;
-          offlineChatIdRef.current = activeConversation.id;
+          offlineChatIdRef.current = activeConversation.offline_sync_id || activeConversation.id;
           setDetectedLang(activeConversation?.metadata?.detectedLang || lang || 'hu');
           setMessages(getWindowedMessages(activeConversation.messages));
           return;

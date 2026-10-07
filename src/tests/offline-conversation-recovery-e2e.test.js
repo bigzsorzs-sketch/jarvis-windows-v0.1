@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { normalizeConversationMessages, mergeConversationMessages } from '../lib/conversationMessages.js';
+import { normalizeConversationMessages, mergeConversationMessages, withConversationWrite, hasConversationDeletion } from '../lib/conversationMessages.js';
 
 const syncSource = fs.readFileSync('src/lib/offlineSyncManager.js','utf8');
 const storeSource = fs.readFileSync('src/lib/indexedDbOfflineStore.js','utf8');
@@ -29,7 +29,7 @@ function actualSyncFunction(records) {
     }
   }} };
   return vm.runInNewContext(syncSource.slice(start,end)+'; syncConversationSnapshot',
-    {jarvis,Date,normalizeConversationMessages,mergeConversationMessages});
+    {jarvis,Date,normalizeConversationMessages,mergeConversationMessages,withConversationWrite,hasConversationDeletion});
 }
 
 function actualQueueFunction(entries) {
@@ -114,8 +114,8 @@ test('greeting-only snapshot does not create spurious history',async()=>{
 test('Chat assigns stable offline IDs when opening, restoring or starting chats',()=>{
   const chat=fs.readFileSync('src/pages/Chat.jsx','utf8');
   assert.match(chat,/const offlineChatIdRef = useRef\(crypto\.randomUUID\(\)\)/);
-  assert.match(chat,/offlineChatIdRef\.current = conversation\.id/);
-  assert.match(chat,/offlineChatIdRef\.current = activeConversation\.id/);
+  assert.match(chat,/offlineChatIdRef\.current = conversation\.offline_sync_id \|\| conversation\.id/);
+  assert.match(chat,/offlineChatIdRef\.current = activeConversation\.offline_sync_id \|\| activeConversation\.id/);
   assert.match(chat,/offlineChatId:offlineChatIdRef\.current/g);
 });
 

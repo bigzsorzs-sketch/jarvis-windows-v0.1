@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { sanitizeAssistantText, SAFE_ASSISTANT_FALLBACK } from '../lib/assistantResponseHandler.js';
 import { enqueueOfflineAction, getOfflineQueue } from '../lib/offlineActionQueue.js';
-import { normalizeConversationMessages, mergeConversationMessages } from '../lib/conversationMessages.js';
+import { normalizeConversationMessages, mergeConversationMessages, withConversationWrite, hasConversationDeletion } from '../lib/conversationMessages.js';
 const require = createRequire(import.meta.url);
 const { LocalDatabase } = require('../../electron/data/local-database.cjs');
 const { snapshotRuntime, restoreRuntime } = require('../../electron/runtime-activation.cjs');
@@ -174,7 +174,7 @@ test('online auto-sync retries a failed snapshot without a reconnect event and c
   let queue=[{id:'snapshot',revision:1,type:'conversation_snapshot',status:'pending',payload:{messages:[{role:'user',content:'Hello'}],metadata:{offlineChatId:'chat'}}}];
   class Clock extends Date { static now(){return now;} }
   const context={ Date:Clock,queueMicrotask,MAX_SYNC_RETRIES:rules.MAX_SYNC_RETRIES,getRetryDelayMs:rules.getRetryDelayMs,isReadyForRetry:rules.isReadyForRetry,
-    normalizeConversationMessages,mergeConversationMessages,
+    normalizeConversationMessages,mergeConversationMessages,withConversationWrite,hasConversationDeletion,
     setInterval:fn=>{timer=fn;return 1;},clearInterval:()=>{cleared=true;},
     networkMonitor:{isOnline:()=>true,subscribe:()=>()=>{}},logger:{warn(){}},
     listSyncActions:async()=>structuredClone(queue),

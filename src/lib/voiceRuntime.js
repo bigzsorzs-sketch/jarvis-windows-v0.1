@@ -128,6 +128,8 @@ class VoiceRuntime {
     this.ttsUtteranceRef = null;
     this.restartTimeoutRef = null;
     this.ttsTimeoutRef = null;
+    this.ttsGenerationRef = 0;
+    this.ttsFinishRef = null;
     this.voicesLoadedRef = false;
     this.didWarmupRef = false;
     this.restartAllowedRef = true;
@@ -380,12 +382,15 @@ class VoiceRuntime {
     if (this.didWarmupRef || !('speechSynthesis' in window)) return;
     this.didWarmupRef = true;
     const warmup = new SpeechSynthesisUtterance(' ');
+    const generation = this.ttsGenerationRef;
     warmup.volume = 0;
     warmup.rate = 1;
     warmup.pitch = 1;
     try {
       window.speechSynthesis.speak(warmup);
-      window.setTimeout(() => window.speechSynthesis.cancel(), 50);
+      window.setTimeout(() => {
+        if (generation === this.ttsGenerationRef && !this.ttsInFlightRef) window.speechSynthesis.cancel();
+      }, 50);
     } catch {}
   }
 
@@ -846,6 +851,10 @@ class VoiceRuntime {
   }
 
   _cancelTTS() {
+    this.ttsGenerationRef += 1;
+    const finish = this.ttsFinishRef;
+    this.ttsFinishRef = null;
+    finish?.(false);
     if (this.ttsTimeoutRef) clearTimeout(this.ttsTimeoutRef);
     this.ttsTimeoutRef = null;
     this.ttsInFlightRef = false;
@@ -893,6 +902,7 @@ class VoiceRuntime {
       return Promise.resolve(false);
     }
     const selectedLang = lang === 'hu' || lang === 'hu-HU' ? 'hu' : lang;
+    const generation = ++this.ttsGenerationRef;
     console.info('[voiceLanguage] Selected output language', { selectedLang });
     if (this.state.voiceInputMode === 'recorded') {
       this.ttsInFlightRef = true;
@@ -901,14 +911,26 @@ class VoiceRuntime {
       this._updateState({ machineState: VOICE_PHASE.SPEAKING, isSpeaking: true, isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
       devVoiceLog('TTS_START', { mode: 'recorded' });
       const ttsStarted = performance.now();
-      return (this.recordedVoiceRef?.speakText(text, selectedLang, { resumeAfter: this.state.handsFree }) || Promise.resolve(false)).then((success) => {
-        devVoiceLog(success ? 'TTS_END' : 'TTS_ERROR', { mode: 'recorded' });
-        return success;
-      }).finally(() => {
-        this.ttsInFlightRef = false;
-        this.restartAllowedRef = this.state.handsFree;
-        this._updateState({ machineState: VOICE_PHASE.IDLE, isSpeaking: false });
-        console.info('[voiceTiming] TTS finished', { ms: Math.round(performance.now() - ttsStarted), resumeAfter: this.state.handsFree });
+      return new Promise((resolve) => {
+        let finalized = false;
+        const finish = (success) => {
+          if (finalized) return;
+          finalized = true;
+          if (this.ttsFinishRef === finish) this.ttsFinishRef = null;
+          if (generation === this.ttsGenerationRef) {
+            devVoiceLog(success ? 'TTS_END' : 'TTS_ERROR', { mode:'recorded' });
+            this.ttsInFlightRef = false;
+            this.restartAllowedRef = this.state.handsFree;
+            this._updateState({ machineState:VOICE_PHASE.IDLE, isSpeaking:false });
+            console.info('[voiceTiming] TTS finished', { ms:Math.round(performance.now() - ttsStarted), resumeAfter:this.state.handsFree });
+          }
+          resolve(success);
+        };
+        this.ttsFinishRef = finish;
+        Promise.resolve().then(() => {
+          if (generation !== this.ttsGenerationRef) return false;
+          return this.recordedVoiceRef?.speakText(text, selectedLang, { resumeAfter:this.state.handsFree }) || false;
+        }).then(finish, () => finish(false));
       });
     }
     if (!canUseBrowserTTS() || text == null) return Promise.resolve(false);
@@ -930,21 +952,26 @@ class VoiceRuntime {
       const finish = (success) => {
         if (finalized) return;
         finalized = true;
-        if (this.ttsTimeoutRef) clearTimeout(this.ttsTimeoutRef);
-        this.ttsUtteranceRef = null;
-        this.ttsInFlightRef = false;
-        this.restartAllowedRef = this.state.handsFree;
-        this._updateState({ machineState: VOICE_PHASE.IDLE, isSpeaking: false });
-        logger.debug(MODULE, success ? 'TTS_END' : 'TTS_ERROR', { success, chunks: index });
-        devVoiceLog(success ? 'TTS_END' : 'TTS_ERROR', { success, chunks: index });
-        if (this.state.handsFree && this._canRestartRecognition()) {
-          this._scheduleRestart(HANDS_FREE_RESTART_DELAY_MS, 'tts_onend');
+        if (this.ttsFinishRef === finish) this.ttsFinishRef = null;
+        if (generation === this.ttsGenerationRef) {
+          if (this.ttsTimeoutRef) clearTimeout(this.ttsTimeoutRef);
+          this.ttsTimeoutRef = null;
+          this.ttsUtteranceRef = null;
+          this.ttsInFlightRef = false;
+          this.restartAllowedRef = this.state.handsFree;
+          this._updateState({ machineState:VOICE_PHASE.IDLE, isSpeaking:false });
+          logger.debug(MODULE, success ? 'TTS_END' : 'TTS_ERROR', { success, chunks:index });
+          devVoiceLog(success ? 'TTS_END' : 'TTS_ERROR', { success, chunks:index });
+          if (this.state.handsFree && this._canRestartRecognition()) {
+            this._scheduleRestart(HANDS_FREE_RESTART_DELAY_MS, 'tts_onend');
+          }
         }
         resolve(success);
       };
+      this.ttsFinishRef = finish;
 
       const speakChunk = () => {
-        if (finalized) return;
+        if (finalized || generation !== this.ttsGenerationRef) return;
         const chunk = chunks[index];
         if (!chunk) {
           finish(true);
@@ -961,15 +988,19 @@ class VoiceRuntime {
         utterance.pitch = Number.isFinite(prefs.pitch) ? Math.min(1.25, Math.max(0.8, prefs.pitch)) : 1.04;
         utterance.volume = 1;
         utterance.onstart = () => {
+          if (finalized || generation !== this.ttsGenerationRef) return;
           logger.debug(MODULE, 'TTS_START', { chunk: index + 1, total: chunks.length });
           devVoiceLog('TTS_START', { chunk: index + 1, total: chunks.length });
           this._updateState({ machineState: VOICE_PHASE.SPEAKING, isSpeaking: true, isListening: false, isRecognitionActive: false, isRecognitionStarting: false });
         };
         utterance.onend = () => {
+          if (finalized || generation !== this.ttsGenerationRef) return;
           index += 1;
           window.setTimeout(speakChunk, 120);
         };
-        utterance.onerror = () => finish(false);
+        utterance.onerror = () => {
+          if (generation === this.ttsGenerationRef) finish(false);
+        };
 
         this.ttsUtteranceRef = utterance;
         try {
@@ -990,6 +1021,7 @@ class VoiceRuntime {
       }
 
       this.ttsTimeoutRef = window.setTimeout(() => {
+        if (finalized || generation !== this.ttsGenerationRef) return;
         if (this.state.machineState === VOICE_PHASE.SPEAKING || this.state.phase === 'speaking' || this.state.phase === 'tts_pending') {
           window.speechSynthesis.cancel();
           finish(false);
