@@ -1,5 +1,6 @@
 import { getWorkflowSuggestions } from '@/lib/workflowEngine';
-import { recognizeIntent, executeTool } from '@/lib/aiIntentEngine';
+import { TOOLS } from '@/lib/assistantTools';
+import { recognizeIntent } from '@/lib/aiIntentEngine';
 
 export function findWorkflowCommand(text, ctx) {
   const lower = text.toLowerCase();
@@ -56,23 +57,25 @@ export function findLocalUiCommand(text) {
 }
 
 export async function findAIToolCommand(text) {
-  const result = await recognizeIntent(text);
-  if (!result.handled) return null;
+  const intent = recognizeIntent(text);
+  if (!intent?.handled) return null;
+  if (!intent.tool) return { handled:true, intent:intent.intent, reply:intent.reply || 'Kérlek pontosítsd a parancsot.', actionResults:[] };
 
   try {
-    const toolResult = await executeTool(result.tool, result.params);
+    const toolResult = await TOOLS[intent.tool]?.(intent.params || {});
+    if (!toolResult) throw new Error('Az eszköz nem érhető el.');
     return {
-      handled: true,
-      intent: result.intent,
-      reply: toolResult.message,
-      actionResults: [{ tool: result.tool, result: toolResult }]
+      handled:true,
+      intent:intent.intent,
+      reply:toolResult.message || 'Kész.',
+      actionResults:[{ tool:intent.tool, result:toolResult }],
     };
   } catch (error) {
     return {
-      handled: true,
-      intent: result.intent,
-      reply: `❌ ${error.message || 'A parancs végrehajtása sikertelen volt.'}`,
-      actionResults: []
+      handled:true,
+      intent:intent.intent,
+      reply:`❌ ${error?.message || 'A parancs végrehajtása sikertelen volt.'}`,
+      actionResults:[],
     };
   }
 }
