@@ -1,0 +1,138 @@
+# One-time, hash-pinned v0.3.27 release based on the owner-approved
+# unsigned output of the already successful main-branch Windows build.
+name: Publish approved Jarvis v0.3.27 once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-approved-v0327.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jarvis-one-time-owner-approved-v0327
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'bigzsorzs-sketch/jarvis-windows-v0.1' &&
+      startsWith(github.event.head_commit.message, 'Owner-approved unsigned Jarvis v0.3.27 release')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out exact main state
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Confirm one-time publisher is the only change after verified main build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "b75145e65a84d691534c06091865e9964cfc202e"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/publish-approved-v0327.yml"
+          test "$(node -p "require('./package.json').version")" = "0.3.27"
+          test -f release-notes/v0.3.27.md
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37661664359 --jq '.conclusion')" = "success"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37661664359 --jq '.head_sha')" = "b75145e65a84d691534c06091865e9964cfc202e"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37661664359 --jq '.head_branch')" = "main"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37661664359 --jq '.event')" = "push"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37661664359/jobs --jq '.jobs[] | select(.name == "CodeQL security scan") | .steps[] | select(.name == "Require successful CodeQL security result") | .conclusion')" = "success"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/actions/runs/37661664359/artifacts --jq '.artifacts[] | select(.name == "Jarvis-Windows-x64") | .id')" = "11501037677"
+          if gh release view v0.3.27 --repo bigzsorzs-sketch/jarvis-windows-v0.1 >/dev/null 2>&1; then
+            echo "::error::v0.3.27 already exists. Refusing to overwrite."
+            exit 1
+          fi
+
+      - name: Retrieve original successfully tested x64 installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          gh run download 37661664359 \
+            --repo bigzsorzs-sketch/jarvis-windows-v0.1 \
+            --name Jarvis-Windows-x64 \
+            --dir release
+
+      - name: Verify exact installer and explicit unsigned owner release
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const crypto=require('node:crypto');
+          const name='Jarvis-Setup-0.3.27-x64.exe';
+          const expected='99a1a517882e2be305b72d63dd63e2677efe6d03d21fe5a131a9fca8f8e8fb18';
+          const actual=crypto.createHash('sha256').update(fs.readFileSync('release/'+name)).digest('hex');
+          if(actual!==expected) throw new Error('OWNER_APPROVED_INSTALLER_HASH_MISMATCH');
+          const manifest=JSON.parse(fs.readFileSync('release/release-manifest.json','utf8').replace(/^\uFEFF/,''));
+          if(manifest.version!=='0.3.27' || manifest.commit!=='b75145e65a84d691534c06091865e9964cfc202e'
+              || manifest.installer!==name || manifest.sha256!==expected
+              || manifest.ref!=='refs/heads/main') {
+            throw new Error('OWNER_APPROVED_MANIFEST_MISMATCH');
+          }
+          if(manifest.signing?.status!=='NotSigned') {
+            throw new Error('OWNER_APPROVED_UNSIGNED_STATE_MISMATCH');
+          }
+          const checksumContent=fs.readFileSync('release/'+name+'.sha256','utf8');
+          if(!new RegExp('^'+expected+'(?:\\s|$)','im').test(checksumContent)) {
+            throw new Error('OWNER_APPROVED_CHECKSUM_FILE_MISMATCH');
+          }
+          console.log('Checked unsigned Jarvis v0.3.27 source, SHA-256 and manifest.');
+          NODE
+
+      - name: Publish the verified unsigned release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v0.3.27 \
+            release/Jarvis-Setup-0.3.27-x64.exe \
+            release/Jarvis-Setup-0.3.27-x64.exe.sha256 \
+            release/release-manifest.json \
+            --repo bigzsorzs-sketch/jarvis-windows-v0.1 \
+            --target b75145e65a84d691534c06091865e9964cfc202e \
+            --title "Jarvis v0.3.27" \
+            --notes-file release-notes/v0.3.27.md \
+            --latest
+
+      - name: Verify GitHub release assets and exact release target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_target="$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.27 --jq '.target_commitish')"
+          test "$actual_target" = "b75145e65a84d691534c06091865e9964cfc202e"
+          for item in Jarvis-Setup-0.3.27-x64.exe Jarvis-Setup-0.3.27-x64.exe.sha256 release-manifest.json; do
+            gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.27 --jq '.assets[].name' | grep -Fx "$item"
+          done
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.27 --jq '.draft')" = "false"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.27 --jq '.prerelease')" = "false"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/git/ref/tags/v0.3.27 --jq '.object.sha')" = "b75145e65a84d691534c06091865e9964cfc202e"
+          test "$(gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.27 --jq '.assets[] | select(.name == "Jarvis-Setup-0.3.27-x64.exe") | .digest')" = "sha256:99a1a517882e2be305b72d63dd63e2677efe6d03d21fe5a131a9fca8f8e8fb18"
+          gh api repos/bigzsorzs-sketch/jarvis-windows-v0.1/releases/tags/v0.3.27 > published-release.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const crypto=require('node:crypto');
+          const release=JSON.parse(fs.readFileSync('published-release.json','utf8'));
+          for(const name of ['Jarvis-Setup-0.3.27-x64.exe','Jarvis-Setup-0.3.27-x64.exe.sha256','release-manifest.json']) {
+            const asset=release.assets.filter(a=>a.name===name);
+            if(asset.length!==1 || asset[0].state!=='uploaded') throw new Error('PUBLISHED_ASSET_STATE_MISMATCH:'+name);
+            const bytes=fs.readFileSync('release/'+name);
+            const digest='sha256:'+crypto.createHash('sha256').update(bytes).digest('hex');
+            if(asset[0].digest!==digest || asset[0].size!==bytes.length) throw new Error('PUBLISHED_ASSET_DIGEST_MISMATCH:'+name);
+          }
+          console.log('Verified published installer, checksum and manifest asset digests.');
+          NODE
