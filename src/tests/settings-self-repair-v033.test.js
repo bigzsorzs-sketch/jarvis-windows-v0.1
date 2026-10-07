@@ -19,9 +19,13 @@ test('Self-Repair is owner-instruction driven instead of an unsolicited bug hunt
   assert.doesNotMatch(system,/Hibák keresése|Find bugs/);
 });
 
-test('direct owner change verbs are recognized while inspection does not silently become a patch', () => {
+test('direct owner change verbs are recognized while inspection remains a separate mode', () => {
+  const developerRepair = require('../../electron/developer-repair.cjs');
   for (const phrase of ['javítsd meg','töröld','vedd ki','add hozzá','építsd be','cseréld','implementáld']) {
-    assert.equal(repair.includes(phrase.normalize('NFD').replace(/[\u0300-\u036f]/g,'')), true, phrase);
+    assert.equal(developerRepair.isExplicitRepairRequest(phrase),true,phrase);
+  }
+  for (const phrase of ['ellenőrizd a kódot','nézd meg miért tűnik el a beszélgetés','magyarázd el ezt a részt']) {
+    assert.equal(developerRepair.isExplicitRepairRequest(phrase),false,phrase);
   }
   assert.match(main,/return 'inspect'/);
   assert.match(main,/return 'troubleshoot'/);
