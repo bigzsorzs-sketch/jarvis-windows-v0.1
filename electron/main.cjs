@@ -526,10 +526,6 @@ function handOffToManualRuntimeIfReady() {
   }
 }
 
-function clearLegacyManualRuntimeState() {
-  try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
-}
-
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
 function crashRecoveryStatePath() { return path.join(app.getPath('userData'),'crash-watchdog','recovery.json'); }
 function canonicalAppVersion(value='') {
