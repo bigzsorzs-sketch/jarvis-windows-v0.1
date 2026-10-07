@@ -3,10 +3,31 @@ import { runAssistantTurn } from '@/lib/chatOrchestrator';
 import { isCallCommand, extractCallTarget, isNavigationVoiceCommand, extractNavigationTarget, isFinishTripCommand, isLastTripSummaryCommand, isShareNavigationDestinationCommand, extractShareNavigationContact } from '@/lib/voiceCommandRouter';
 import { findContactForNavigation, startNavigationSession, finishNavigationSession, getFrequentDestinationSuggestion, getLastTripSummary, shareActiveNavigationDestination } from '@/lib/navigationTracker';
 import { executeVoiceWorkflowCommand } from '@/lib/voiceWorkflowCommandCenter';
+import { recognizeIntent, executeTool } from '@/lib/aiIntentEngine';
 
 export async function executeGlobalVoiceCommand(transcript) {
   const text = transcript?.trim();
   if (!text) return null;
+
+  const intentResult = await recognizeIntent(text);
+  if (intentResult.handled) {
+    try {
+      const toolResult = await executeTool(intentResult.tool, intentResult.params);
+      return {
+        handled: true,
+        intent: intentResult.intent,
+        reply: toolResult.message,
+        actionResults: [{ tool: intentResult.tool, result: toolResult }]
+      };
+    } catch (error) {
+      return {
+        handled: true,
+        intent: intentResult.intent,
+        reply: `❌ ${error.message}`,
+        actionResults: []
+      };
+    }
+  }
 
   const workflowResult = await executeVoiceWorkflowCommand(text, { userMood: 'neutral' });
   if (workflowResult?.handled) return workflowResult;
