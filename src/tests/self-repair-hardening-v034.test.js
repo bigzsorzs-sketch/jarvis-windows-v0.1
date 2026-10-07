@@ -174,7 +174,7 @@ test('reported v0.3.4 regressions are fixed in source', () => {
   assert.match(main,/scheduleManualRuntimeRestart/);
   assert.match(main,/handOffToManualRuntimeIfReady/);
   assert.match(main,/status:'APPLIED_AND_RESTARTING'/);
-  assert.match(main,/function clearLegacyManualRuntimeState/);
+  assert.doesNotMatch(main,/function clearLegacyManualRuntimeState/);
   assert.match(main,/canonicalAppVersion\(item\?\.appVersion\)/);
   assert.match(main,/JARVIS_REPAIR_REPORT_STALE/);
   assert.match(preload,/apply: \(repairId, reportId\)/);
