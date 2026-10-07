@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const developerRepair = require('../../electron/developer-repair.cjs');
 
 const settings = fs.readFileSync('src/pages/Beallitasok.jsx','utf8');
 const main = fs.readFileSync('electron/main.cjs','utf8');
@@ -20,7 +24,6 @@ test('Self-Repair is owner-instruction driven instead of an unsolicited bug hunt
 });
 
 test('direct owner change verbs are recognized while inspection remains a separate mode', () => {
-  const developerRepair = require('../../electron/developer-repair.cjs');
   for (const phrase of ['javítsd meg','töröld','vedd ki','add hozzá','építsd be','cseréld','implementáld']) {
     assert.equal(developerRepair.isExplicitRepairRequest(phrase),true,phrase);
   }
