@@ -45,7 +45,7 @@ function harness(t, options = {}) {
       return { data:{ result:JSON.stringify({ goal, rationale:'confirmed source defect', risk:'low', patches }) } };
     },
   };
-  const start = main.indexOf('async function selfRepairChat(');
+  const start = main.indexOf('function selfRepairRequestMode(');
   const end = main.indexOf('\nfunction parseRepairModelJson(', start);
   assert.ok(start >= 0 && end > start, 'actual Self-Repair chat function must be found');
   const chat = vm.runInNewContext(main.slice(start, end) + '; selfRepairChat', context);
@@ -147,7 +147,7 @@ test('ending an admin session cannot relabel its already captured diagnostic as 
 
 test('the local repair gate includes the production dependency audit and stops on failure', async () => {
   const start = main.indexOf('async function ensureManualRuntimeBuilt(');
-  const end = main.indexOf('\nfunction clearLegacyManualRuntimeState(', start);
+  const end = main.indexOf('\nfunction scheduleManualRuntimeRestart(', start);
   const calls = [];
   const build = vm.runInNewContext(main.slice(start, end) + ';ensureManualRuntimeBuilt', {
     path, Date, app:{ getVersion:() => '0.3.25' },
@@ -160,6 +160,7 @@ test('the local repair gate includes the production dependency audit and stops o
     runToolchainNode:async args => calls.push(args.join(' ')),
     selfRepairToolchainPaths:() => ({ root:'/toolchain' }), readJson:() => ({}),
     manualWorkspaceSourceStatePath:() => '/source-state.json', selfRepairSourceFingerprint:() => 'source',
+    manualRuntimeFingerprint:() => 'runtime', writeJson:() => {}, manualRuntimeStatePath:() => '/runtime.json', installedExecutable:() => '/Jarvis.exe',
     selfRepairSourceRoot:() => '/installed',
   });
   await assert.rejects(() => build('/workspace'), /VULNERABLE_DEPENDENCY/);
