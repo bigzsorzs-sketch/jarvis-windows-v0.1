@@ -52,6 +52,12 @@ test('Self-Repair prompt follows owner request instead of initiating broad analy
   assert.match(main,/Code changes require the explicit Accept button/);
 });
 
+test('repaired runtime reuses the installed Jarvis user-data profile',()=>{
+  assert.match(main,/MANUAL_REPAIR_USER_DATA_REQUIRED/);
+  assert.match(main,/app\.setPath\('userData',manualUserData\)/);
+  assert.match(main,/--jarvis-user-data=' \+ app\.getPath\('userData'\)/);
+});
+
 test('Accept uses validated local activation and restart',()=>{
   const start=main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
   const end=main.indexOf("ipcMain.handle('jarvis:repair:apply'",start);
