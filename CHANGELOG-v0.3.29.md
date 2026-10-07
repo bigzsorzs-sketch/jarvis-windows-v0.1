@@ -40,3 +40,12 @@ Cumulative Windows update based on v0.3.28.
 ## Scope
 
 This release removes GitHub from the Self-Repair feature. The normal application updater may still use the configured stable release source to download verified installers; its SHA-256, manifest and release-target checks remain intact.
+
+## Verification
+
+- CodeQL must pass against the successful main baseline with no new findings.
+- Source syntax parsing, the full automated test suite, lint, typecheck, production dependency audit and Jarvis policy verification must pass.
+- The renderer must build successfully.
+- The installed Self-Repair toolchain, packaged admin-helper handshake and packaged Windows startup smoke test must pass.
+- The release candidate manifest must bind the exact version, commit, installer filename and SHA-256 checksum.
+- Unsigned publication still requires explicit owner approval.
