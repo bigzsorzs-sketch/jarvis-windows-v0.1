@@ -81,9 +81,8 @@ test('date-sensitive active modules use local calendar dates', () => {
   }
 });
 
-test('manual Self-Repair validates in staging and never activates unmerged code locally', () => {
+test('manual Self-Repair activates only a fully validated local runtime', () => {
   const main = read('electron/main.cjs');
-  assert.equal(main.includes('ensureManualRuntimeBuilt'), true);
   const builderStart = main.indexOf('async function ensureManualRuntimeBuilt(');
   const builderEnd = main.indexOf('function clearLegacyManualRuntimeState(',builderStart);
   const builder = main.slice(builderStart,builderEnd);
@@ -91,10 +90,12 @@ test('manual Self-Repair validates in staging and never activates unmerged code 
   assert.match(builder,/const checkNpm = async/);
   assert.match(builder,/await runToolchainNpm\(\['run',command\]/);
   assert.match(builder,/await checkNpm\('build'\)/);
-  assert.match(builder,/enabled:false/);
-  assert.equal(main.includes('scheduleManualRuntimeRestart'), false);
-  assert.equal(main.includes("'--jarvis-manual-runtime'"), false);
-  assert.match(main,/await client\.createRepairPullRequest/);
+  assert.match(builder,/enabled:true/);
+  assert.match(builder,/writeJson\(manualRuntimeStatePath\(\),state\)/);
+  assert.equal(main.includes('scheduleManualRuntimeRestart'), true);
+  assert.equal(main.includes("'--jarvis-manual-runtime'"), true);
+  assert.match(main,/if \(handOffToManualRuntimeIfReady\(\)\) return/);
+  assert.doesNotMatch(main,/createRepairPullRequest|GITHUB_PR_OPENED/);
 });
 
 test('desktop command center keeps centered alignment and app version stays synchronized', () => {
