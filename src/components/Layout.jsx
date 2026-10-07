@@ -250,7 +250,7 @@ export default function Layout() {
       </section>
 
       <LocationSensor />
-      {location.pathname !== '/' && <GlobalVoiceControl />}
+      {location.pathname !== '/' && location.pathname !== '/live-assistant' && <GlobalVoiceControl />}
     </div>
   );
 }
