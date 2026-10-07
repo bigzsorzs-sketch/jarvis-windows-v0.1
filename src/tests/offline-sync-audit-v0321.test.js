@@ -43,7 +43,7 @@ test('manual self-repair parses the entire source before local runtime activatio
   const main = fs.readFileSync('electron/main.cjs','utf8');
   const workflow = fs.readFileSync('.github/workflows/build-windows.yml','utf8');
   const builderStart = main.indexOf('async function ensureManualRuntimeBuilt(');
-  const builderEnd = main.indexOf('function clearLegacyManualRuntimeState(',builderStart);
+  const builderEnd = main.indexOf('function crashLogPath(',builderStart);
   const builder = main.slice(builderStart,builderEnd);
   const applyStart = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
   const applyEnd = main.indexOf("ipcMain.handle('jarvis:repair:apply'",applyStart);
