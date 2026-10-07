@@ -36,6 +36,15 @@ let backupManager;
 let selfRepairLearning;
 let adminDiagnosticsManager;
 const adminHelperConfig = parseHelperArgs(process.argv);
+if (isManualRepairRuntime) {
+  const userDataArg = process.argv.find((value)=>value.startsWith('--jarvis-user-data='));
+  const manualUserData = userDataArg ? userDataArg.slice('--jarvis-user-data='.length) : '';
+  if (!manualUserData || !path.isAbsolute(manualUserData)) {
+    throw new Error('MANUAL_REPAIR_USER_DATA_REQUIRED');
+  }
+  fs.mkdirSync(manualUserData,{recursive:true});
+  app.setPath('userData',manualUserData);
+}
 if (adminHelperConfig) {
   // The elevated helper is a second Electron process. Give it a separate
   // profile so it cannot collide with locks held by the already-running Jarvis.
@@ -461,7 +470,7 @@ function scheduleManualRuntimeRestart(workspace) {
     try {
       app.relaunch({
         execPath:electronPath,
-        args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
+        args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable(),'--jarvis-user-data=' + app.getPath('userData')]
       });
       app.exit(0);
     } catch (error) {
@@ -503,7 +512,7 @@ function handOffToManualRuntimeIfReady() {
   try {
     app.relaunch({
       execPath:electronPath,
-      args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable()]
+      args:[workspace,'--jarvis-manual-runtime','--jarvis-installed-exe=' + installedExecutable(),'--jarvis-user-data=' + app.getPath('userData')]
     });
     app.exit(0);
     return true;
