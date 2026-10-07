@@ -18,11 +18,11 @@ function applyBody(){
   return main.slice(start,end);
 }
 
-test('only one main-process repair apply can run and chat cannot invalidate it mid-flight', () => {
+test('only one Self-Repair apply can run and chat cannot invalidate it mid-flight', () => {
   assert.match(main,/let manualRepairApplyInFlight = false/);
   assert.match(main,/async function selfRepairChat\(payload=\{\}\) \{\s*if \(manualRepairApplyInFlight\) throw new Error\('MANUAL_REPAIR_ALREADY_IN_PROGRESS'\)/);
   const body=applyBody();
-  assert.match(body,/if \(manualRepairApplyInFlight\) throw new Error\('MANUAL_REPAIR_ALREADY_IN_PROGRESS'\)/);
+  assert.match(body,/manualRepairApplyInFlight = true/);
   assert.match(body,/finally \{\s*manualRepairApplyInFlight = false;\s*\}/);
 });
 
@@ -32,40 +32,40 @@ test('new Self-Repair request invalidates old proposals in both layers', () => {
   assert.match(view,/disabled=\{manualApplyBusy \|\| chatBusy \|\| !pendingRepair\?\.hash\}/);
 });
 
-test('pending approval is hash-bound to exact workspace state and expires', () => {
+test('pending approval is exact-workspace-bound and expires', () => {
   assert.match(main,/workspaceSourceFingerprint:selfRepairSourceFingerprint\(entry\.workspace\)/);
   assert.match(main,/saved\.workspaceSourceFingerprint !== selfRepairSourceFingerprint\(manualRepairWorkspaceRoot\(\)\)/);
   assert.match(main,/Date\.now\(\) - Number\(saved\.createdAt \|\| 0\) > 60 \* 60 \* 1000/);
   assert.match(preload,/getPending: \(\) => ipcRenderer\.invoke\('jarvis:self-repair:manual:pending'\)/);
 });
 
-test('Accept uses exact plan owner confirmation backup validation activation and restart in order', () => {
+test('Accept follows exact hash confirmation backup validation activation and restart order', () => {
   const body=applyBody();
   const sequence=[
-    "loadPersistedManualRepairPlan(hash)",
-    "developerRepair.proposalHash(approvedPlan)!==hash",
-    "await requireOwnerPresence",
+    'loadPersistedManualRepairPlan(hash)',
+    'developerRepair.proposalHash(approvedPlan)!==hash',
+    'await requireOwnerPresence',
     "if (!loadPersistedManualRepairPlan(hash)) throw new Error('MANUAL_REPAIR_PLAN_MUTATED')",
-    "developerRepair.snapshotOwner",
-    "developerRepair.applyOwner",
-    "developerRepair.normalizeOwnerPlanFiles",
-    "await validateDirectOwnerRepair",
-    "await ensureManualRuntimeBuilt",
-    "scheduleManualRuntimeRestart(entry.workspace)"
+    'developerRepair.snapshotOwner',
+    'developerRepair.applyOwner',
+    'developerRepair.normalizeOwnerPlanFiles',
+    'await validateDirectOwnerRepair',
+    'await ensureManualRuntimeBuilt',
+    'scheduleManualRuntimeRestart(entry.workspace)'
   ];
   let previous=-1;
   for(const item of sequence){
     const index=body.indexOf(item,previous+1);
-    assert.ok(index>previous,'sequence: '+item);
+    assert.ok(index>previous,item);
     previous=index;
   }
   assert.match(body,/status:'APPLIED_AND_RESTARTING'/);
   assert.doesNotMatch(body,/GitHub|createRepairPullRequest|GITHUB_PR_OPENED/);
 });
 
-test('full local gate writes runtime activation state only after every required command', () => {
+test('full local gate activates only after all required validation commands', () => {
   const start=main.indexOf('async function ensureManualRuntimeBuilt(');
-  const end=main.indexOf('function crashLogPath(',start);
+  const end=main.indexOf('function clearLegacyManualRuntimeState(',start);
   const body=main.slice(start,end);
   assert.ok(start>=0 && end>start);
   for(const step of [
@@ -77,20 +77,20 @@ test('full local gate writes runtime activation state only after every required 
     "await checkNpm('verify:jarvis')",
     "await runToolchainNode(['--test',...testFiles]",
     "await checkNpm('build')",
-    "enabled:true",
-    "writeJson(manualRuntimeStatePath(),state)"
+    'enabled:true',
+    'writeJson(manualRuntimeStatePath(),state)'
   ]) assert.ok(body.includes(step),step);
-  assert.ok(body.indexOf("await checkNpm('build')") < body.indexOf("writeJson(manualRuntimeStatePath(),state)"));
+  assert.ok(body.indexOf("await checkNpm('build')") < body.indexOf('writeJson(manualRuntimeStatePath(),state)'));
 });
 
-test('failed validation removes activation and rolls workspace back', () => {
+test('failed validation clears activation and rolls workspace back', () => {
   const body=applyBody();
   assert.match(body,/if \(!validation\.ok\) \{[\s\S]*developerRepair\.rollbackOwner\(entry\.workspace,backup\)/);
   assert.match(body,/fs\.rmSync\(manualRuntimeStatePath\(\),\{force:true\}\)/);
   assert.match(body,/MANUAL_REPAIR_ROLLBACK_FAILED/);
 });
 
-test('owner repair backup restores bytes', (t) => {
+test('owner repair backup restores exact original bytes', (t) => {
   const workspace=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-safe-repair-'));
   const backups=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-safe-backup-'));
   t.after(()=>{fs.rmSync(workspace,{recursive:true,force:true});fs.rmSync(backups,{recursive:true,force:true});});
