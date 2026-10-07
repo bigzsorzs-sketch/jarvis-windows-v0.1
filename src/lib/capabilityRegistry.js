@@ -5,7 +5,7 @@ const DEFAULT_ROUTES = [
   ['chat','/chat',['chat','asszisztens','jarvis chat','assistant','assistent']],
   ['dashboard','/muszerfal',['műszerfal','muszerfal','dashboard','armaturenbrett','tableau de bord']],
   ['memory','/memoria',['memória','memoria','memory','speicher','memoire']],
-  ['tools','/eszkozok',['eszközök','eszkozok','tools','werkzeuge','outils']],
+  ['tools','/eszkozok',['eszközök','eszkozok','eszköztár','eszkoztar','eszköztárat','eszkoztarat','tools','toolbox','werkzeuge','outils']],
   ['settings','/beallitasok',['beállítások','beallitasok','beállítás','beallitas','settings','einstellungen','parametres']],
   ['contacts','/contacts',['kapcsolatok','kontaktok','contacts','kontakte']],
   ['reminders','/reminders',['emlékeztetők','emlekeztetok','feladatok','tasks','reminders','erinnerungen','rappels']],
