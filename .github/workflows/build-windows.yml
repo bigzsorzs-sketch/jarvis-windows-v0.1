@@ -79,7 +79,12 @@ jobs:
             case "$result" in
               success) echo "Trusted CodeQL security result passed at $GITHUB_SHA"; exit 0 ;;
               missing|pending) sleep 2 ;;
-              *) echo "::error::CodeQL security findings block the installer and release."; exit 1 ;;
+              *)
+                echo "::error::CodeQL security findings block the installer and release."
+                check_id="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "CodeQL" and .app.slug == "github-advanced-security")] | max_by(.id) | .id')"
+                gh api "repos/$GITHUB_REPOSITORY/check-runs/$check_id/annotations" --paginate --jq '.[] | {path,start_line,annotation_level,message}'
+                exit 1
+                ;;
             esac
           done
           echo "::error::No completed trusted CodeQL security result at $GITHUB_SHA"

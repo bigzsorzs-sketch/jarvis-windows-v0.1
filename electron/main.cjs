@@ -1725,7 +1725,7 @@ async function fetchLatestRelease() {
       releaseName:release.name||release.tag_name,
       publishedAt:release.published_at,
       targetCommitish:String(release.target_commitish || ''),
-      exe,
+      exe:{ ...exe, name:expectedInstallerName },
       checksum,
       manifest
     };
@@ -1836,12 +1836,14 @@ async function performOneClickUpdate() {
   const appExe=installedExecutable();
   const userData=app.getPath('userData');
   const helper=`
+param(
+  [Parameter(Mandatory=$true)][int]$pidToWait,
+  [Parameter(Mandatory=$true)][string]$installer,
+  [Parameter(Mandatory=$true)][string]$userData,
+  [Parameter(Mandatory=$true)][string]$backup,
+  [Parameter(Mandatory=$true)][string]$appExe
+)
 $ErrorActionPreference = 'Stop'
-$pidToWait = ${process.pid}
-$installer = '${psQuote(installerPath)}'
-$userData = '${psQuote(userData)}'
-$backup = '${psQuote(backupRoot)}'
-$appExe = '${psQuote(appExe)}'
 Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $backup | Out-Null
 if (Test-Path -LiteralPath $userData) {
@@ -1854,7 +1856,11 @@ Start-Process -FilePath $appExe
   fs.writeFileSync(helperPath,'\uFEFF'+helper,'utf8');
 
   await new Promise((resolve,reject) => {
-    const child=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',helperPath],{
+    const child=spawn('powershell.exe',[
+      '-NoProfile','-ExecutionPolicy','Bypass','-File',helperPath,
+      '-pidToWait',String(process.pid),'-installer',installerPath,
+      '-userData',userData,'-backup',backupRoot,'-appExe',appExe
+    ],{
       detached:true,stdio:'ignore',windowsHide:true
     });
     child.once('error',reject);

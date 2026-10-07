@@ -12,11 +12,12 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function deferred() { let resolve; const promise = new Promise(res => { resolve = res; }); return { promise, resolve }; }
 
 function harness(t, options = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "Jarvis Őr's update "));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), options.pathLabel || "Jarvis Őr's update "));
   t.after(() => fs.rmSync(root, { recursive:true, force:true }));
   const events = [];
   const checksum = 'a'.repeat(64);
   let helperPath;
+  let spawnArgs;
   let fetches = 0;
   const start = main.indexOf('async function oneClickUpdate(');
   const end = main.indexOf('\nfunction payloadContainsSensitiveContext(', start);
@@ -37,10 +38,10 @@ function harness(t, options = {}) {
     githubSelfRepair:{ verifyReleaseManifest:() => events.push('verified-manifest') },
     verifyUpdateSigner:async() => ({ verification:'sha256' }),
     installedExecutable:() => path.join(root, 'Jarvis.exe'),
-    psQuote:value => String(value).replace(/'/g, "''"),
     setTimeout:callback => { events.push('quit-scheduled'); if (options.runQuit) callback(); },
     spawn:(_exe, args) => {
-      helperPath = args.at(-1);
+      spawnArgs = Array.from(args);
+      helperPath = args[args.indexOf('-File') + 1];
       events.push('spawn-called');
       const child = new EventEmitter();
       child.on('error', () => events.push('spawn-error'));
@@ -50,7 +51,7 @@ function harness(t, options = {}) {
     },
   };
   const update = vm.runInNewContext('let oneClickUpdatePromise = null;\n' + main.slice(start, end) + ';oneClickUpdate', context);
-  return { update, events, root, get helperPath() { return helperPath; }, get fetches() { return fetches; } };
+  return { update, events, root, get helperPath() { return helperPath; }, get spawnArgs() { return spawnArgs; }, get fetches() { return fetches; } };
 }
 
 test('two concurrent update requests share one verified download and one installer helper', async t => {
@@ -86,19 +87,37 @@ test('installer helpers preserve Unicode paths for native Windows PowerShell 5',
   await h.update();
   const script = fs.readFileSync(h.helperPath, 'utf8');
   assert.equal(script.charCodeAt(0), 0xFEFF, 'PowerShell 5 requires a BOM for UTF-8 script paths');
-  assert.ok(script.includes("Jarvis Őr''s update"));
+  assert.ok(script.includes('[string]$userData'));
+  assert.equal(h.spawnArgs[h.spawnArgs.indexOf('-userData') + 1], h.root);
+  assert.equal(script.includes(h.root), false);
 });
 
-test('native Windows update helper encoding round-trips a harmless Unicode path', { skip:process.platform !== 'win32' }, async t => {
-  const h = harness(t);
+test('installer helper code stays constant while paths travel as literal parameters', async t => {
+  const first = harness(t);
+  const second = harness(t, { pathLabel:"Jarvis Őr's $() ; & update " });
+  await first.update();
+  await second.update();
+  assert.equal(fs.readFileSync(first.helperPath, 'utf8'), fs.readFileSync(second.helperPath, 'utf8'));
+  for (const [name, value] of [
+    ['-installer', path.join(path.dirname(second.helperPath), 'Jarvis-Setup-0.3.26-x64.exe')],
+    ['-userData', second.root], ['-appExe', path.join(second.root, 'Jarvis.exe')],
+  ]) {
+    assert.equal(second.spawnArgs[second.spawnArgs.indexOf(name) + 1], value);
+  }
+});
+
+test('native Windows update helper parameters round-trip harmless Unicode and shell characters', { skip:process.platform !== 'win32' }, async t => {
+  const h = harness(t, { pathLabel:"Jarvis Őr's $() ; & update " });
   await h.update();
   const script = fs.readFileSync(h.helperPath, 'utf8');
-  const literal = script.match(/^\$userData = (.+)$/m)?.[1];
-  assert.ok(literal);
+  const parameters = script.slice(0, script.indexOf("$ErrorActionPreference"));
+  assert.ok(parameters.includes('param('));
   const probe = path.join(h.root, 'encoding-probe.ps1');
   const result = path.join(h.root, 'encoding-result.txt');
-  fs.writeFileSync(probe, script.slice(0, 1) + `$value = ${literal}\n[IO.File]::WriteAllText($env:JARVIS_ENCODING_PROBE, $value)\n`, 'utf8');
-  execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', probe], {
+  fs.writeFileSync(probe, parameters + `[IO.File]::WriteAllText($env:JARVIS_ENCODING_PROBE, ($userData))\n`, 'utf8');
+  const args = h.spawnArgs.slice();
+  args[args.indexOf('-File') + 1] = probe;
+  execFileSync('powershell.exe', args, {
     timeout:30000, windowsHide:true, env:{ ...process.env, JARVIS_ENCODING_PROBE:result },
   });
   assert.equal(fs.readFileSync(result, 'utf8'), h.root);

@@ -21,8 +21,15 @@ test('the approval UI renders exact original and replacement code without execut
   assert.match(html, /src\/example.jsx/);
   assert.match(html, /const x = &quot;&lt;old&gt;&quot;;/);
   assert.match(html, /const x = &quot;&lt;script&gt;new&lt;\/script&gt;&quot;;/);
-  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<script\b/i);
   assert.match(html, /Egyetlen pontos előfordulás cseréje/);
+  for (const scriptText of ['<SCRIPT>new</SCRIPT>', '<ScRiPt data-test="x">new</ScRiPt>']) {
+    const markup = renderToStaticMarkup(React.createElement(Preview, { tx, patches:[{
+      file:'src/example.jsx', content:scriptText,
+    }] }));
+    assert.doesNotMatch(markup, /<script\b/i);
+    assert.ok(markup.includes('&lt;'));
+  }
 });
 
 test('whole-file and all-occurrence proposals are visibly distinguished before approval', () => {
