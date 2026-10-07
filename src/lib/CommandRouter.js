@@ -1,6 +1,6 @@
 import { runAssistantTurn } from '@/lib/chatOrchestrator';
 import { executeGlobalVoiceCommand } from '@/lib/globalVoiceActions';
-import { findLocalUiCommand, findWorkflowCommand } from '@/lib/commandIntents';
+import { findLocalUiCommand, findWorkflowCommand, findAIToolCommand } from '@/lib/commandIntents';
 import { findSupportResponse } from '@/lib/supportAssistant';
 import { isCallCommand, extractCallTarget, isGlobalVoiceCommand } from '@/lib/voiceCommandRouter';
 import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
@@ -50,10 +50,13 @@ export async function routeUserCommand({
   const workflowCommand = findWorkflowCommand(input, ctx);
   if (workflowCommand) return workflowCommand;
 
+  const aiToolCommand = await findAIToolCommand(input);
+  if (aiToolCommand?.handled) return aiToolCommand;
+
   const supportResponse = findSupportResponse(input, ctx, lang);
   if (supportResponse) return supportResponse;
 
-  if (isGlobalVoiceCommand(input)) {
+  if (source === 'voice' || source === 'live' || isGlobalVoiceCommand(input)) {
     const globalCommand = await executeGlobalVoiceCommand(input);
     if (globalCommand?.handled) {
       return {

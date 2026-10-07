@@ -173,7 +173,7 @@ export default function LiveAssistant() {
     try {
       const routed = await routeUserCommand({
         text: message,
-        source,
+        source: source === 'voice' ? 'voice' : 'live',
         history: userMessages,
         ctx,
         lang,

@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" == refs/tags/v* || "$GITHUB_REF" == refs/heads/fix/* ]]; then
             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-windows.yml/runs?branch=main&status=success&per_page=100" \
               --jq '.workflow_runs[] | select(.event == "push" and .conclusion == "success") | .head_sha' > codeql-main-candidates.txt
             baseline_sha=""

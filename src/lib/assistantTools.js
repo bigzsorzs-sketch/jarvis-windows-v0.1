@@ -252,6 +252,35 @@ export const TOOLS = {
     return { success: true, message: `📧 Email szerkesztő megnyitva – Címzett: ${recipient}, Tárgy: "${sub}"`, data: { to: recipient, subject: sub, sent: false } };
   },
 
+  create_invoice_and_email: async ({ client_name, client_email, items, notes, email_subject }) => {
+    const recipient = requireString(client_email, 'email cím');
+    const invoiceResult = await TOOLS.create_invoice({ client_name, client_email: recipient, items, notes });
+    if (invoiceResult?.success === false || !invoiceResult?.data) return invoiceResult;
+    const invoice = invoiceResult.data;
+    const body = [
+      `Kedves ${client_name},`,
+      '',
+      `Elkészült a számla: ${invoice.invoice_number}.`,
+      `Összeg: £${Number(invoice.total_amount || 0).toFixed(2)}.`,
+      '',
+      'Üdvözlettel,',
+      'Jarvis',
+    ].join('\n');
+    const emailResult = await TOOLS.draft_email({
+      to: recipient,
+      subject: email_subject || `Számla ${invoice.invoice_number}`,
+      body,
+    });
+    const sent = emailResult?.data?.sent === true;
+    return {
+      success: emailResult?.success !== false,
+      message: sent
+        ? `✅ Számla létrehozva és az email elküldve: ${invoice.invoice_number}.`
+        : `✅ Számla létrehozva: ${invoice.invoice_number}. Az email szerkesztő megnyílt.`,
+      data: { invoice, email: emailResult?.data || null },
+    };
+  },
+
   log_blood_sugar: async ({ value, time_of_day }) => {
     const currentUser = await getCurrentUserOrThrow();
     const v = requireNumber(value, 'vércukorérték');
@@ -260,6 +289,19 @@ export const TOOLS = {
     await logAction('log_blood_sugar', `Blood sugar: ${v} mmol/L`, { value: v, time_of_day }, bs);
     const warning = v > 10 ? ' ⚠️ Magas érték!' : v < 4 ? ' ⚠️ Alacsony érték!' : '';
     return { success: true, message: `🩸 Vércukor rögzítve: ${v} mmol/L (${time_of_day || 'reggel'})${warning}`, data: bs };
+  },
+
+  read_latest_blood_sugar: async () => {
+    const currentUser = await getCurrentUserOrThrow();
+    const rows = await jarvis.entities.BloodSugar.filter(getUserFilter(currentUser), '-date', 1).catch(() => []);
+    const latest = rows?.[0] || null;
+    if (!latest) return { success: false, message: '❌ Még nincs rögzítve vércukorérték.' };
+    await logAction('read_latest_blood_sugar', 'Read latest blood sugar', {}, { id: latest.id, value: latest.value });
+    return {
+      success: true,
+      message: `🩸 Legutóbbi vércukor: ${latest.value} mmol/L${latest.time_of_day ? ` (${latest.time_of_day})` : ''}.`,
+      data: latest,
+    };
   },
 
   log_meal: async ({ meal_name, meal_type, calories }) => {
@@ -282,6 +324,14 @@ export const TOOLS = {
     }, currentUser));
     await logAction('log_finance', `Finance: ${desc} £${amt}`, { description: desc, amount: amt, type: t }, entry);
     return { success: true, message: `💰 Pénzügyi tétel: ${desc} – ${t === 'income' ? '+' : '-'}£${amt}`, data: entry };
+  },
+
+  open_map: async ({ query, destination } = {}) => {
+    const target = requireString(String(destination || query || '').trim(), 'térkép cél');
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(target)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    await logAction('open_map', `Open map: ${target}`, { target }, { url });
+    return { success: true, message: `🗺️ Térkép megnyitva: ${target}.`, data: { url, target } };
   },
 
   // Environment tools – delegate to ENV_TOOLS
