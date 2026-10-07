@@ -58,7 +58,7 @@ test('Jarvis orb reflects working and speaking phases and home has one mic contr
   assert.match(voiceStage,/is-working/);
   assert.match(voiceStage,/is-speaking/);
   assert.match(chatPage,/actions=\{<CommandCenterActions/);
-  assert.match(layout,/location\.pathname !== '\/' && <GlobalVoiceControl/);
+  assert.match(layout,/location\.pathname !== '\/' && location\.pathname !== '\/live-assistant' && <GlobalVoiceControl/);
 });
 
 test('voice UI reflects recognition state instead of hands-free flag alone', () => {
