@@ -13,6 +13,7 @@ import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
 import { jarvis } from '@/api/jarvisClient';
 import { useLang } from '@/lib/i18n';
+import { executeResolvedGlobalUiCommand } from '@/lib/globalVoiceNavigator';
 
 const LIVE_ASSISTANT_CONVERSATION_TITLE = 'Live Assistant';
 const DEFAULT_LIVE_ASSISTANT_AVATAR_URL = 'https://skfb.ly/oKCn6';
@@ -178,7 +179,12 @@ export default function LiveAssistant() {
         ctx,
         lang,
       });
-      const reply = sanitizeAssistantText(normalizeAssistantReply(routed.reply || routed.turn?.reply || (lang === 'hu' ? 'Rendben.' : 'Okay.')));
+      let routedReply = routed.reply || routed.turn?.reply || (lang === 'hu' ? 'Rendben.' : 'Okay.');
+      if (routed.uiCommand) {
+        const uiResult = executeResolvedGlobalUiCommand(routed.uiCommand, { navigate, voice });
+        routedReply = uiResult?.reply || routedReply;
+      }
+      const reply = sanitizeAssistantText(normalizeAssistantReply(routedReply));
       const assistantMessages = [
         ...userMessages,
         { role: 'assistant', content: reply, timestamp: new Date().toISOString() },
