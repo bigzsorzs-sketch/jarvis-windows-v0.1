@@ -35,7 +35,7 @@ function harness(t, options = {}) {
     compareVersions:() => 1,
     downloadFile:async(url, file) => fs.writeFileSync(file, url === 'checksum' ? checksum : url === 'manifest' ? '{}' : 'installer'),
     sha256File:async() => checksum,
-    githubSelfRepair:{ verifyReleaseManifest:() => events.push('verified-manifest') },
+    verifyReleaseManifest:() => events.push('verified-manifest'),
     verifyUpdateSigner:async() => ({ verification:'sha256' }),
     installedExecutable:() => path.join(root, 'Jarvis.exe'),
     setTimeout:callback => { events.push('quit-scheduled'); if (options.runQuit) callback(); },
