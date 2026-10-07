@@ -59,7 +59,7 @@ test('repaired runtime reuses the installed Jarvis user-data profile',()=>{
 });
 
 test('validated workspace fingerprint is rechecked before and during local runtime launch',()=>{
-  assert.match(main,/runtimeFingerprint:selfRepairSourceFingerprint\(workspace\)/);
+  assert.match(main,/runtimeFingerprint:manualRuntimeFingerprint\(workspace\)/);
   assert.match(main,/MANUAL_REPAIR_RUNTIME_FINGERPRINT_MISMATCH/);
   assert.match(main,/function validateManualRuntimeLaunch/);
   assert.match(main,/MANUAL_REPAIR_RUNTIME_NOT_VERIFIED/);
