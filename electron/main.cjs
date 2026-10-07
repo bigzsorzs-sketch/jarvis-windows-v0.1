@@ -282,6 +282,29 @@ function selfRepairSourceFingerprint(root = selfRepairSourceRoot()) {
   }
   return digest.digest('hex');
 }
+function manualRuntimeFingerprint(root) {
+  const digest = crypto.createHash('sha256');
+  const visit = (full, relative) => {
+    if (!fs.existsSync(full)) return;
+    const stat = fs.statSync(full);
+    if (stat.isDirectory()) {
+      for (const name of fs.readdirSync(full).sort()) {
+        visit(path.join(full,name),path.posix.join(relative,name));
+      }
+      return;
+    }
+    if (!stat.isFile()) return;
+    digest.update(relative.replace(/\\/g,'/'));
+    digest.update('\0');
+    digest.update(fs.readFileSync(full));
+    digest.update('\0');
+  };
+  for (const entry of ['electron','dist','package.json','package-lock.json']) {
+    visit(path.join(root,entry),entry);
+  }
+  return digest.digest('hex');
+}
+
 async function ensureManualRepairWorkspace() {
   const target = manualRepairWorkspaceRoot();
   const sourceRoot = selfRepairSourceRoot();
@@ -454,7 +477,7 @@ async function ensureManualRuntimeBuilt(workspace) {
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
       || selfRepairSourceFingerprint(selfRepairSourceRoot()),
-    runtimeFingerprint:selfRepairSourceFingerprint(workspace),
+    runtimeFingerprint:manualRuntimeFingerprint(workspace),
     workspace,
     electronPath,
     toolchainRoot:toolchain?.root || null,
@@ -466,7 +489,7 @@ async function ensureManualRuntimeBuilt(workspace) {
 
 function scheduleManualRuntimeRestart(workspace) {
   const state = readManualRuntimeState();
-  if (!state.runtimeFingerprint || state.runtimeFingerprint !== selfRepairSourceFingerprint(workspace)) {
+  if (!state.runtimeFingerprint || state.runtimeFingerprint !== manualRuntimeFingerprint(workspace)) {
     try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
     throw new Error('MANUAL_REPAIR_RUNTIME_FINGERPRINT_MISMATCH');
   }
@@ -513,7 +536,7 @@ function handOffToManualRuntimeIfReady() {
     !fs.existsSync(electronPath)
     || !fs.existsSync(renderer)
     || !state.runtimeFingerprint
-    || state.runtimeFingerprint !== selfRepairSourceFingerprint(workspace)
+    || state.runtimeFingerprint !== manualRuntimeFingerprint(workspace)
   ) {
     try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
     return false;
@@ -544,7 +567,7 @@ function validateManualRuntimeLaunch() {
     state.enabled !== true
     || path.resolve(String(state.workspace || '')) !== workspace
     || !state.runtimeFingerprint
-    || state.runtimeFingerprint !== selfRepairSourceFingerprint(workspace)
+    || state.runtimeFingerprint !== manualRuntimeFingerprint(workspace)
   ) {
     try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
     throw new Error('MANUAL_REPAIR_RUNTIME_NOT_VERIFIED');
