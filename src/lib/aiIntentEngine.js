@@ -1,7 +1,7 @@
-const GLUCOSE_TERM = /\b(vércukor|vercukor|blood\s*sugar|glucose)\b/i;
-const GLUCOSE_LOG_VERB = /\b(rögzíts|rogzits|rögzíteni|rogziteni|naplózd|naplozd|logold|mentsd|menteni|írd\s+be|ird\s+be)\b/i;
-const MAP_TERM = /\b(térkép|terkep|google\s*maps|maps)\b/i;
-const OPEN_VERB = /\b(nyisd\s+meg|nyit(?:sd)?|mutasd|keresd|keress|open|show)\b/i;
+const GLUCOSE_TERM = /(vércukor|vercukor|blood\s*sugar|glucose)/i;
+const GLUCOSE_LOG_VERB = /(rögzíts|rogzits|rögzíteni|rogziteni|naplózd|naplozd|logold|mentsd|menteni|írd\s+be|ird\s+be)/i;
+const MAP_TERM = /(térkép|terkep|google\s*maps|maps)/i;
+const OPEN_VERB = /(nyisd\s+meg|nyit(?:sd)?|mutasd|keresd|keress|open|show)/i;
 
 function normalizeDecimal(value) {
   const n = Number(String(value || '').replace(',', '.'));
@@ -18,9 +18,9 @@ function extractGlucoseValue(text) {
 function extractMapTarget(text) {
   return String(text || '')
     .replace(/google\s*maps/ig, '')
-    .replace(/\b(térkép(?:et|en)?|terkep(?:et|en)?|maps)\b/ig, '')
-    .replace(/\b(nyisd\s+meg|nyit(?:sd)?|mutasd|keresd|keress|open|show)\b/ig, '')
-    .replace(/\b(ide|erre|nekem|kérlek|kerlek)\b/ig, '')
+    .replace(/(térkép(?:et|en)?|terkep(?:et|en)?|maps)/ig, '')
+    .replace(/(nyisd\s+meg|nyit(?:sd)?|mutasd|keresd|keress|open|show)/ig, '')
+    .replace(/(ide|erre|nekem|kérlek|kerlek)/ig, '')
     .replace(/^\s*(?:-+|:)+\s*/, '')
     .trim();
 }
@@ -50,7 +50,7 @@ export function recognizeIntent(userMessage) {
     };
   }
 
-  if (GLUCOSE_TERM.test(text) && /\b(mi|mennyi|legutóbbi|legutobbi|utolsó|utolso|érték|ertek|mutasd|olvasd|read|latest)\b/i.test(text)) {
+  if (GLUCOSE_TERM.test(text) && /(mi|mennyi|legutóbbi|legutobbi|utolsó|utolso|érték|ertek|mutasd|olvasd|read|latest)/i.test(text)) {
     return {
       handled:true,
       intent:'read_glucose',
