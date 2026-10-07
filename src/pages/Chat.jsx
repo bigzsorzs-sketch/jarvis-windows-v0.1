@@ -8,6 +8,7 @@ import { detectLanguage } from '@/lib/languageEngine';
 import { routeUserCommand } from '@/lib/CommandRouter';
 import { useLang } from '@/lib/i18n';
 import { useChatVoiceBridge } from '@/hooks/useChatVoiceBridge';
+import { executeResolvedGlobalUiCommand } from '@/lib/globalVoiceNavigator';
 
 import { logger } from '@/lib/logger';
 import { runWorkflow } from '@/lib/workflowEngine';
@@ -532,6 +533,20 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
         } },
       });
       if (!isCurrentSession()) return;
+
+      if (routed.uiCommand) {
+        const uiResult = executeResolvedGlobalUiCommand(routed.uiCommand, { navigate, voice });
+        const uiReply = uiResult?.reply || routed.reply || 'Rendben.';
+        if (uiReply && !uiResult?.silent) {
+          setMessages(prev => getWindowedMessages([...prev, { role:'assistant', content:uiReply }]));
+          if (voice.state.autoSpeakReplies || handsFree || ctx?.settings?.tts_enabled) {
+            await speakReply(uiReply, detectedFromMessage || detectedLang || lang || 'hu');
+          }
+        }
+        setLoading(false);
+        setLoadingStep('');
+        return;
+      }
 
       if (routed.uiAction === 'enable_driving_mode') {
         setDrivingMode(true);

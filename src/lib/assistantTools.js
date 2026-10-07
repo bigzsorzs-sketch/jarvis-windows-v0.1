@@ -161,22 +161,48 @@ export const TOOLS = {
   search_data: async ({ query, entity }) => {
     const currentUser = await getCurrentUserOrThrow();
     const q = requireString(query, 'keresési feltétel').toLowerCase();
-    const entityList = entity ? [entity] : ['Note', 'TodoItem', 'Memory', 'Reminder', 'Contact'];
+    const entityList = entity ? [entity] : [
+      'Note', 'TodoItem', 'Memory', 'Reminder', 'Contact',
+      'Invoice', 'FinanceEntry', 'BloodSugar', 'MealLog',
+      'SmartDevice', 'Scene', 'Routine', 'Business', 'BusinessClient',
+      'BusinessProject', 'Employee', 'SavedLocation', 'FuelLog',
+      'VehicleProfile', 'RetailProduct', 'RetailSale', 'RouteHistory'
+    ];
     const results = {};
     for (const e of entityList) {
-      if (!jarvis.entities[e]) continue;
-      results[e] = await jarvis.entities[e].search(q, getUserFilter(currentUser), 1000);
+      const api = jarvis.entities[e];
+      if (!api) continue;
+      try {
+        results[e] = await api.search(q, getUserFilter(currentUser), 1000);
+      } catch {
+        const rows = await api.filter(getUserFilter(currentUser)).catch(() => []);
+        results[e] = (rows || []).filter((row) =>
+          safeStringify(row, 20000).toLowerCase().includes(q)
+        );
+      }
     }
     const total = Object.values(results).flat().length;
-    await logAction('search_data', `Searched: "${q}"`, { query: q, entity }, { total });
-    return { success: true, message: `🔍 ${total} találat erre: "${q}".`, data: results };
+    await logAction('search_data', `Searched all Jarvis data: "${q}"`, { query: q, entity }, { total, entities:Object.keys(results) });
+    return { success: true, message: `🔍 ${total} találat erre: "${q}" ${Object.keys(results).length} adattípusban.`, data: results };
   },
 
   call_contact: async ({ name, phone }) => {
-    const n = name || 'Ismeretlen';
-    await logAction('call_contact', `Call trigger: ${n}`, { name: n, phone }, { triggered: true });
-    if (phone) window.location.href = `tel:${phone.replace(/\s/g, '')}`;
-    return { success: true, message: `📞 Hívás indítása: ${n} – ${phone || 'szám ismeretlen'}.`, data: { name: n, phone } };
+    const n = String(name || '').trim() || 'Ismeretlen';
+    let resolvedPhone = String(phone || '').trim();
+    if (!resolvedPhone && name) {
+      const currentUser = await getCurrentUserOrThrow();
+      const matches = await jarvis.entities.Contact.search(String(name).toLowerCase(), getUserFilter(currentUser), 50).catch(() => []);
+      const exact = matches.find((item) => String(item?.name || '').toLowerCase() === String(name).toLowerCase());
+      const selected = exact || matches.find((item) => item?.phone) || null;
+      resolvedPhone = String(selected?.phone || '').trim();
+    }
+    if (!resolvedPhone) {
+      await logAction('call_contact', `Call blocked: ${n}`, { name:n, phone:null }, { triggered:false }, 'failed');
+      return { success:false, message:`❌ Nem találok telefonszámot ehhez a kapcsolathoz: ${n}.`, data:{ name:n, phone:null } };
+    }
+    await logAction('call_contact', `Call trigger: ${n}`, { name:n, phone:resolvedPhone }, { triggered:true });
+    window.location.href = `tel:${resolvedPhone.replace(/\s/g, '')}`;
+    return { success:true, message:`📞 Hívás indítása: ${n} – ${resolvedPhone}.`, data:{ name:n, phone:resolvedPhone } };
   },
 
   create_invoice: async ({ client_name, client_email, items, notes }) => {
@@ -228,9 +254,10 @@ export const TOOLS = {
     });
     doc.setFontSize(14);
     doc.text(`ÖSSZESEN: £${(inv.total_amount || 0).toFixed(2)}`, 20, y + 10);
-    doc.save(`${inv.invoice_number}.pdf`);
-    await logAction('generate_pdf', `PDF generated: ${inv.invoice_number}`, { invoice_id }, { file: `${inv.invoice_number}.pdf` });
-    return { success: true, message: `📄 PDF letöltve: ${inv.invoice_number}.pdf`, data: { invoice: inv } };
+    const fileName = `${inv.invoice_number}.pdf`;
+    doc.save(fileName);
+    await logAction('generate_pdf', `PDF generated: ${inv.invoice_number}`, { invoice_id }, { file:fileName });
+    return { success:true, message:`📄 PDF elkészült: ${fileName}`, data:{ invoice:inv, fileName } };
   },
 
   draft_email: async ({ to, subject, body }) => {
@@ -257,11 +284,22 @@ export const TOOLS = {
     const invoiceResult = await TOOLS.create_invoice({ client_name, client_email: recipient, items, notes });
     if (invoiceResult?.success === false || !invoiceResult?.data) return invoiceResult;
     const invoice = invoiceResult.data;
+
+    const pdfResult = await TOOLS.generate_pdf({ invoice_id:invoice.id });
+    if (pdfResult?.success === false) {
+      return {
+        success:false,
+        message:`❌ A számla elkészült, de a PDF generálása nem sikerült: ${invoice.invoice_number}.`,
+        data:{ invoice, pdf:pdfResult?.data || null }
+      };
+    }
+
     const body = [
       `Kedves ${client_name},`,
       '',
       `Elkészült a számla: ${invoice.invoice_number}.`,
       `Összeg: £${Number(invoice.total_amount || 0).toFixed(2)}.`,
+      `PDF: ${pdfResult?.data?.fileName || invoice.invoice_number + '.pdf'}`,
       '',
       'Üdvözlettel,',
       'Jarvis',
@@ -275,9 +313,9 @@ export const TOOLS = {
     return {
       success: emailResult?.success !== false,
       message: sent
-        ? `✅ Számla létrehozva és az email elküldve: ${invoice.invoice_number}.`
-        : `✅ Számla létrehozva: ${invoice.invoice_number}. Az email szerkesztő megnyílt.`,
-      data: { invoice, email: emailResult?.data || null },
+        ? `✅ Számla és PDF elkészült, az email elküldve: ${invoice.invoice_number}.`
+        : `✅ Számla és PDF elkészült: ${invoice.invoice_number}. Az email szerkesztő megnyílt; a PDF-et csatolni kell, mert közvetlen Gmail-küldés nincs konfigurálva.`,
+      data: { invoice, pdf:pdfResult?.data || null, email:emailResult?.data || null },
     };
   },
 

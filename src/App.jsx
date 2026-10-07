@@ -15,6 +15,7 @@ import PushNotificationManager from './components/jarvis/PushNotificationManager
 import NativeDialogBridge from './components/common/NativeDialogBridge';
 import Layout from './components/Layout';
 import Chat from './pages/Chat';
+const LiveAssistant = lazy(() => import('./pages/LiveAssistant'));
 const Muszerfal = lazy(() => import('./pages/Muszerfal'));
 const Memoria = lazy(() => import('./pages/Memoria'));
 const Eszkozok = lazy(() => import('./pages/Eszkozok'));
@@ -162,7 +163,7 @@ const AuthenticatedApp = () => {
           <Route path="/voice-help" element={<VoiceCommandHelp />} />
           <Route path="/ai-feedback-admin" element={<AiFeedbackAdmin />} />
           <Route path="/system-center" element={<SystemCenter />} />
-          <Route path="/live-assistant" element={<Chat />} />
+          <Route path="/live-assistant" element={<LiveAssistant />} />
 
         </Route>
         <Route path="*" element={<PageNotFound />} />

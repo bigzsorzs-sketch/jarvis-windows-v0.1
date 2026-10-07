@@ -7,6 +7,7 @@ import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { findFastChatReply } from '@/lib/fastChatReplies';
 import { isCodeAssistantRequest, runCodeAssistantTurn } from '@/lib/codeAssistant';
 import { shouldUseAgentPlanner, runAgentTask } from '@/lib/agentOrchestrator';
+import { resolveGlobalUiCommand } from '@/lib/globalVoiceNavigator';
 
 async function findLegacyCallCommand(text, handlers = {}) {
   const lower = text.toLowerCase();
@@ -52,6 +53,16 @@ export async function routeUserCommand({
 
   const aiToolCommand = await findAIToolCommand(input);
   if (aiToolCommand?.handled) return aiToolCommand;
+
+  const globalUiCommand = attachedFiles.length === 0 ? resolveGlobalUiCommand(input) : null;
+  if (globalUiCommand) {
+    return {
+      handled:true,
+      intent:'global_ui_command',
+      uiCommand:globalUiCommand,
+      reply:'',
+    };
+  }
 
   const supportResponse = findSupportResponse(input, ctx, lang);
   if (supportResponse) return supportResponse;
