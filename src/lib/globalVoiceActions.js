@@ -1,31 +1,29 @@
-import { TOOLS, loadFullContext } from '@/lib/assistantTools';
+import { TOOLS, loadFullContext, executeActions } from '@/lib/assistantTools';
 import { runAssistantTurn } from '@/lib/chatOrchestrator';
 import { isCallCommand, extractCallTarget, isNavigationVoiceCommand, extractNavigationTarget, isFinishTripCommand, isLastTripSummaryCommand, isShareNavigationDestinationCommand, extractShareNavigationContact } from '@/lib/voiceCommandRouter';
 import { findContactForNavigation, startNavigationSession, finishNavigationSession, getFrequentDestinationSuggestion, getLastTripSummary, shareActiveNavigationDestination } from '@/lib/navigationTracker';
 import { executeVoiceWorkflowCommand } from '@/lib/voiceWorkflowCommandCenter';
-import { recognizeIntent, executeTool } from '@/lib/aiIntentEngine';
+import { recognizeIntent } from '@/lib/aiIntentEngine';
+import { sanitizeAssistantText } from '@/lib/assistantResponseHandler';
 
 export async function executeGlobalVoiceCommand(transcript) {
   const text = transcript?.trim();
   if (!text) return null;
 
-  const intentResult = await recognizeIntent(text);
-  if (intentResult.handled) {
+  const intent = recognizeIntent(text);
+  if (intent?.handled) {
+    if (!intent.tool) return { handled:true, intent:intent.intent, reply:intent.reply || 'Kérlek pontosítsd.' };
     try {
-      const toolResult = await executeTool(intentResult.tool, intentResult.params);
+      const toolResult = await TOOLS[intent.tool]?.(intent.params || {});
+      if (!toolResult) throw new Error('Az eszköz nem érhető el.');
       return {
-        handled: true,
-        intent: intentResult.intent,
-        reply: toolResult.message,
-        actionResults: [{ tool: intentResult.tool, result: toolResult }]
+        handled:true,
+        intent:intent.intent,
+        reply:toolResult.message || 'Kész.',
+        actionResults:[{ tool:intent.tool, result:toolResult }],
       };
     } catch (error) {
-      return {
-        handled: true,
-        intent: intentResult.intent,
-        reply: `❌ ${error.message}`,
-        actionResults: []
-      };
+      return { handled:true, intent:intent.intent, reply:`❌ ${error?.message || 'A művelet nem sikerült.'}`, actionResults:[] };
     }
   }
 
@@ -109,11 +107,22 @@ export async function executeGlobalVoiceCommand(transcript) {
     source: 'voice',
   });
 
+  const actions = turn.actions || [];
+  const actionResults = actions.length
+    ? await executeActions(actions, { source:'voice', goal:text })
+    : (turn.actionResults || []);
+  const visibleReply = sanitizeAssistantText(turn.reply || '', '');
+  const resultReply = actionResults
+    .map((item) => item?.result?.message)
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
   return {
     handled: true,
     intent: 'unified_voice_assistant_turn',
-    reply: turn.reply || 'Rendben.',
-    actions: turn.actions || [],
-    actionResults: turn.actionResults || [],
+    reply: resultReply || visibleReply || 'Rendben.',
+    actions,
+    actionResults,
   };
 }
