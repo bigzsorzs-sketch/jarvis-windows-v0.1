@@ -260,49 +260,58 @@ function manualWorkspaceSourceStatePath(workspace = manualRepairWorkspaceRoot())
   return path.join(workspace,'.jarvis-source.json');
 }
 
-function selfRepairSourceFingerprint(root = selfRepairSourceRoot()) {
+function fingerprintEntries(root, entries) {
   const digest = crypto.createHash('sha256');
+
   const visit = (full, relative) => {
-    if (!fs.existsSync(full)) return;
-    const stat = fs.statSync(full);
-    if (stat.isDirectory()) {
-      for (const name of fs.readdirSync(full).sort()) {
-        visit(path.join(full,name), path.posix.join(relative,name));
-      }
-      return;
-    }
-    if (!stat.isFile()) return;
-    digest.update(relative.replace(/\\/g,'/'));
-    digest.update('\0');
-    digest.update(fs.readFileSync(full));
-    digest.update('\0');
-  };
-  for (const entry of SELF_REPAIR_FINGERPRINT_ENTRIES) {
-    visit(path.join(root,entry), entry);
-  }
-  return digest.digest('hex');
-}
-function manualRuntimeFingerprint(root) {
-  const digest = crypto.createHash('sha256');
-  const visit = (full, relative) => {
-    if (!fs.existsSync(full)) return;
-    const stat = fs.statSync(full);
-    if (stat.isDirectory()) {
-      for (const name of fs.readdirSync(full).sort()) {
+    let dir = null;
+    try {
+      dir = fs.opendirSync(full);
+      const names = [];
+      let entry;
+      while ((entry = dir.readSync()) !== null) names.push(entry.name);
+      dir.closeSync();
+      dir = null;
+      for (const name of names.sort()) {
         visit(path.join(full,name),path.posix.join(relative,name));
       }
       return;
+    } catch (error) {
+      try { dir?.closeSync(); } catch {}
+      const code = String(error?.code || '');
+      if (code === 'ENOENT') return;
+      if (code !== 'ENOTDIR' && code !== 'EINVAL') throw error;
     }
-    if (!stat.isFile()) return;
-    digest.update(relative.replace(/\\/g,'/'));
-    digest.update('\0');
-    digest.update(fs.readFileSync(full));
-    digest.update('\0');
+
+    let fd = null;
+    try {
+      fd = fs.openSync(full,'r');
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) return;
+      const bytes = fs.readFileSync(fd);
+      digest.update(relative.replace(/\\/g,'/'));
+      digest.update('\0');
+      digest.update(bytes);
+      digest.update('\0');
+    } catch (error) {
+      if (String(error?.code || '') !== 'ENOENT') throw error;
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch {}
+      }
+    }
   };
-  for (const entry of ['electron','dist','package.json','package-lock.json']) {
-    visit(path.join(root,entry),entry);
-  }
+
+  for (const entry of entries) visit(path.join(root,entry),entry);
   return digest.digest('hex');
+}
+
+function selfRepairSourceFingerprint(root = selfRepairSourceRoot()) {
+  return fingerprintEntries(root,SELF_REPAIR_FINGERPRINT_ENTRIES);
+}
+
+function manualRuntimeFingerprint(root) {
+  return fingerprintEntries(root,['electron','dist','package.json','package-lock.json']);
 }
 
 async function ensureManualRepairWorkspace() {
