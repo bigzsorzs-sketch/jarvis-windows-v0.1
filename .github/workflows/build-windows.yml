@@ -47,6 +47,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -74,6 +76,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" == refs/tags/v* ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-windows.yml/runs?branch=main&status=success&per_page=100" \
+              --jq '.workflow_runs[] | select(.event == "push" and .conclusion == "success") | .head_sha' > codeql-main-candidates.txt
+            baseline_sha=""
+            while read -r candidate; do
+              if [[ "$candidate" =~ ^[a-f0-9]{40}$ && "$candidate" != "$GITHUB_SHA" ]] && git merge-base --is-ancestor "$candidate" HEAD; then
+                baseline_sha="$candidate"
+                break
+              fi
+            done < codeql-main-candidates.txt
+            if [[ -z "$baseline_sha" ]]; then
+              echo "::error::No independently successful main ancestor for CodeQL comparison"
+              exit 1
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&per_page=100" --paginate \
+              --jq ".[] | select(.commit_sha == \"$baseline_sha\" and .category == \"/language:javascript-typescript\") | .id" > codeql-baseline-analyses.txt
+            analysis_id="$(head -n 1 codeql-baseline-analyses.txt)"
+            if [[ ! "$analysis_id" =~ ^[0-9]+$ ]]; then
+              echo "::error::No exact CodeQL analysis for successful main ancestor $baseline_sha"
+              exit 1
+            fi
+            gh api -H 'Accept: application/sarif+json' "repos/$GITHUB_REPOSITORY/code-scanning/analyses/$analysis_id" > codeql-baseline.sarif
+            node scripts/verify-codeql-sarif.cjs codeql-results/javascript.sarif codeql-baseline.sarif
+            echo "CodeQL findings passed against successful main ancestor $baseline_sha"
+            exit 0
+          fi
           for attempt in {1..30}; do
             result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" | node scripts/verify-codeql-check.cjs "$GITHUB_SHA")"
             case "$result" in
