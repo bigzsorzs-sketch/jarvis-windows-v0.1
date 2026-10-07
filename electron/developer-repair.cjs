@@ -65,8 +65,14 @@ function isExplicitRepairRequest(input='') {
     return true;
   }
 
-  // Natural Hungarian requests often use a noun plus an execution verb, e.g.
-  // "végre hajtani a javítást" or "készíts javítási tervet".
+  // An inspection/troubleshooting request must not become a mutation merely
+  // because it mentions the word "repair". An explicit mutation verb above
+  // still wins, e.g. "nézd meg és javítsd meg".
+  if (/^(?:nezd\s+meg|vizsgald\s+meg|ellenorizd|miert|why|inspect|check)\b/i.test(text)) {
+    return false;
+  }
+
+  // Natural repair-plan requests may use a repair noun plus an execution verb.
   const mentionsRepair = /\b(?:javitas(?:t|ok|okat|ra|rol|hoz|sal|ban|nak|i)?|patch(?:et)?|repair(?:\s+plan)?|fix)\b/i.test(text);
   const asksExecution = /\b(?:vegre\s*hajt(?:ani|asd|sd|sa|as)?|vegezd\s+el|alkalmaz(?:d|ni)|keszits(?:d)?|generalj|hozz\s+letre|create|prepare|apply)\b/i.test(text);
   return mentionsRepair && asksExecution;
