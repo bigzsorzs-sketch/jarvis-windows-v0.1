@@ -60,7 +60,7 @@ test('installed builds include readable source and run the full local Self-Repai
   assert.equal(pkg.build.files.includes('src/**/*'), true);
   assert.equal(pkg.build.files.includes('electron/**/*'), true);
   const start = main.indexOf('async function ensureManualRuntimeBuilt(');
-  const end = main.indexOf('function clearLegacyManualRuntimeState(',start);
+  const end = main.indexOf('function crashLogPath(',start);
   const body = main.slice(start,end);
   assert.ok(start >= 0 && end > start);
   for (const step of [
