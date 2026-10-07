@@ -500,13 +500,16 @@ This pull request was created only after the exact owner-approved patch passed J
     const number = Number(prNumber);
     if (!Number.isInteger(number) || number < 1) throw new Error('GITHUB_PR_NUMBER_INVALID');
     const pr = await request(`/repos/${repo}/pulls/${number}`);
-    if (pr?.base?.ref !== 'main' || !String(pr?.head?.ref || '').startsWith('fix/jarvis-self-repair-')) {
+    if (pr?.number !== number || pr?.base?.repo?.full_name !== repo
+        || pr?.head?.repo?.full_name !== repo || pr?.base?.ref !== 'main'
+        || !String(pr?.head?.ref || '').startsWith('fix/jarvis-self-repair-')) {
       throw new Error('GITHUB_PR_NOT_SELF_REPAIR');
     }
     const headSha = assertSha(pr?.head?.sha);
     const ci = await getCommitCiStatus(headSha,pr.head.ref);
     return {
       prNumber:number,
+      repo,
       prUrl:pr.html_url || null,
       state:pr.state,
       merged:Boolean(pr.merged),
@@ -540,9 +543,9 @@ This pull request was created only after the exact owner-approved patch passed J
     const status = await getPullRequestStatus(prNumber);
     const expected = assertSha(expectedHeadSha);
     const expectedBase = assertSha(expectedBaseSha);
+    if (status.headSha !== expected) throw new Error('GITHUB_REPAIR_HEAD_CHANGED');
     if (status.merged) return {alreadyMerged:true,mergeSha:assertSha(status.mergeCommitSha),status};
     if (status.state !== 'open') throw new Error('GITHUB_REPAIR_PR_NOT_OPEN');
-    if (status.headSha !== expected) throw new Error('GITHUB_REPAIR_HEAD_CHANGED');
     if (status.ci.state !== 'passed') throw new Error('GITHUB_REPAIR_CI_NOT_PASSED');
 
     // A green repair branch is not sufficient if main moved after that branch

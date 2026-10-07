@@ -20,6 +20,32 @@ function riskLabel(risk, hu) {
   return hu ? 'Alacsony' : 'Low';
 }
 
+function RepairPatchPreview({ patches = [], tx }) {
+  return (
+    <div className="mt-3 space-y-2">
+      {patches.map((patch, index) => (
+        <details key={patch.file + ':' + index} className="rounded-lg border border-border bg-background/70 p-2">
+          <summary className="cursor-pointer font-semibold break-all">{patch.file}</summary>
+          {typeof patch.content === 'string' ? (
+            <div className="mt-2">
+              <p>{tx('A teljes fájl új tartalma:', 'Complete replacement file:')}</p>
+              <pre className="mt-1 max-h-80 overflow-auto whitespace-pre text-[11px]">{patch.content}</pre>
+            </div>
+          ) : (patch.replacements || []).map((edit, editIndex) => (
+            <div key={editIndex} className="mt-2 space-y-1">
+              <p>{edit.all ? tx('Minden előfordulás cseréje', 'Replace every occurrence') : tx('Egyetlen pontos előfordulás cseréje', 'Replace one exact occurrence')}</p>
+              <p className="font-semibold">{tx('Eredeti kód:', 'Original code:')}</p>
+              <pre className="max-h-60 overflow-auto whitespace-pre bg-red-500/5 p-2 text-[11px]">{edit.search}</pre>
+              <p className="font-semibold">{tx('Javított kód:', 'Replacement code:')}</p>
+              <pre className="max-h-60 overflow-auto whitespace-pre bg-green-500/5 p-2 text-[11px]">{edit.replace}</pre>
+            </div>
+          ))}
+        </details>
+      ))}
+    </div>
+  );
+}
+
 function canonicalAppVersion(value = '') {
   return String(value || '').trim().replace(/^v/i,'').split('+')[0];
 }
@@ -313,6 +339,7 @@ export default function SystemCenter() {
     const nextHistory = [...conversation, userTurn];
     pendingRequestEpoch.current += 1;
     setPendingRepair(null);
+    const requestEpoch = pendingRequestEpoch.current;
     setConversation(nextHistory);
     setChatInput('');
     setChatBusy(true);
@@ -322,6 +349,7 @@ export default function SystemCenter() {
         language:lang,
         history:nextHistory.slice(-10)
       });
+      if (requestEpoch !== pendingRequestEpoch.current) return;
       const data = result?.data || {};
       if (data.map) setProjectMap(data.map);
       if (data.pendingRepair?.hash) {
@@ -338,11 +366,12 @@ export default function SystemCenter() {
         model:data.model || null
       }]);
     } catch (error) {
+      if (requestEpoch !== pendingRequestEpoch.current) return;
       setConversation(prev => [...prev, {
         role:'assistant',
         content:tx('Elemzési hiba: ', 'Analysis error: ') + (error?.message || error)
       }]);
-    } finally { setChatBusy(false); }
+    } finally { if (requestEpoch === pendingRequestEpoch.current) setChatBusy(false); }
   };
 
   const applyPendingRepair = async () => {
@@ -796,6 +825,7 @@ export default function SystemCenter() {
                   {tx('Módosítandó fájlok: ','Files to change: ')}{pendingRepair.files.join(', ')}
                 </div>
               )}
+              <RepairPatchPreview patches={pendingRepair.patches || []} tx={tx}/>
             </div>
           )}
 

@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { normalizeConversationMessages } from '../lib/conversationMessages.js';
 
 function actualHistoryNormalization() {
   const source=fs.readFileSync('src/lib/conversationHistory.js','utf8');
   const start=source.indexOf('function normalizeMessages(');
   const end=source.indexOf('export function conversationTitle(',start);
   assert.ok(start>=0&&end>start);
-  return vm.runInNewContext(source.slice(start,end)+'; normalizeMessages',{Date,Number,String,Array,Math});
+  return vm.runInNewContext(source.slice(start,end)+'; normalizeMessages',{normalizeConversationMessages});
 }
 
 const normalize=actualHistoryNormalization();

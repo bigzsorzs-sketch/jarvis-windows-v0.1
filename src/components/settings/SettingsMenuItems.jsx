@@ -10,7 +10,8 @@ export default function SettingsMenuItems({ t }) {
     try {
       const user = await jarvis.auth.me();
       if (!user?.email) throw new Error('Bejelentkezés szükséges.');
-      const conversations = await jarvis.entities.Conversation.filter({ created_by:user.email }, '-created_date');
+      const conversations = (await jarvis.entities.Conversation.filter({ created_by:user.email }, '-created_date'))
+        .filter(row => row.source !== 'chat-deletion');
       const blob = new Blob([JSON.stringify(conversations, null, 2)], { type:'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');

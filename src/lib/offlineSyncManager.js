@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import { networkMonitor } from '@/lib/networkMonitor';
 import { listSyncActions, mutateSyncActionIfUnchanged } from '@/lib/indexedDbOfflineStore';
 import { MAX_SYNC_RETRIES, getRetryDelayMs, isReadyForRetry } from '@/lib/offlineSyncRules';
+import { normalizeConversationMessages, mergeConversationMessages, withConversationWrite, hasConversationDeletion } from '@/lib/conversationMessages';
 
 let syncing = false;
 
@@ -43,67 +44,66 @@ async function syncRouteAction(item, user) {
 
 async function syncConversationSnapshot(item, user) {
   const snapshot = item.payload;
-  const messages = (snapshot?.messages || [])
-    .filter((message) => message?.role && message?.content)
-    .map((message) => ({
-      role: message.role,
-      content: String(message.content),
-      timestamp: message.timestamp || new Date(snapshot.updatedAt || Date.now()).toISOString(),
-    }));
+  const messages = normalizeConversationMessages(
+    snapshot?.messages,
+    new Date(snapshot?.updatedAt || Date.now()).toISOString()
+  );
 
   // Don't save an empty greeting as a separate history entry.
   if (!messages.some((message) => message.role === 'user')) return null;
 
   const offlineSyncId = String(snapshot?.metadata?.offlineChatId || item.id || '').slice(0,128);
   if (!offlineSyncId) return null;
-  const firstUserText = messages.find((message) => message.role === 'user')?.content
-    .replace(/\s+/g,' ').trim() || '';
-  const title = firstUserText ? ('Offline: ' + firstUserText.slice(0,60)) : 'Offline beszélgetés';
-  // An offline snapshot may be older than an already persisted local chat.
-  // Resolve an explicitly linked SQLite ID first, never by the display title.
-  const linkedId = String(snapshot?.metadata?.conversationId || '').trim();
-  let existing = linkedId
-    ? await jarvis.entities.Conversation.get(linkedId)
-    : null;
-  if (existing && existing.source !== 'chat') {
-    throw new Error('OFFLINE_SYNC_TARGET_INVALID');
-  }
-  if (!existing) {
-    const matching = await jarvis.entities.Conversation.filter(
-      { source:'chat', offline_sync_id:offlineSyncId }, '-updated_date', 1
-    );
-    existing = matching?.[0] || null;
-  }
-  const patch = {
-    title,
-    messages,
-    source:'chat',
-    offline_sync_id:offlineSyncId,
-    is_archived:false,
-    metadata:{ ...snapshot.metadata, recoveredFromOffline:true }
-  };
-  if (existing) {
-    const current = Array.isArray(existing.messages) ? existing.messages : [];
-    const samePrefix = (shorter, longer) => shorter.every((message, i) => (
-      message?.role === longer[i]?.role
-      && String(message?.content ?? '') === String(longer[i]?.content ?? '')
-    ));
-    // An older snapshot must not replace later replies or action results.
-    if (messages.length <= current.length && samePrefix(messages,current)) return existing;
-    if (current.length <= messages.length && samePrefix(current,messages)) {
-      return jarvis.entities.Conversation.update(existing.id,{
-        offline_sync_id:offlineSyncId,
-        messages:[...current,...messages.slice(current.length)],
-        metadata:{...(existing.metadata || {}),...snapshot.metadata,recoveredFromOffline:true}
+  return withConversationWrite('session:' + offlineSyncId, async () => {
+    if (await hasConversationDeletion(jarvis.entities.Conversation, snapshot?.metadata?.conversationId, offlineSyncId)) return null;
+    const firstUserText = messages.find((message) => message.role === 'user')?.content
+      .replace(/\s+/g,' ').trim() || '';
+    const title = firstUserText ? ('Offline: ' + firstUserText.slice(0,60)) : 'Offline beszélgetés';
+    // An offline snapshot may be older than an already persisted local chat.
+    // Resolve an explicitly linked SQLite ID first, never by the display title.
+    const linkedId = String(snapshot?.metadata?.conversationId || '').trim();
+    let existing = linkedId
+      ? await jarvis.entities.Conversation.get(linkedId)
+      : null;
+    if (linkedId && !existing) throw new Error('OFFLINE_SYNC_TARGET_MISSING');
+    if (existing && existing.source !== 'chat') {
+      throw new Error('OFFLINE_SYNC_TARGET_INVALID');
+    }
+    if (!existing) {
+      const matching = await jarvis.entities.Conversation.filter(
+        { source:'chat', offline_sync_id:offlineSyncId }, '-updated_date', 1
+      );
+      existing = matching?.[0] || null;
+    }
+    const patch = {
+      title,
+      messages,
+      source:'chat',
+      offline_sync_id:offlineSyncId,
+      is_archived:false,
+      metadata:{ ...snapshot.metadata, recoveredFromOffline:true }
+    };
+    if (existing) {
+      return withConversationWrite('record:' + existing.id, async () => {
+        // Re-read while holding the shared write lock: an online history save
+        // may have completed since the identity lookup above.
+        existing = await jarvis.entities.Conversation.get(existing.id);
+        if (!existing) throw new Error('OFFLINE_SYNC_TARGET_MISSING');
+        if (existing.source !== 'chat') throw new Error('OFFLINE_SYNC_TARGET_INVALID');
+        const current = normalizeConversationMessages(existing.messages);
+        const merged = mergeConversationMessages(current, messages);
+        if (JSON.stringify(merged) === JSON.stringify(current)) return existing;
+        return jarvis.entities.Conversation.update(existing.id, {
+          offline_sync_id:existing.offline_sync_id || offlineSyncId,
+          messages:merged,
+          metadata:{...snapshot.metadata,...(existing.metadata || {}),recoveredFromOffline:true}
+        });
       });
     }
-    // Divergent content is preserved in the queue (retry then manual recovery),
-    // not overwritten or silently discarded.
-    throw new Error('OFFLINE_SYNC_CONVERSATION_CONFLICT');
-  }
-  return jarvis.entities.Conversation.create({
-    ...patch,
-    created_by:user.email,
+    return jarvis.entities.Conversation.create({
+      ...patch,
+      created_by:user.email,
+    });
   });
 }
 

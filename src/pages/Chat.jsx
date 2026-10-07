@@ -28,9 +28,11 @@ import {
   listConversationHistory,
   migrateLegacyChatSnapshotOnce,
   saveConversationHistory,
+  queueConversationSyncAfterMigration as queueConversationSync,
+  saveChatSnapshotAfterMigration as saveChatSnapshot,
 } from '@/lib/conversationHistory';
-import { queueConversationSync, saveChatSnapshot } from '@/lib/indexedDbOfflineStore';
 import { createConversationSaveSession, enqueueConversationSave } from '@/lib/chatSessionPersistence';
+import { ensureConversationMessageIdentity } from '@/lib/conversationMessages';
 import { startOfflineAutoSync, syncOfflineData } from '@/lib/offlineSyncManager';
 import { selfHealingMonitor } from '@/lib/selfHealingMonitor';
 import { handleSelfAuditCommand } from '@/lib/selfAuditCommand';
@@ -70,7 +72,14 @@ export default function Chat() {
       navigate(location.pathname, { replace:true, state:null });
     }
   }, [location.state, location.pathname, navigate]);
-  const [messages, setMessages] = useState([]);
+  const [messages, setRawMessages] = useState([]);
+  const setMessages = useCallback((update) => {
+    setRawMessages((previous) => {
+      const next = typeof update === 'function' ? update(previous) : update;
+      return next.map(ensureConversationMessageIdentity);
+    });
+  }, []);
+  const [storageErrors, setStorageErrors] = useState({});
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
@@ -163,6 +172,7 @@ export default function Chat() {
     conversationSaveSessionRef.current = createConversationSaveSession();
     conversationIdRef.current = null;
     offlineChatIdRef.current = crypto.randomUUID();
+    setStorageErrors({});
     try { sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY); } catch {}
     setHistoryOpen(false);
     setPendingConfirm(null);
@@ -178,7 +188,8 @@ export default function Chat() {
     if (!conversation?.id || !Array.isArray(conversation?.messages)) return;
     conversationSaveSessionRef.current = createConversationSaveSession(conversation.id);
     conversationIdRef.current = conversation.id;
-    offlineChatIdRef.current = conversation.id;
+    offlineChatIdRef.current = conversation.offline_sync_id || conversation.id;
+    setStorageErrors({});
     try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, conversation.id); } catch {}
     setPendingConfirm(null);
     setLoading(false);
@@ -219,7 +230,7 @@ export default function Chat() {
         if (activeConversation?.messages?.length) {
           conversationSaveSessionRef.current = createConversationSaveSession(activeConversation.id);
           conversationIdRef.current = activeConversation.id;
-          offlineChatIdRef.current = activeConversation.id;
+          offlineChatIdRef.current = activeConversation.offline_sync_id || activeConversation.id;
           setDetectedLang(activeConversation?.metadata?.detectedLang || lang || 'hu');
           setMessages(getWindowedMessages(activeConversation.messages));
           return;
@@ -251,8 +262,19 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     if (!messages.length) return;
 
-    void saveChatSnapshot(messages, { detectedLang, handsFree: voice.state.handsFree })
-      .catch((error) => logger.warn('Chat', 'Local snapshot failed', { message:error?.message }));
+    const snapshotSession = conversationSaveSessionRef.current;
+    void saveChatSnapshot(messages, {
+      detectedLang, handsFree:voice.state.handsFree,
+      offlineChatId:offlineChatIdRef.current,
+      conversationId:conversationIdRef.current || null
+    }).then(() => {
+      if (conversationSaveSessionRef.current !== snapshotSession) return;
+      setStorageErrors((previous) => ({ ...previous, local:'' }));
+    }).catch((error) => {
+      logger.warn('Chat', 'Local snapshot failed', { message:error?.message });
+      if (conversationSaveSessionRef.current !== snapshotSession) return;
+      setStorageErrors((previous) => ({ ...previous, local:'A helyi biztonsági mentés nem sikerült. Az üzenetek még láthatók ebben az ablakban.' }));
+    });
 
     if (messages.some((message) => message?.role === 'user')) {
       const saveSession = conversationSaveSessionRef.current;
@@ -266,10 +288,13 @@ export default function Chat() {
           // Persist it under its own ID without replacing the active chat.
           if (conversationSaveSessionRef.current !== savedSession) return;
           conversationIdRef.current = savedId;
+          setStorageErrors((previous) => ({ ...previous, history:'' }));
           try { sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, savedId); } catch {}
         },
-        (error) => {
+        (error, failedSession) => {
           logger.warn('Chat', 'Conversation history save failed', { message:error?.message });
+          if (conversationSaveSessionRef.current !== failedSession) return;
+          setStorageErrors((previous) => ({ ...previous, history:'Az előzmények mentése nem sikerült. Hagyd nyitva ezt az ablakot, amíg a mentés helyreáll.' }));
         }
       ).then(() => refreshConversationHistory())
         .catch((error) => logger.warn('Chat', 'History refresh failed', { message:error?.message }));
@@ -291,12 +316,21 @@ export default function Chat() {
       } else {
         setDegradedMode(false);
         telemetry.clearFallback();
-        queueConversationSync(messagesRef.current, {
+        const syncSession = conversationSaveSessionRef.current;
+        void queueConversationSync(messagesRef.current, {
           detectedLang, handsFree:voice.state.handsFree,
           offlineChatId:offlineChatIdRef.current,
           conversationId:conversationIdRef.current || null
+        }).then(() => {
+          if (conversationSaveSessionRef.current === syncSession) {
+            setStorageErrors((previous) => ({ ...previous, queue:'' }));
+          }
+          return syncOfflineData();
+        }).catch((error) => {
+          logger.warn('Chat', 'Offline queue save failed', { message:error?.message });
+          if (conversationSaveSessionRef.current !== syncSession) return;
+          setStorageErrors((previous) => ({ ...previous, queue:'Az offline üzenetek mentése nem sikerült. Hagyd nyitva ezt az ablakot, és próbáld újra.' }));
         });
-        syncOfflineData();
       }
     });
     return unsub;
@@ -449,7 +483,7 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
     }
     const currentFiles = [...attachedImages];
     const fileLabel = buildFileLabel(currentFiles);
-    const userMsg = { role: 'user', content: msg || fileLabel || '📎 Fájl csatolva', attachedFiles: currentFiles };
+    const userMsg = ensureConversationMessageIdentity({ role: 'user', content: msg || fileLabel || '📎 Fájl csatolva', attachedFiles: currentFiles });
     setMessages(prev => getWindowedMessages([...prev, userMsg]));
     if (import.meta.env?.DEV) console.info('USER_MESSAGE_RENDERED_IMMEDIATELY', { source: typeof overrideText === 'string' ? 'voice' : 'typed' });
     setInput('');
@@ -459,14 +493,22 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
     if (!isCurrentSession()) return;
 
     if (networkMonitor.isOffline()) {
-      const offlineReply = { role: 'assistant', content: 'Jelenleg nincs internetkapcsolat. Az üzenetet helyben tárolom, de az AI nem válaszol automatikusan, amikor visszajön a kapcsolat. Ha választ szeretnél, küldd el újra az üzenetet online állapotban.' };
+      const offlineReply = ensureConversationMessageIdentity({ role: 'assistant', content: 'Jelenleg nincs internetkapcsolat. Az AI nem válaszol automatikusan, amikor visszajön a kapcsolat. Ha választ szeretnél, küldd el újra az üzenetet online állapotban.' });
       const offlineMessages = getWindowedMessages([...messages, userMsg, offlineReply]);
       setMessages(offlineMessages);
-      queueConversationSync(offlineMessages, {
-        detectedLang, handsFree:voice.state.handsFree, offline:true,
-        offlineChatId:offlineChatIdRef.current,
-        conversationId:conversationIdRef.current || null
-      });
+      try {
+        await queueConversationSync(offlineMessages, {
+          detectedLang, handsFree:voice.state.handsFree, offline:true,
+          offlineChatId:offlineChatIdRef.current,
+          conversationId:conversationIdRef.current || null
+        });
+        if (isCurrentSession()) setStorageErrors((previous) => ({ ...previous, queue:'' }));
+      } catch (error) {
+        logger.warn('Chat', 'Offline queue save failed', { message:error?.message });
+        if (isCurrentSession()) {
+          setStorageErrors((previous) => ({ ...previous, queue:'Az offline üzenetek mentése nem sikerült. Hagyd nyitva ezt az ablakot, és próbáld újra.' }));
+        }
+      }
       return;
     }
 
@@ -756,6 +798,11 @@ Only save if genuinely new personal info (name, health fact, preference, habit).
 
   return (
     <div className="flex flex-col h-full bg-background">
+      {Object.values(storageErrors).some(Boolean) && (
+        <div role="alert" className="px-4 py-2 text-sm text-amber-700 dark:text-amber-300 bg-amber-500/10">
+          {Object.values(storageErrors).filter(Boolean).join(' ')}
+        </div>
+      )}
       {showSetup && (
         <SetupWizard onComplete={(newSettings) => {
           setShowSetup(false);

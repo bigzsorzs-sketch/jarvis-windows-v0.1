@@ -76,20 +76,23 @@ export class TranscriptQueue {
   async _drain() {
     if (this._processing || !this._handler || this._paused) return;
     this._processing = true;
-    while (this._queue.length > 0) {
-      const transcript = this._queue.shift();
-      const start = Date.now();
-      try {
-        await this._handler(transcript);
-        telemetry.recordLatency(Date.now() - start);
-      } catch (err) {
-        logger.error(MODULE, 'Handler error', { message: err?.message, stack: err?.stack });
-        telemetry.recordWorkerError();
+    try {
+      while (this._queue.length > 0 && !this._paused) {
+        const transcript = this._queue.shift();
+        const start = Date.now();
+        try {
+          await this._handler(transcript);
+          telemetry.recordLatency(Date.now() - start);
+        } catch (err) {
+          logger.error(MODULE, 'Handler error', { message: err?.message, stack: err?.stack });
+          telemetry.recordWorkerError();
+        }
+        // Yield to browser between each item so UI stays responsive
+        await new Promise(r => setTimeout(r, 0));
       }
-      // Yield to browser between each item so UI stays responsive
-      await new Promise(r => setTimeout(r, 0));
+    } finally {
+      this._processing = false;
     }
-    this._processing = false;
   }
 
   /** Hard clear — call on unmount or session reset */

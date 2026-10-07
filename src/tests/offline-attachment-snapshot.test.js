@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { normalizeConversationMessages } from '../lib/conversationMessages.js';
 
 const source=fs.readFileSync('src/lib/indexedDbOfflineStore.js','utf8');
 
@@ -11,6 +12,7 @@ function makeSnapshotHarness() {
   assert.ok(from>=0 && end>from);
   let saved;
   const context={
+    normalizeConversationMessages,
     STORES:{conversations:'conversations'},
     Date,
     runStore:async (_store, _mode, handler)=>{

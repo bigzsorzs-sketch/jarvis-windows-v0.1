@@ -1,7 +1,8 @@
 @echo off
 setlocal
 title Jarvis One-Click Upgrade
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p='%~f0';$c=Get-Content -Raw -LiteralPath $p;$m='### POWERSHELL ###';$i=$c.IndexOf($m);if($i -lt 0){throw 'Updater payload missing'};Invoke-Expression ($c.Substring($i+$m.Length))"
+set "JARVIS_UPGRADE_SCRIPT=%~f0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$c=Get-Content -Raw -LiteralPath $env:JARVIS_UPGRADE_SCRIPT;$m=[regex]::Match($c,'(?m)^### POWERSHELL ###\r?$');if(-not $m.Success){throw 'Updater payload missing'};Invoke-Expression ($c.Substring($m.Index+$m.Length))"
 exit /b %errorlevel%
 ### POWERSHELL ###
 $ErrorActionPreference = 'Stop'

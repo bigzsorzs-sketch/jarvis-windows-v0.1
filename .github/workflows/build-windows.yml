@@ -43,6 +43,7 @@ jobs:
       packages: read
       contents: read
       actions: read
+      checks: read
 
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +58,37 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:javascript-typescript"
+          output: codeql-results
+
+      - name: Preserve CodeQL findings for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-CodeQL-SARIF
+          path: codeql-results/*.sarif
+          if-no-files-found: warn
+
+      - name: Require successful CodeQL security result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" | node scripts/verify-codeql-check.cjs "$GITHUB_SHA")"
+            case "$result" in
+              success) echo "Trusted CodeQL security result passed at $GITHUB_SHA"; exit 0 ;;
+              missing|pending) sleep 2 ;;
+              *)
+                echo "::error::CodeQL security findings block the installer and release."
+                check_id="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "CodeQL" and .app.slug == "github-advanced-security")] | max_by(.id) | .id')"
+                gh api "repos/$GITHUB_REPOSITORY/check-runs/$check_id/annotations" --paginate --jq '.[] | {path,start_line,annotation_level,message}'
+                exit 1
+                ;;
+            esac
+          done
+          echo "::error::No completed trusted CodeQL security result at $GITHUB_SHA"
+          exit 1
 
   windows-installer:
     needs: codeql

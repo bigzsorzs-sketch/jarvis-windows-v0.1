@@ -117,6 +117,7 @@ function preflightReplacementSearches(currentContent, replacements=[], file='unk
     // the existing "never guess which occurrence to edit" rule.
     current = edit.all ? current.split(search).join(replace) : current.replace(search,replace);
   }
+  return restoreLineEndings(current, String(currentContent).includes('\r\n') ? '\r\n' : '\n');
 }
 function isProtectedRelative(input) {
   const rel = String(input || '').replace(/\\/g,'/').replace(/^\.\//,'');
@@ -200,8 +201,12 @@ function validateOwnerPlan(root, input={}) {
       return { search, replace, all:edit?.all === true };
     });
     if (cleanReplacements.length && !fs.existsSync(target)) throw new Error('DEV_REPAIR_REPLACEMENT_TARGET_MISSING');
-    if (cleanReplacements.length) {
-      preflightReplacementSearches(fs.readFileSync(target,'utf8'), cleanReplacements, file);
+    const currentContent = fs.existsSync(target) ? fs.readFileSync(target,'utf8') : null;
+    const nextContent = hasFullContent
+      ? p.content
+      : preflightReplacementSearches(currentContent, cleanReplacements, file);
+    if (currentContent !== null && normalizeLineEndings(nextContent) === normalizeLineEndings(currentContent)) {
+      throw new Error('DEV_REPAIR_NO_CHANGES:' + file);
     }
     return hasFullContent
       ? { file, content:p.content }
@@ -339,7 +344,11 @@ function sourceMeta(file) {
   const imports = [];
   const importRx = /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"]([^'"]+)['"]/g;
   let match;
-  while ((match = importRx.exec(content)) && imports.length < 40) imports.push(match[1]);
+  while ((match = importRx.exec(content))) imports.push(match[1]);
+  // Electron loads its preload through BrowserWindow configuration rather
+  // than a module import. Keep that proven runtime edge in the source map.
+  const preloadRx = /\bpreload\s*:\s*path\.join\(\s*__dirname\s*,\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((match = preloadRx.exec(content))) imports.push('./' + match[1]);
   const lines = content ? content.split(/\r?\n/).length : 0;
   const todoCount = (content.match(/\b(?:TODO|FIXME|HACK)\b/g)||[]).length;
   const hardcodedUi = (content.match(/>\s*[A-ZÁÉÍÓÖŐÚÜŰ][^<{]{4,80}</g)||[]).length;
@@ -605,6 +614,11 @@ function buildDiagnosticContext(root, query='', options={}) {
   };
 
   const queryLower = String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  for (const file of candidates) {
+    const fullName = file.path.toLowerCase();
+    const fileName = path.posix.basename(fullName);
+    if (queryLower.includes(fullName) || queryLower.includes(fileName)) addPath(file.path);
+  }
   if (/auth|login|bejelent|hiteles|felhasznal|user_not_registered|auth_required/.test(queryLower)) {
     addPath('src/lib/AuthContext.jsx');
     addPath('src/api/jarvisClient.js');
@@ -662,7 +676,8 @@ function buildDiagnosticContext(root, query='', options={}) {
       protected:isProtectedRelative(file.path),
       routes:inspection.architecture.routes.filter((route) => route.file === file.path),
       ipc:inspection.architecture.ipc.filter((item) => item.renderer.includes(file.path) || item.main.includes(file.path)),
-      excerpt
+      excerpt,
+      complete:excerpt === file.content
     });
   }
 

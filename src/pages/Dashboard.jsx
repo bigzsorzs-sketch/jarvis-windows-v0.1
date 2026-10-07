@@ -28,7 +28,8 @@ export default function Dashboard() {
     queryKey: ['conversations'],
     queryFn: async () => {
       const user = await jarvis.auth.me();
-      return user?.email ? jarvis.entities.Conversation.filter({ created_by: user.email }) : [];
+      const rows = user?.email ? await jarvis.entities.Conversation.filter({ created_by: user.email }) : [];
+      return rows.filter(row => row.source !== 'chat-deletion');
     },
     initialData: [],
   });

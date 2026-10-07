@@ -10,10 +10,16 @@ function storage() {
   try { return window.localStorage; } catch { return null; }
 }
 function read(key, fallback) {
-  try { const raw = storage()?.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
+  const local = storage();
+  if (!local) throw new Error('LOCAL_STORAGE_UNAVAILABLE');
+  const raw = local.getItem(key);
+  if (raw == null) return fallback;
+  try { return JSON.parse(raw); } catch { throw new Error('LOCAL_STORAGE_CORRUPT:' + key); }
 }
 function write(key, value) {
-  try { storage()?.setItem(key, JSON.stringify(value)); } catch {}
+  const local = storage();
+  if (!local) throw new Error('LOCAL_STORAGE_UNAVAILABLE');
+  local.setItem(key, JSON.stringify(value));
 }
 function id() {
   try { return crypto.randomUUID(); } catch { return Date.now() + '-' + Math.random().toString(36).slice(2); }
@@ -58,11 +64,11 @@ async function ensureDesktopMigration() {
       try { storage()?.setItem(MIGRATION_KEY, 'done'); } catch {}
       return true;
     }
-    return false;
+    throw new Error('LOCAL_MIGRATION_FAILED');
   })().catch((error) => {
     console.warn('Jarvis SQLite migration deferred:', error);
     migrationPromise = null;
-    return false;
+    throw error;
   });
 
   return migrationPromise;
@@ -70,7 +76,11 @@ async function ensureDesktopMigration() {
 
 function localEntityApi(entityName) {
   const key = ENTITY_PREFIX + entityName;
-  const all = () => read(key, []);
+  const all = () => {
+    const rows = read(key, []);
+    if (!Array.isArray(rows)) throw new Error('LOCAL_STORAGE_CORRUPT:' + key);
+    return rows;
+  };
   const save = (rows) => write(key, rows);
 
   return {

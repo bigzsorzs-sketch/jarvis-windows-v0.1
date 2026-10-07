@@ -73,7 +73,7 @@ function makeApplyHarness(overrides={}) {
   const from = main.indexOf("ipcMain.handle('jarvis:self-repair:manual:apply'");
   const to = main.indexOf("ipcMain.handle('jarvis:repair:apply'",from);
   assert.ok(from>=0&&to>from,'Self-Repair IPC handler not found');
-  vm.runInNewContext('let manualRepairApplyInFlight = false;\n'+main.slice(from,to),context);
+  vm.runInNewContext('let manualRepairApplyInFlight = false; let manualRepairRequestEpoch = 0;\n'+main.slice(from,to),context);
   assert.equal(typeof applyHandler,'function');
   return {apply:applyHandler,events,entry,context,get state(){return state;},get patched(){return patched;}};
 }
