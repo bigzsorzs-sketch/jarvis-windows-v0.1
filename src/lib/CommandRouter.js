@@ -11,6 +11,7 @@ import { shouldUseAgentPlanner, runAgentTask } from '@/lib/agentOrchestrator';
 async function findLegacyCallCommand(text, handlers = {}) {
   const lower = text.toLowerCase();
   if (!isCallCommand(lower)) return null;
+
   const target = extractCallTarget(lower);
   if (!target) return null;
 
@@ -55,7 +56,7 @@ export async function routeUserCommand({
   const supportResponse = findSupportResponse(input, ctx, lang);
   if (supportResponse) return supportResponse;
 
-  if (isGlobalVoiceCommand(input)) {
+  if (source === 'voice' || source === 'live' || isGlobalVoiceCommand(input)) {
     const globalCommand = await executeGlobalVoiceCommand(input);
     if (globalCommand?.handled) {
       return {
@@ -72,7 +73,7 @@ export async function routeUserCommand({
 
   if (attachedFiles.length === 0 && shouldUseAgentPlanner(input)) {
     const agentResult = await runAgentTask({
-      goal: input,
+      goal:input,
       ctx,
       lang,
       source,
