@@ -344,7 +344,11 @@ function sourceMeta(file) {
   const imports = [];
   const importRx = /(?:from\s+|require\s*\(\s*|import\s*\(\s*)['"]([^'"]+)['"]/g;
   let match;
-  while ((match = importRx.exec(content)) && imports.length < 40) imports.push(match[1]);
+  while ((match = importRx.exec(content))) imports.push(match[1]);
+  // Electron loads its preload through BrowserWindow configuration rather
+  // than a module import. Keep that proven runtime edge in the source map.
+  const preloadRx = /\bpreload\s*:\s*path\.join\(\s*__dirname\s*,\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((match = preloadRx.exec(content))) imports.push('./' + match[1]);
   const lines = content ? content.split(/\r?\n/).length : 0;
   const todoCount = (content.match(/\b(?:TODO|FIXME|HACK)\b/g)||[]).length;
   const hardcodedUi = (content.match(/>\s*[A-ZÁÉÍÓÖŐÚÜŰ][^<{]{4,80}</g)||[]).length;
@@ -610,6 +614,11 @@ function buildDiagnosticContext(root, query='', options={}) {
   };
 
   const queryLower = String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  for (const file of candidates) {
+    const fullName = file.path.toLowerCase();
+    const fileName = path.posix.basename(fullName);
+    if (queryLower.includes(fullName) || queryLower.includes(fileName)) addPath(file.path);
+  }
   if (/auth|login|bejelent|hiteles|felhasznal|user_not_registered|auth_required/.test(queryLower)) {
     addPath('src/lib/AuthContext.jsx');
     addPath('src/api/jarvisClient.js');
