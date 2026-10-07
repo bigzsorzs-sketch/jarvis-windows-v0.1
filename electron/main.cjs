@@ -454,6 +454,7 @@ async function ensureManualRuntimeBuilt(workspace) {
     version:String(app.getVersion?.() || ''),
     sourceFingerprint:readJson(manualWorkspaceSourceStatePath(workspace), {}).sourceFingerprint
       || selfRepairSourceFingerprint(selfRepairSourceRoot()),
+    runtimeFingerprint:selfRepairSourceFingerprint(workspace),
     workspace,
     electronPath,
     toolchainRoot:toolchain?.root || null,
@@ -465,6 +466,10 @@ async function ensureManualRuntimeBuilt(workspace) {
 
 function scheduleManualRuntimeRestart(workspace) {
   const state = readManualRuntimeState();
+  if (!state.runtimeFingerprint || state.runtimeFingerprint !== selfRepairSourceFingerprint(workspace)) {
+    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+    throw new Error('MANUAL_REPAIR_RUNTIME_FINGERPRINT_MISMATCH');
+  }
   const electronPath = state.electronPath || manualRuntimeElectronPath(workspace);
   setTimeout(() => {
     try {
@@ -504,7 +509,12 @@ function handOffToManualRuntimeIfReady() {
 
   const electronPath = manualRuntimeElectronPath(workspace);
   const renderer = path.join(workspace,'dist','index.html');
-  if (!fs.existsSync(electronPath) || !fs.existsSync(renderer)) {
+  if (
+    !fs.existsSync(electronPath)
+    || !fs.existsSync(renderer)
+    || !state.runtimeFingerprint
+    || state.runtimeFingerprint !== selfRepairSourceFingerprint(workspace)
+  ) {
     try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
     return false;
   }
@@ -524,6 +534,23 @@ function handOffToManualRuntimeIfReady() {
     });
     return false;
   }
+}
+
+function validateManualRuntimeLaunch() {
+  if (!isManualRepairRuntime) return true;
+  const state = readManualRuntimeState();
+  const workspace = path.resolve(String(process.argv[1] || app.getAppPath() || ''));
+  if (
+    state.enabled !== true
+    || path.resolve(String(state.workspace || '')) !== workspace
+    || !state.runtimeFingerprint
+    || state.runtimeFingerprint !== selfRepairSourceFingerprint(workspace)
+  ) {
+    try { fs.rmSync(manualRuntimeStatePath(),{force:true}); } catch {}
+    throw new Error('MANUAL_REPAIR_RUNTIME_NOT_VERIFIED');
+  }
+  if (state.toolchainRoot) activeSelfRepairToolchainRoot = String(state.toolchainRoot);
+  return true;
 }
 
 function crashLogPath() { return path.join(app.getPath('userData'),'crash-watchdog','crashes.jsonl'); }
@@ -2259,6 +2286,7 @@ app.whenReady().then(async () => {
     return;
   }
 
+  if (isManualRepairRuntime) validateManualRuntimeLaunch();
   if (handOffToManualRuntimeIfReady()) return;
 
   seedInitialSettings();
