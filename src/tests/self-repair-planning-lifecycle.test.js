@@ -29,7 +29,7 @@ function harness(t, options = {}) {
     developerRepair:{ ...repair, buildDiagnosticContext:() => ({ map:{}, excerpts:[{
       path:'src/example.js', excerpt:fs.readFileSync(file, 'utf8'), lines:1, complete:options.complete !== false,
     }] }) },
-    selfRepairLearning:null, adminDiagnosticsManager:null,
+    selfRepairLearning:null, adminDiagnosticsManager:options.admin || null,
     app:{ getVersion:() => '0.3.25' }, readRecentCrashes:() => options.crashes || [], canonicalAppVersion:value => value,
     parseRepairModelJson:JSON.parse,
     persistManualRepairPlan:entry => {
@@ -131,6 +131,17 @@ test('repair planning retains the sensitive-context flag of the diagnostic it us
     model:async input => requests.push(input) });
   await h.chat({ message:'Javítsd a hibát' });
   assert.equal(requests.length, 2);
+  assert.ok(requests.every(input => input.contains_sensitive_context === true));
+});
+
+test('ending an admin session cannot relabel its already captured diagnostic as non-sensitive', async t => {
+  let active = true;
+  const requests = [];
+  const h = harness(t, { admin:{ isActive:() => active, snapshot:async() => ({ userPath:'private-admin-snapshot' }) },
+    model:async input => { requests.push(input); active = false; } });
+  await h.chat({ message:'Javítsd a hibát' });
+  assert.equal(requests.length, 2);
+  assert.ok(requests[0].prompt.includes('private-admin-snapshot'));
   assert.ok(requests.every(input => input.contains_sensitive_context === true));
 });
 

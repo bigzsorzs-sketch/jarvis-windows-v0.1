@@ -1409,7 +1409,8 @@ async function selfRepairChat(payload={}) {
   ).join('\n\n');
   const historyText = history.map(item => `${item.role === 'assistant' ? 'Jarvis Self-Repair' : 'Owner'}: ${String(item.content || '').slice(0,1800)}`).join('\n');
   let adminSystemText = '(administrator diagnostics session is not active)';
-  if (adminDiagnosticsManager?.isActive?.()) {
+  const hasAdminContext = Boolean(adminDiagnosticsManager?.isActive?.());
+  if (hasAdminContext) {
     try {
       const snapshot = await adminDiagnosticsManager.snapshot();
       adminSystemText = JSON.stringify(snapshot, null, 2).slice(0,42000);
@@ -1424,6 +1425,7 @@ async function selfRepairChat(payload={}) {
   const crashText = crashHistory.length
     ? JSON.stringify(crashHistory,null,2).slice(0,18000)
     : `(no crash records for current app version ${currentAppVersion})`;
+  const containsSensitiveContext = hasAdminContext || crashHistory.length > 0;
   const langRule = language === 'hu'
     ? 'Válaszolj kizárólag magyarul.'
     : 'Reply in the selected application language when possible.';
@@ -1474,7 +1476,7 @@ Keep it concise unless the owner asks for deep detail.`;
     prompt,
     task_type:'repair',
     timeout_ms:90000,
-    contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
+    contains_sensitive_context:containsSensitiveContext
   });
   assertCurrentRequest();
 
@@ -1513,7 +1515,7 @@ ${source}`;
         task_type:'repair',
         response_json_schema:{type:'object'},
         timeout_ms:120000,
-        contains_sensitive_context:Boolean(adminDiagnosticsManager?.isActive?.() || crashHistory.length)
+        contains_sensitive_context:containsSensitiveContext
       });
       assertCurrentRequest();
       if (selfRepairSourceFingerprint(workspace) !== sourceFingerprint) {
