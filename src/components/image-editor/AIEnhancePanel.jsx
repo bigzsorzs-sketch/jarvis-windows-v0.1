@@ -13,7 +13,7 @@ export default function AIEnhancePanel({ layers, activeLayer, CANVAS_W, CANVAS_H
     if (loading || !layers[activeLayer]) return;
     
     // Enqueue this operation to run sequentially
-    imageOpQueue.enqueue(async () => {
+    return imageOpQueue.enqueue(async () => {
       setLoading(true);
 
     try {
@@ -23,10 +23,7 @@ export default function AIEnhancePanel({ layers, activeLayer, CANVAS_W, CANVAS_H
       const file = new File([blob], `${mode}.png`, { type: 'image/png' });
 
       setStep(`Réteg feltöltése...`);
-      const uploadForm = new FormData();
-      uploadForm.append('file', file);
-      const uploadRes = await jarvis.functions.invoke('validateFileUpload', uploadForm);
-      const file_url = uploadRes?.data?.file_url;
+      const {file_url} = await jarvis.integrations.Core.UploadFile({file});
       if (!file_url) throw new Error('Upload failed');
 
       // 2. Generate enhancement

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { loadEcosystemData, analyzeEcosystem } from '@/lib/ecosystemEngine';
 import { invokeWithRetry } from '@/lib/llmGateway';
+import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { Loader2, Zap, AlertTriangle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 
 
@@ -68,9 +69,14 @@ Javaslatok: ${analysis.recommendations.map(r => r.title).join(', ')}
 
 Adj rövid, cselekvésre ösztönző elemzést magyarul. Legyél konkrét és döntésorientált.`;
 
-    const result = await invokeWithRetry({ prompt, model: 'claude_sonnet_4_6' });
-    setAiInsight(result);
-    setAiLoading(false);
+    try {
+      const result = await invokeWithRetry({ prompt, model: 'claude_sonnet_4_6' });
+      setAiInsight(normalizeAssistantReply(result));
+    } catch {
+      setAiInsight('Az AI-elemzés most nem sikerült. Próbáld újra.');
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   if (loading) {

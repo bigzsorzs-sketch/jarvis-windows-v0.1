@@ -25,7 +25,8 @@ export default function StyleTransferPanel({ layers, CANVAS_W, CANVAS_H, maskRec
   const fileRef = useRef(null);
 
   const hasMask = maskRect && Math.abs(maskRect.w) > 4 && Math.abs(maskRect.h) > 4;
-  const canApply = (selectedPreset || refImage) && (target === 'canvas' || hasMask);
+  const visibleLayers = layers.filter(layer => layer.visible && layer.canvas);
+  const canApply = (selectedPreset || refImage) && visibleLayers.length > 0 && (target !== 'mask' || hasMask);
 
   const handleRefUpload = (e) => {
     const file = e.target.files?.[0];
@@ -62,7 +63,7 @@ export default function StyleTransferPanel({ layers, CANVAS_W, CANVAS_H, maskRec
       
       if (target === 'layer') {
         // Only apply to active layer
-        const activeLayer = layers[layers.length - 1]; // Last visible layer
+        const activeLayer = visibleLayers[visibleLayers.length - 1]; // Last visible layer
         if (activeLayer?.visible) {
           mCtx.drawImage(activeLayer.canvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
         }
@@ -77,20 +78,16 @@ export default function StyleTransferPanel({ layers, CANVAS_W, CANVAS_H, maskRec
       setStep('Forrás feltöltése...');
       const blob = await canvasToBlob(merged, 'image/png', 0.9);
       const srcFile = new File([blob], 'source.png', { type: 'image/png' });
-      const srcForm = new FormData();
-      srcForm.append('file', srcFile);
-      const srcUploadRes = await jarvis.functions.invoke('validateFileUpload', srcForm);
-      const srcUrl = srcUploadRes?.data?.file_url;
+      const srcUploadRes = await jarvis.integrations.Core.UploadFile({file:srcFile});
+      const srcUrl = srcUploadRes?.file_url;
       if (!srcUrl) throw new Error('Source upload failed');
 
       // 2. Upload reference image if custom
       let refUrl = null;
       if (refImage) {
         setStep('Referencia feltöltése...');
-        const refForm = new FormData();
-        refForm.append('file', refImage.file);
-        const refUploadRes = await jarvis.functions.invoke('validateFileUpload', refForm);
-        refUrl = refUploadRes?.data?.file_url;
+        const refUploadRes = await jarvis.integrations.Core.UploadFile({file:refImage.file});
+        refUrl = refUploadRes?.file_url;
         if (!refUrl) throw new Error('Reference upload failed');
       }
 

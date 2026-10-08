@@ -35,7 +35,7 @@ export function sanitizeAssistantText(value, fallback = SAFE_ASSISTANT_FALLBACK,
 export function summarizeActionResults(results = [], lang = 'en') {
   const hu = String(lang || '').toLowerCase().startsWith('hu');
   if (!Array.isArray(results) || results.length === 0) return hu ? 'Kész.' : 'Done.';
-  const failed = results.filter((item) => item?.result?.success === false).length;
+  const failed = results.filter((item) => item?.blocked || item?.result?.success !== true).length;
   if (failed === results.length) return hu ? 'A művelet nem sikerült. Próbáld újra.' : 'Something went wrong. Please try again.';
   if (failed > 0) return hu ? 'Kész, de néhány rész nem sikerült.' : 'Done, but some parts could not be completed.';
   return hu ? 'Kész.' : 'Done.';

@@ -31,10 +31,7 @@ export default function AIMaskPanel({ maskRect, onClearMask, layers, CANVAS_W, C
       setStep('Feltöltés...');
       const blob = await canvasToBlob(cropCanvas, 'image/png', 0.9);
       const file = new File([blob], 'mask_region.png', { type: 'image/png' });
-      const uploadForm = new FormData();
-      uploadForm.append('file', file);
-      const uploadRes = await jarvis.functions.invoke('validateFileUpload', uploadForm);
-      const file_url = uploadRes?.data?.file_url;
+      const {file_url} = await jarvis.integrations.Core.UploadFile({file});
       if (!file_url) throw new Error('Upload failed');
 
       // 3. Ask LLM via hardened proxy
@@ -46,7 +43,8 @@ export default function AIMaskPanel({ maskRect, onClearMask, layers, CANVAS_W, C
       });
       const genPrompt = typeof analysisRes?.data?.result === 'string'
         ? analysisRes.data.result
-        : (analysisRes?.data || prompt);
+        : '';
+      if (!genPrompt.trim()) throw new Error('Image analysis returned no prompt');
 
       // 4. Generate new image for the masked region
       setStep('AI kép generálása...');

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import TutorialOverlay from '@/components/tutorial/TutorialOverlay';
 import { jarvis } from '@/api/jarvisClient';
 import { invokeWithRetry } from '@/lib/llmGateway';
+import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { X, Loader2 } from 'lucide-react';
 import MobileSelect from '@/components/common/MobileSelect';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -142,9 +143,14 @@ Top termék: ${topName}
 
 Adj rövid, döntésre kész elemzést. Legyél specifikus.`;
 
-    const res = await invokeWithRetry({ prompt });
-    setAiInsight(res);
-    setAiLoading(false);
+    try {
+      const res = await invokeWithRetry({ prompt });
+      setAiInsight(normalizeAssistantReply(res));
+    } catch {
+      setAiInsight('Az AI-elemzés most nem sikerült. Próbáld újra.');
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const filtered = products.filter(p =>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { invokeWithRetry } from '@/lib/llmGateway';
+import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,11 +22,16 @@ export default function QuickActions() {
   const handleAction = async () => {
     if (!input.trim() || !selectedAction) return;
     setIsLoading(true);
-    const response = await invokeWithRetry({
-      prompt: `${selectedAction.prompt}\n\n${input}\n\nVálaszolj magyarul.`,
-    });
-    setResult(response);
-    setIsLoading(false);
+    try {
+      const response = await invokeWithRetry({
+        prompt: `${selectedAction.prompt}\n\n${input}\n\nVálaszolj magyarul.`,
+      });
+      setResult(normalizeAssistantReply(response));
+    } catch {
+      setResult('Az AI-művelet most nem sikerült. Próbáld újra.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

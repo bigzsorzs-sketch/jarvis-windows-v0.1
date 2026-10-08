@@ -24,9 +24,9 @@ export async function recordActionEpisode({ goal='', source='assistant', tool=''
       source:String(source || 'assistant').slice(0,60),
       tool:String(tool).slice(0,120),
       param_keys:Object.keys(params || {}).slice(0,30),
-      outcome:result?.success === false ? 'failed' : 'success',
+      outcome:result?.success === true ? 'success' : 'failed',
       result_summary:String(result?.message || '').slice(0,1000),
-      evidence:safeJson({ success:result?.success !== false, data_type:typeof result?.data },1200),
+      evidence:safeJson({ success:result?.success === true, data_type:typeof result?.data },1200),
     });
   } catch {
     return null;

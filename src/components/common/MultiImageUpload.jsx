@@ -42,12 +42,8 @@ export default function MultiImageUpload({ images = [], onChange, onError }) {
         continue;
       }
       try {
-        const response = await jarvis.functions.invoke('validateFileUpload', { file });
-        if (response.data?.success) {
-          newImages.push({ url: response.data.file_url, name: response.data.filename });
-        } else {
-          onError?.(`❌ ${response.data?.error || 'Fájl validáció sikertelen'}`);
-        }
+        const response = await jarvis.integrations.Core.UploadFile({file});
+        newImages.push({url:response.file_url,name:response.name});
       } catch (err) {
         onError?.(`❌ Feltöltési hiba: ${err?.message || 'Ismeretlen hiba'}`);
       }

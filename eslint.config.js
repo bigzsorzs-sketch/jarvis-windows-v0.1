@@ -7,6 +7,11 @@ import pluginUnusedImports from "eslint-plugin-unused-imports";
 export default [
   { ignores:["dist/**", "release/**", "build/self-repair-toolchain/**"] },
   {
+    files:["src/lib/**/*.js", "src/api/**/*.js", "src/hooks/**/*.{js,jsx}"],
+    languageOptions:{ globals:{...globals.browser,...globals.node}, parserOptions:{ecmaFeatures:{jsx:true}} },
+    rules:{"no-undef":"error"},
+  },
+  {
     files: [
       "src/components/**/*.{js,mjs,cjs,jsx}",
       "src/pages/**/*.{js,mjs,cjs,jsx}",

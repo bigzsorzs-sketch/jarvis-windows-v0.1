@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { invokeWithRetry } from '@/lib/llmGateway';
+import normalizeAssistantReply from '@/lib/normalizeAssistantReply';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,11 +31,16 @@ export default function TranslateTool() {
     setIsLoading(true);
     const sourceLabel = languages.find(l => l.value === sourceLang)?.label;
     const targetLabel = languages.find(l => l.value === targetLang)?.label;
-    const result = await invokeWithRetry({
-      prompt: `Fordítsd le a következő szöveget ${sourceLabel} nyelvről ${targetLabel} nyelvre. Csak a fordítást add vissza, semmi mást:\n\n${input}`,
-    });
-    setOutput(result);
-    setIsLoading(false);
+    try {
+      const result = await invokeWithRetry({
+        prompt: `Fordítsd le a következő szöveget ${sourceLabel} nyelvről ${targetLabel} nyelvre. Csak a fordítást add vissza, semmi mást:\n\n${input}`,
+      });
+      setOutput(normalizeAssistantReply(result));
+    } catch {
+      setOutput('A fordítás most nem sikerült. Próbáld újra.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const swapLanguages = () => {

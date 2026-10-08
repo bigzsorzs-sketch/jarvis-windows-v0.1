@@ -91,10 +91,7 @@ export default function FinanceTool() {
     setScanLoading(true);
     setErrorMessage('');
     try {
-      const uploadForm = new FormData();
-      uploadForm.append('file', file);
-      const uploadRes = await jarvis.functions.invoke('validateFileUpload', uploadForm);
-      const file_url = uploadRes?.data?.file_url;
+      const {file_url} = await jarvis.integrations.Core.UploadFile({file});
       if (!file_url) {
         setErrorMessage('A fájlt most nem tudtuk feldolgozni.');
         return;

@@ -12,7 +12,8 @@ Local-first Windows 10/11 desktop assistant derived from the original NexusAI/Ja
 - Multi-model AI through OpenRouter with a dynamically retrieved model catalogue.
 - API keys are stored only through Electron safeStorage/Windows DPAPI; Jarvis refuses insecure fallback storage.
 - The application runs with the invoking user's normal Windows privileges. Installer elevation is separate and used only when Windows requires it.
-- The Windows build currently operates in local single-owner mode. Gmail OAuth, cloud sync and recorded-audio STT are shown as unavailable until a real backend is configured.
+- The Windows build currently operates in local single-owner mode. Gmail OAuth and cloud sync are not configured. Recorded-audio STT and TTS use the native OpenRouter bridge and require an API key, a compatible model and working microphone/audio permissions.
+- Responsive layouts and touch controls provide a foundation for mobile adaptation. This repository does not yet contain an Android/iOS wrapper or a validated standalone mobile voice/backend integration.
 - Updates require SHA-256 integrity validation and matching valid Authenticode signer identity.
 
 ## Languages
@@ -27,3 +28,5 @@ Output: `release/Jarvis-Setup-<version>-x64.exe`
 
 ## Release validation
 GitHub Actions runs syntax checks, source/regression tests, lint, TypeScript checks for typed source, production dependency audit, signed-rule verification, renderer build, Windows installer build, packaged EXE startup smoke test and SHA-256 generation.
+
+The [integration review](docs/integration-review-2026-10-08.md) records the repaired execution/upload paths and the remaining integration and physical-device checks. Passing automated tests is not evidence that every external service or device works.

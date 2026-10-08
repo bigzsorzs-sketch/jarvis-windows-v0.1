@@ -215,10 +215,10 @@ export async function invokeAI(_integrations, params) {
   return invokeWithRetry(params);
 }
 
-// File upload wrapper — DEPRECATED, use validateFileUpload backend function instead
+// File upload wrapper — DEPRECATED, use Core.UploadFile (which enforces native validation)
 // QA-ONLY: If called, throws immediately to prevent production direct UploadFile usage
 export async function uploadFile(integrations, file) {
-  throw new Error('[FATAL] apiThrottler.uploadFile is deprecated. Use backend validateFileUpload function via jarvis.functions.invoke("validateFileUpload", formData) instead. This is a hard error to catch legacy code.');
+  throw new Error('[FATAL] apiThrottler.uploadFile is deprecated. Use jarvis.integrations.Core.UploadFile({file}) so FileReader and native validation run together.');
 }
 
 // Clear cache

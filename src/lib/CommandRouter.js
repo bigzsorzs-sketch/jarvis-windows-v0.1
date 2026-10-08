@@ -45,6 +45,12 @@ export async function routeUserCommand({
   const fastReply = attachedFiles.length === 0 ? findFastChatReply(input, lang) : null;
   if (fastReply) return fastReply;
 
+  // A single-intent route or voice fallback must not swallow later operations.
+  if (attachedFiles.length === 0 && shouldUseAgentPlanner(input)) {
+    const agentResult = await runAgentTask({ goal:input, ctx, lang, source });
+    if (agentResult?.handled) return agentResult;
+  }
+
   const uiCommand = findLocalUiCommand(input);
   if (uiCommand) return uiCommand;
 
@@ -81,16 +87,6 @@ export async function routeUserCommand({
 
   const legacyCall = await findLegacyCallCommand(input, handlers);
   if (legacyCall?.handled) return legacyCall;
-
-  if (attachedFiles.length === 0 && shouldUseAgentPlanner(input)) {
-    const agentResult = await runAgentTask({
-      goal:input,
-      ctx,
-      lang,
-      source,
-    }).catch(() => null);
-    if (agentResult?.handled) return agentResult;
-  }
 
   const turn = await runAssistantTurn({
     message: input,

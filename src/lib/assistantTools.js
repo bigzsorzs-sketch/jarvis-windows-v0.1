@@ -4,7 +4,7 @@ import { translateText, SUPPORTED_LANGUAGES } from './languageEngine';
 import { loadEcosystemData, analyzeEcosystem, buildEcosystemContext } from './ecosystemEngine';
 import { sanitizeString, escapePromptValue, validateAction } from './assistantTools/sanitization';
 import { logger } from '@/lib/logger';
-import { buildCapabilityPrompt, getApprovalMode, syncDiscoveredTools } from '@/lib/capabilityRegistry';
+import { buildCapabilityPrompt, getApprovalMode, getCapability, syncDiscoveredTools } from '@/lib/capabilityRegistry';
 import { recordActionEpisode } from '@/lib/agentMemory';
 import { localDateKey } from '@/lib/localDate';
 
@@ -628,7 +628,8 @@ export function parseActions(reply) {
 
 /**
  * Execute parsed actions sequentially, guaranteed order.
- * Each action: validate → execute → retry once on transient failure → log.
+ * Each action: validate → execute → acknowledge → log.
+ * Only classified read-only tools may retry a transient failure.
  * On critical failure, remaining actions still run (partial success model).
  */
 export async function executeActions(actions, options = {}) {
@@ -648,6 +649,14 @@ export async function executeActions(actions, options = {}) {
     const toolFn = TOOLS[action.tool];
     if (!toolFn) {
       results.push({ ...action, result: { success: false, message: `❌ Ismeretlen művelet: ${action.tool}` } });
+      continue;
+    }
+
+    if (getCapability(action.tool)?.enabled === false) {
+      const blocked = 'Ez a képesség jelenleg le van tiltva.';
+      const result = {success:false,message:blocked};
+      results.push({...action,blocked,result});
+      await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result});
       continue;
     }
 
@@ -673,26 +682,33 @@ export async function executeActions(actions, options = {}) {
 
     let result;
     let lastErr;
-    // One retry for transient failures
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const maxAttempts = getCapability(action.tool)?.retrySafe === true ? 2 : 1;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         result = await toolFn(action.params);
         lastErr = null;
         break;
       } catch (err) {
         lastErr = err;
-        if (attempt === 0) await new Promise(r => setTimeout(r, 500));
+        const transient = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|429|timeout|temporarily unavailable/i.test(`${err?.code || ''} ${err?.message || ''}`);
+        if (!transient || attempt + 1 >= maxAttempts) break;
+        await new Promise(r => setTimeout(r, 500));
       }
     }
 
     if (lastErr) {
       logger.error('assistantTools', 'Action execution failed', { tool: action.tool, message: lastErr?.message });
       await logAction(action.tool, `Error: ${lastErr.message}`, action.params, null, 'failed');
-      const failedResult = { success: false, message: '❌ Ezt most nem sikerült befejezni. Próbáld meg újra.' };
+      const failedResult = { success: false, unknownOutcome:maxAttempts === 1,
+        message: maxAttempts === 1 ? '❌ A művelet eredményét nem tudtam igazolni. Ellenőrizd, létrejött-e, mielőtt újra kéred.'
+          : '❌ Ezt most nem sikerült befejezni. Próbáld meg újra.' };
       results.push({ ...action, result: failedResult });
       await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result:failedResult});
     } else {
-      logger.info('assistantTools', 'Action executed', { tool: action.tool, success: result?.success !== false });
+      if (!result || typeof result !== 'object' || typeof result.success !== 'boolean') {
+        result = {success:false,unknownOutcome:true,message:'❌ A művelet nem adott ellenőrizhető eredményt. Nem ismételtem meg.'};
+      }
+      logger.info('assistantTools', 'Action executed', { tool: action.tool, success: result.success === true });
       results.push({ ...action, result });
       await recordActionEpisode({goal,source,tool:action.tool,params:action.params,result});
     }

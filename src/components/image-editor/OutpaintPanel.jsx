@@ -49,8 +49,8 @@ export default function OutpaintPanel({ layers, CANVAS_W, CANVAS_H, onOutpaintCo
       const file = new File([blob], 'source.png', { type:'image/png' });
 
       setStep(tx('Kép feltöltése...','Uploading image...'));
-      const uploadRes = await jarvis.functions.invoke('validateFileUpload', { file });
-      const fileUrl = String(uploadRes?.data?.file_url || '').trim();
+      const uploadRes = await jarvis.integrations.Core.UploadFile({file});
+      const fileUrl = String(uploadRes?.file_url || '').trim();
       if (!fileUrl) throw new Error(tx('A feltöltés nem adott vissza használható kép URL-t.','Upload returned no usable image URL.'));
 
       setStep(tx('Kitöltési prompt generálása...','Generating fill prompt...'));

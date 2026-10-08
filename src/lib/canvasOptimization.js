@@ -92,11 +92,7 @@ export async function uploadCanvasAsFile(canvas, filename = 'image.png', type = 
     const blob = await canvasToBlob(canvas, type);
     const file = new File([blob], filename, { type });
 
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const res = await jarvis.functions.invoke('validateFileUpload', formData);
-    return res.data;
+    return await jarvis.integrations.Core.UploadFile({file});
   } catch (err) {
     logger.error(MODULE, 'uploadCanvasAsFile failed', { err: err?.message });
     throw err;
