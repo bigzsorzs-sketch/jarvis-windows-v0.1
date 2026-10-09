@@ -18,7 +18,7 @@ const profile = path.join(root, 'profile');
 fs.mkdirSync(profile, { recursive:true });
 fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({ language:'hu', aiProvider:'openrouter' }));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-let child, socket;
+let child, socket, runtime;
 const report = { version:require('../package.json').version, started_at:new Date().toISOString(), steps:[], provider_calls:false, hardware_calls:false };
 function done(name) { report.steps.push({ name, success:true }); console.log('Installed workflow OK:', name); }
 function run(exe, args, timeout = 120000) {
@@ -98,7 +98,7 @@ async function stop() {
     await run(installer, ['/S', '/D=' + install]);
     assert.ok(fs.existsSync(path.join(install, 'Jarvis.exe')));
     done('NSIS installation into isolated directory');
-    let runtime = await launch();
+    runtime = await launch();
     const result = await runtime.evaluate(`(async () => {
       const bridge = window.jarvisDesktop;
       const user = await bridge.data.getUser();
@@ -124,8 +124,22 @@ async function stop() {
     assert.equal(result.database.integrity, 'ok');
     assert.ok(path.resolve(result.database.databasePath).startsWith(path.resolve(profile) + path.sep));
     done('real preload/IPC/policy/SQLite sale, duplicate prevention, invoice payment and settings');
+    const config = await runtime.evaluate(`window.jarvisDesktop.invokeFunction('gmailConfigure', { client_id:'acceptance-client.apps.googleusercontent.com', client_secret:'' })`);
+    assert.equal(config.data.success, true);
+    assert.equal(config.data.configured, true);
+    assert.equal(config.data.connected, false);
+    done('native Gmail configuration without any provider request');
     for (const [route, text] of [['retail','Acceptance product'], ['tools/invoices','ACCEPTANCE-001'], ['tools/finance','Számlafizetés'], ['holding','Acceptance shop'], ['gmail','Gmail']]) {
+      report.current_screen = route;
       await runtime.evaluate(`location.hash = '#/${route}'`);
+      if (route === 'tools/finance') {
+        let selected = false;
+        for (let i = 0; i < 40; i++) {
+          selected = await runtime.evaluate(`(() => { const button = document.querySelector('button[data-finance-tab="tetelek"]'); if (!button || button.disabled) return false; button.click(); return true; })()`);
+          if (selected) break; await wait(250);
+        }
+        assert.ok(selected, 'FINANCE_ENTRIES_TAB_NOT_AVAILABLE');
+      }
       let found = false;
       for (let i = 0; i < 40; i++) {
         found = await runtime.evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`);
@@ -134,6 +148,19 @@ async function stop() {
       assert.ok(found, 'Installed screen failed: ' + route);
       done('installed renderer screen: ' + route);
     }
+    let canEdit = false;
+    for (let i = 0; i < 40; i++) {
+      canEdit = await runtime.evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(b => /Konfiguráció módosítása|Edit configuration/.test(b.textContent)); if (!button || button.disabled) return false; button.click(); return true; })()`);
+      if (canEdit) break; await wait(250);
+    }
+    assert.ok(canEdit, 'GMAIL_CONFIGURATION_NOT_EDITABLE');
+    let editVisible = false;
+    for (let i = 0; i < 40; i++) {
+      editVisible = await runtime.evaluate(`Boolean(document.querySelector('input[aria-label="Google OAuth client ID"]'))`);
+      if (editVisible) break; await wait(250);
+    }
+    assert.ok(editVisible, 'GMAIL_CONFIGURATION_FORM_NOT_VISIBLE');
+    done('installed Gmail screen reopens OAuth configuration for correction');
     const screenshot = await runtime.command('Page.captureScreenshot', { format:'png' });
     fs.mkdirSync('release', { recursive:true });
     fs.writeFileSync('release/windows-acceptance.png', Buffer.from(screenshot.data, 'base64'));
@@ -146,13 +173,16 @@ async function stop() {
       const entries = await d.filter('FinanceEntry', {}, null, null);
       const notes = await d.filter('Note', {}, null, null);
       const settings = await window.jarvisDesktop.getSettings();
-      return { products, sales, entries, notes, settings };
+      const gmail = (await window.jarvisDesktop.invokeFunction('gmailStatus', {})).data;
+      return { products, sales, entries, notes, settings, gmail };
     })()`);
     assert.equal(persisted.products[0].stock, 8);
     assert.equal(persisted.sales.length, 1);
     assert.equal(persisted.entries.length, 2);
     assert.equal(persisted.notes[0].content, 'Persistence verified');
     assert.equal(persisted.settings.language, 'hu');
+    assert.equal(persisted.gmail.configured, true);
+    assert.equal(persisted.gmail.connected, false);
     done('installed app restart preserves records and settings');
     await stop();
     const uninstaller = path.join(install, 'Uninstall Jarvis.exe');
@@ -164,6 +194,14 @@ async function stop() {
     report.success = true;
   } catch (error) {
     report.success = false; report.error = String(error.stack || error);
+    if (runtime) {
+      try {
+        report.screen_text = await runtime.evaluate('document.body.innerText');
+        const screenshot = await runtime.command('Page.captureScreenshot', { format:'png' });
+        fs.mkdirSync('release', { recursive:true });
+        fs.writeFileSync('release/windows-acceptance.png', Buffer.from(screenshot.data, 'base64'));
+      } catch (captureError) { report.capture_error = String(captureError.message || captureError); }
+    }
     console.error(report.error); process.exitCode = 1;
   } finally {
     await stop().catch(() => {});

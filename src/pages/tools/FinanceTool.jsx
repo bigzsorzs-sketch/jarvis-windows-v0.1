@@ -172,7 +172,7 @@ export default function FinanceTool() {
         {/* Tabs */}
         <div className="flex bg-secondary rounded-2xl p-1 mb-5">
           {[['attekintes', `📊 ${t('overview_tab')}`], ['tetelek', `📋 ${t('entries_tab')}`]].map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)}
+            <button key={key} data-finance-tab={key} onClick={() => setTab(key)}
               className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
               {label}
             </button>

@@ -181,6 +181,7 @@ Adj vissza JSON-t:
             <Mail size={40} className="mx-auto text-red-400/50 mb-4" />
             <h2 className="text-base font-semibold text-foreground mb-2">{t('gmail_connect_title')}</h2>
             <p className="text-xs text-muted-foreground mb-5">{t('gmail_connect_desc')}</p>
+            {configured === true && <button onClick={() => setConfigured(false)} disabled={connecting} className="mb-4 text-sm text-primary disabled:opacity-50">{lang === 'hu' ? 'Konfiguráció módosítása' : 'Edit configuration'}</button>}
             {configured === false && <div className="space-y-3 mb-4 text-left">
               <p className="text-xs text-muted-foreground">{lang === 'hu' ? 'Google Desktop OAuth-kliens szükséges. A fiókengedélyt a Google saját böngészős oldalán adod meg.' : 'A Google Desktop OAuth client is required. Account consent happens in the Google browser page.'}</p>
               <input aria-label="Google OAuth client ID" value={clientId} onChange={e => setClientId(e.target.value)} placeholder="Client ID" className="w-full bg-secondary rounded-lg p-2 text-sm" />
