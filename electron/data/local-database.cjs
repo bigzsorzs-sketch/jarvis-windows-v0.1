@@ -127,7 +127,7 @@ class LocalDatabase {
   }
 
   create(entity, data = {}) {
-    if (entity === 'RetailSale' || entity === 'RetailOperation' || entity === 'EmailDelivery') throw new Error('USE_MANAGED_OPERATION');
+    if (entity === 'RetailSale' || entity === 'RetailOperation' || entity === 'RetailStockMovement' || entity === 'EmailDelivery') throw new Error('USE_MANAGED_OPERATION');
     if (entity === 'Invoice') {
       if (data.status === 'kifizetve' || data.payment_entry_id) throw new Error('USE_INVOICE_PAYMENT');
       data = retail.invoiceData(data);
@@ -255,6 +255,7 @@ class LocalDatabase {
   }
 
   assertUnmanaged(entity, id) {
+    if (entity === 'RetailStockMovement') throw new Error('STOCK_MOVEMENT_MANAGED');
     if (entity === 'RetailSale' || entity === 'RetailOperation' || entity === 'EmailDelivery') throw new Error('RETAIL_SALE_MANAGED');
     const row = entity === 'FinanceEntry' ? this.filter(entity, { id }, null, 1)[0] : null;
     if (row?.source_sale_id || row?.source_invoice_id) throw new Error('RETAIL_LEDGER_MANAGED');

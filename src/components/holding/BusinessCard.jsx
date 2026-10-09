@@ -44,6 +44,7 @@ export default function BusinessCard({ business, employeeCount, projectCount, on
           <span className={`text-xs font-bold ${profit >= 0 ? 'text-primary' : 'text-red-400'}`}>
             {profit >= 0 ? '+' : ''}£{profit.toLocaleString()}
           </span>
+          <span className="text-[10px] text-muted-foreground">Pénzforgalmi egyenleg</span>
           <span className="text-xs text-muted-foreground">{projectCount} projekt</span>
           <ChevronRight size={14} className="text-muted-foreground mt-1" />
         </div>

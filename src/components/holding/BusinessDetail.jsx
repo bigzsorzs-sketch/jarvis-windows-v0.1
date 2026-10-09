@@ -145,7 +145,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
               {[
                 { label: 'Havi bevétel', val: `£${(business.revenue_monthly||0).toLocaleString()}`, color: 'text-green-400' },
                 { label: 'Havi kiadás', val: `£${(business.expense_monthly||0).toLocaleString()}`, color: 'text-red-400' },
-                { label: 'Profit', val: `£${profit.toLocaleString()}`, color: profit >= 0 ? 'text-primary' : 'text-red-400' },
+                { label: 'Pénzforgalmi egyenleg', val: `£${profit.toLocaleString()}`, color: profit >= 0 ? 'text-primary' : 'text-red-400' },
                 { label: 'Bérköltség', val: `£${totalSalary.toLocaleString()}`, color: 'text-orange-400' },
               ].map(({ label, val, color }) => (
                 <div key={label} className="bg-card border border-border rounded-2xl p-3">

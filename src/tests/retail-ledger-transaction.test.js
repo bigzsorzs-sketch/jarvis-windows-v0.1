@@ -68,10 +68,11 @@ test('invalid quantity, discount, calendar date and overselling never change dat
 test('separate concurrent connections observe current stock and refuse overselling', t => {
   const { db, request } = fixture(t);
   const second = new LocalDatabase(db.dbPath);
-  t.after(() => second.close());
+  try {
   db.recordRetailSale({ ...request, quantity:8 });
   assert.throws(() => second.recordRetailSale({ ...request, quantity:3, operation_id:'retail-operation-0002' }), /INSUFFICIENT_STOCK/);
   assert.equal(second.filter('RetailProduct')[0].stock, 2);
+  } finally { second.close(); }
 });
 
 test('return restores stock and records a compensating refund exactly once', t => {
@@ -97,6 +98,9 @@ test('stock movement uses latest stock and stale stocktakes cannot overwrite a s
   const movement = { product_id:product.id, quantity:3, direction:'in', operation_id:'stocktaking-operation-0002' };
   assert.equal(db.adjustRetailStock(movement).product.stock, 11);
   assert.equal(db.adjustRetailStock(movement).product.stock, 11);
+  const audit = db.filter('RetailStockMovement')[0];
+  assert.throws(() => db.delete('RetailStockMovement', audit.id), /STOCK_MOVEMENT_MANAGED/);
+  assert.throws(() => db.create('RetailStockMovement', { stock:100 }), /USE_MANAGED_OPERATION/);
 });
 
 test('ledger summaries use actual current-month company entries, excluding projections and personal money', t => {

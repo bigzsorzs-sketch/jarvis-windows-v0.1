@@ -100,7 +100,7 @@ export function analyzeEcosystem(data) {
         type: 'low_margin',
         severity: b.margin < 0 ? 'critical' : 'warning',
         business: b.name,
-        message: `${b.name}: ${b.margin.toFixed(1)}% profitráta – optimalizáld a kiadásokat!`,
+        message: `${b.name}: a pénzforgalmi egyenleg a bevétel ${b.margin.toFixed(1)}%-a – vizsgáld meg a pénzmozgásokat és a kiadásokat!`,
         value: b.margin,
       });
     }
@@ -210,7 +210,7 @@ function generateRecommendations({ revenueByBiz, workloadByBiz, inefficiencies, 
     recs.push({
       priority: 'high',
       icon: '📉',
-      title: 'Profitráta javítása',
+      title: 'Pénzforgalmi egyenleg javítása',
       action: `Elemezd a ${revenueByBiz.find(b => b.margin === Math.min(...revenueByBiz.map(x => x.margin)))?.name || 'legrosszabb'} cég kiadásait – csökkentsd 10%-kal.`,
     });
   }
@@ -280,7 +280,9 @@ export function buildEcosystemContext(analysis) {
   return `
 ━━━ ECOSYSTEM STATUS ━━━
 Ecosystem Score: ${score}/100
-Total Monthly Revenue: £${totalRevenue.toFixed(0)} | Net Profit: £${netProfit.toFixed(0)} | Margin: ${margin.toFixed(1)}%
+Period: ${analysis.financialPeriod || 'current month'}
+Company cash received: £${totalRevenue.toFixed(0)} | Net cash flow: £${netProfit.toFixed(0)} | Cash flow / receipts: ${margin.toFixed(1)}%
+These are recorded cash movements, not full accrual-accounting profit. Unpaid invoices are not received cash.
 Active Projects: ${activeProjects} | Overdue: ${overdueProjects} | Unpaid Invoices: £${unpaidTotal.toFixed(0)}
 Inefficiencies detected (${inefficiencies.length}): ${inefficiencies.map(i => i.message).join(' | ') || 'none'}
 `;
