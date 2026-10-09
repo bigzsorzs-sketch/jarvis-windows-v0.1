@@ -11,7 +11,7 @@ const widgets = [
     match: props => props.onClick && props.children?.includes?.('Indítás') },
   { name: 'TranslateTool', path: 'src/pages/tools/TranslateTool.jsx', states: { 2: 'Demo' }, output: 3, loading: 4,
     match: props => props.onClick && props.children?.includes?.('Fordítás') },
-  { name: 'Retail', path: 'src/pages/Retail.jsx', states: { 0: 'insights', 3: false }, output: 7, loading: 8,
+  { name: 'Retail', path: 'src/pages/Retail.jsx', states: { 0: 'insights', 5: false }, output: 9, loading: 10,
     match: props => props.onGenerate },
   { name: 'EcosystemOptimizer', path: 'src/components/holding/EcosystemOptimizer.jsx', states: { 0: analysis, 1: false }, output: 2, loading: 3,
     match: props => props.onClick && props.children?.includes?.('AI Stratégiai tanács') },
@@ -37,7 +37,7 @@ function renderHarness(widget, invokeWithRetry) {
       const index = hook++;
       states[index] = Object.hasOwn(widget.states, index) ? widget.states[index] : initial;
       return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value; changes.push({ index, value: states[index] }); }];
-    }, useEffect: () => {} },
+    }, useEffect: () => {}, useRef: initial => ({ current: initial }) },
     '@/lib/llmGateway': { invokeWithRetry },
     '@/lib/i18n': { useLang: () => ({ t: key => key }) },
     '@/lib/ecosystemEngine': {},

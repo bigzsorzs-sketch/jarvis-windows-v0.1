@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
+const retail = require('./retail-service.cjs');
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -126,6 +127,29 @@ class LocalDatabase {
   }
 
   create(entity, data = {}) {
+    if (entity === 'RetailSale' || entity === 'RetailOperation' || entity === 'EmailDelivery') throw new Error('USE_MANAGED_OPERATION');
+    if (entity === 'Invoice') {
+      if (data.status === 'kifizetve' || data.payment_entry_id) throw new Error('USE_INVOICE_PAYMENT');
+      data = retail.invoiceData(data);
+      if (data.business_id && !this.filter('Business', { id:data.business_id, created_by:this.getUser().email }).length) throw new Error('BUSINESS_NOT_FOUND');
+    }
+    if (entity === 'RetailProduct') {
+      retail.validateProduct(data);
+      if (data.business_id && !this.filter('Business', { id:data.business_id, created_by:this.getUser().email }).length) throw new Error('BUSINESS_NOT_FOUND');
+    }
+    if (entity === 'FinanceEntry') {
+      if (data.source_sale_id || data.source_invoice_id) throw new Error('LINKED_LEDGER_MANAGED');
+      if (data.operation_id) return retail.recordFinance(this, data).entry;
+      data = { ...data, currency:retail.currency(data.currency), amount_minor:retail.money(data.amount, 'AMOUNT') };
+      if (!['income', 'expense'].includes(data.type)) throw new Error('FINANCE_TYPE_INVALID');
+      if (data.category != null && !['ceges', 'magan'].includes(data.category)) throw new Error('FINANCE_CATEGORY_INVALID');
+      if (data.date) retail.date(data.date);
+      if (data.business_id && !this.filter('Business', { id:data.business_id, created_by:this.getUser().email }).length) throw new Error('BUSINESS_NOT_FOUND');
+    }
+    return this._create(entity, data);
+  }
+
+  _create(entity, data = {}) {
     this.ensureOpen();
     const user = this.getUser();
     const incoming = clone(data);
@@ -153,6 +177,39 @@ class LocalDatabase {
   }
 
   update(entity, id, patch = {}) {
+    if (entity === 'Invoice') {
+      retail.currency(patch.currency);
+      if (patch.business_id && !this.filter('Business', { id:patch.business_id, created_by:this.getUser().email }).length) throw new Error('BUSINESS_NOT_FOUND');
+      for (const key of ['issue_date', 'due_date']) if (patch[key]) retail.date(patch[key]);
+      const current = this.filter(entity, { id }, null, 1)[0];
+      if (current?.payment_entry_id) {
+        if (patch.status === 'kifizetve' && Object.keys(patch).length === 1) return current;
+        throw new Error('PAID_INVOICE_LOCKED');
+      }
+      if (patch.status === 'kifizetve') {
+        if (Object.keys(patch).length !== 1) throw new Error('USE_INVOICE_PAYMENT');
+        return retail.recordInvoicePayment(this, { invoice_id:id, operation_id:'invoice-payment-' + id }).invoice;
+      }
+      if (patch.payment_entry_id) throw new Error('USE_INVOICE_PAYMENT');
+      if (patch.items) patch = retail.invoiceData({ ...current, ...patch });
+      else if (patch.total_amount != null) throw new Error('INVOICE_TOTAL_DERIVED_FROM_ITEMS');
+    }
+    this.assertUnmanaged(entity, id);
+    if (entity === 'RetailProduct') retail.validateProduct(patch);
+    if (['RetailProduct', 'FinanceEntry'].includes(entity) && patch.business_id && !this.filter('Business', { id:patch.business_id, created_by:this.getUser().email }).length) throw new Error('BUSINESS_NOT_FOUND');
+    if (entity === 'FinanceEntry') {
+      retail.currency(patch.currency);
+      if (patch.source_sale_id || patch.source_invoice_id) throw new Error('LINKED_LEDGER_MANAGED');
+      if (patch.amount_minor != null && patch.amount == null) throw new Error('AMOUNT_MINOR_DERIVED');
+      if (patch.amount != null) patch = { ...patch, amount_minor:retail.money(patch.amount, 'AMOUNT') };
+      if (patch.date) retail.date(patch.date);
+      if (patch.type != null && !['income', 'expense'].includes(patch.type)) throw new Error('FINANCE_TYPE_INVALID');
+      if (patch.category != null && !['ceges', 'magan'].includes(patch.category)) throw new Error('FINANCE_CATEGORY_INVALID');
+    }
+    return this._update(entity, id, patch);
+  }
+
+  _update(entity, id, patch = {}) {
     this.ensureOpen();
     const current = this.db.prepare('SELECT json FROM entities WHERE entity = ? AND id = ?')
       .get(String(entity), String(id));
@@ -187,11 +244,26 @@ class LocalDatabase {
   }
 
   delete(entity, id) {
+    this.assertUnmanaged(entity, id);
+    if (entity === 'Invoice' && this.filter(entity, { id }, null, 1)[0]?.payment_entry_id) throw new Error('PAID_INVOICE_LOCKED');
+    if (entity === 'Business' && ['FinanceEntry','RetailProduct','Invoice'].some(kind => this.filter(kind, { business_id:id }).length)) throw new Error('BUSINESS_HAS_LINKED_DATA');
+    if (entity === 'RetailProduct' && this.filter('RetailSale', { product_id:id, status:'completed' }).length) throw new Error('PRODUCT_HAS_ACTIVE_SALES');
     this.ensureOpen();
     const result = this.db.prepare('DELETE FROM entities WHERE entity = ? AND id = ?')
       .run(String(entity), String(id));
     return { success: result.changes > 0 };
   }
+
+  assertUnmanaged(entity, id) {
+    if (entity === 'RetailSale' || entity === 'RetailOperation' || entity === 'EmailDelivery') throw new Error('RETAIL_SALE_MANAGED');
+    const row = entity === 'FinanceEntry' ? this.filter(entity, { id }, null, 1)[0] : null;
+    if (row?.source_sale_id || row?.source_invoice_id) throw new Error('RETAIL_LEDGER_MANAGED');
+  }
+
+  recordRetailSale(request) { return retail.recordSale(this, request); }
+  voidRetailSale(request) { return retail.voidSale(this, request); }
+  adjustRetailStock(request) { return retail.adjustStock(this, request); }
+  recordInvoicePayment(request) { return retail.recordInvoicePayment(this, request); }
 
   importLegacy(snapshot = {}) {
     this.ensureOpen();

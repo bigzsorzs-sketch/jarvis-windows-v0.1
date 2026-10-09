@@ -1,4 +1,5 @@
 import { jarvis } from '@/api/jarvisClient';
+import { businessesWithLedger, ledgerSummary } from './financialLedger';
 
 /**
  * Ecosystem Optimization Engine
@@ -11,25 +12,27 @@ export async function loadEcosystemData() {
   const uf = { created_by: currentUser.email };
 
   const [businesses, projects, employees, clients, invoices, todos, finance, reminders, meds] = await Promise.all([
-    jarvis.entities.Business.filter(uf).catch(() => []),
-    jarvis.entities.BusinessProject.filter(uf).catch(() => []),
-    jarvis.entities.Employee.filter(uf).catch(() => []),
-    jarvis.entities.BusinessClient.filter(uf).catch(() => []),
-    jarvis.entities.Invoice.filter(uf, '-created_date', 100).catch(() => []),
-    jarvis.entities.TodoItem.filter({ ...uf, is_completed: false }).catch(() => []),
-    jarvis.entities.FinanceEntry.filter(uf, '-date', 60).catch(() => []),
-    jarvis.entities.Reminder.filter({ ...uf, is_done: false }).catch(() => []),
-    jarvis.entities.Medication.filter({ ...uf, is_active: true }).catch(() => []),
+    jarvis.entities.Business.filter(uf),
+    jarvis.entities.BusinessProject.filter(uf),
+    jarvis.entities.Employee.filter(uf),
+    jarvis.entities.BusinessClient.filter(uf),
+    jarvis.entities.Invoice.filter(uf, '-created_date'),
+    jarvis.entities.TodoItem.filter({ ...uf, is_completed: false }),
+    jarvis.entities.FinanceEntry.filter(uf, '-date'),
+    jarvis.entities.Reminder.filter({ ...uf, is_done: false }),
+    jarvis.entities.Medication.filter({ ...uf, is_active: true }),
   ]);
   return { businesses, projects, employees, clients, invoices, todos, finance, reminders, meds };
 }
 
 export function analyzeEcosystem(data) {
-  const { businesses, projects, employees, clients, invoices, todos, finance, reminders } = data;
+  const { projects, employees, clients, invoices, todos, finance, reminders } = data;
+  const businesses = businessesWithLedger(data.businesses, finance, data.financialPeriod);
+  const ledger = ledgerSummary(finance, data.financialPeriod);
 
   // ── REVENUE ANALYSIS ──
-  const totalRevenue = businesses.reduce((s, b) => s + (b.revenue_monthly || 0), 0);
-  const totalExpense = businesses.reduce((s, b) => s + (b.expense_monthly || 0), 0);
+  const totalRevenue = ledger.income;
+  const totalExpense = ledger.expense;
   const netProfit = totalRevenue - totalExpense;
   const margin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
@@ -182,6 +185,9 @@ export function analyzeEcosystem(data) {
 
   return {
     score,
+    financialPeriod:ledger.period,
+    unassignedIncome:ledger.unassignedIncome,
+    unassignedExpense:ledger.unassignedExpense,
     totalRevenue,
     totalExpense,
     netProfit,

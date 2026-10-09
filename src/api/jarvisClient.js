@@ -228,6 +228,30 @@ export const jarvis = {
     redirectToLogin() { return null; }
   },
   entities,
+  invoices: {
+    async recordPayment(request) {
+      if (!nativeData()?.recordInvoicePayment) throw new Error('INVOICE_PAYMENT_REQUIRES_DESKTOP');
+      await ensureDesktopMigration();
+      return nativeData().recordInvoicePayment(request);
+    },
+  },
+  retail: {
+    async recordSale(request) {
+      if (!nativeData()?.recordRetailSale) throw new Error('RETAIL_REQUIRES_DESKTOP');
+      await ensureDesktopMigration();
+      return nativeData().recordRetailSale(request);
+    },
+    async voidSale(request) {
+      if (!nativeData()?.voidRetailSale) throw new Error('RETAIL_REQUIRES_DESKTOP');
+      await ensureDesktopMigration();
+      return nativeData().voidRetailSale(request);
+    },
+    async adjustStock(request) {
+      if (!nativeData()?.adjustRetailStock) throw new Error('RETAIL_REQUIRES_DESKTOP');
+      await ensureDesktopMigration();
+      return nativeData().adjustRetailStock(request);
+    },
+  },
   functions: { invoke },
   integrations: {
     Core: {
@@ -274,8 +298,11 @@ export const jarvis = {
     }
   },
   connectors: {
-    async connectAppUser() {
-      throw new Error('Connector setup is not available in the local desktop build yet.');
+    async connectAppUser(connector) {
+      if (connector !== 'gmail') throw new Error('CONNECTOR_NOT_SUPPORTED');
+      const response = await invoke('gmailConnect', { mode:'read_send' });
+      if (response?.data?.success !== true) throw new Error('GMAIL_CONNECTION_NOT_CONFIRMED');
+      return response.data;
     }
   }
 };

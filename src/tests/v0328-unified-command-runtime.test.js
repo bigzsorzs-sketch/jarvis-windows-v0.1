@@ -40,20 +40,21 @@ test('call_contact resolves a stored contact and refuses false success without a
   assert.match(tools, /success:false/);
 });
 
-test('combined invoice flow creates invoice, generates PDF, then prepares email', () => {
+test('combined invoice flow creates invoice, generates PDF, then sends its actual attachment', () => {
   const tools = read('src/lib/assistantTools.js');
   const start = tools.indexOf('create_invoice_and_email: async');
   const end = tools.indexOf('\n  log_blood_sugar:', start);
   const combined = tools.slice(start, end);
   const invoiceAt = combined.indexOf('TOOLS.create_invoice');
   const pdfAt = combined.indexOf('TOOLS.generate_pdf');
-  const emailAt = combined.indexOf('TOOLS.draft_email');
+  const emailAt = combined.indexOf('TOOLS.send_email');
   assert.ok(invoiceAt >= 0 && pdfAt > invoiceAt && emailAt > pdfAt);
-  assert.match(combined, /közvetlen Gmail-küldés nincs konfigurálva/);
+  assert.match(combined, /attachments:\[pdfResult.data.attachment\]/);
+  assert.match(combined, /success: sent && emailResult\?\.success === true/);
 });
 
 test('PDF generation returns the concrete filename for downstream workflows', () => {
   const tools = read('src/lib/assistantTools.js');
   assert.match(tools, /const fileName = `\$\{inv\.invoice_number\}\.pdf`/);
-  assert.match(tools, /data:\{ invoice:inv, fileName \}/);
+  assert.match(tools, /data:\{ invoice:inv, fileName, attachment:/);
 });

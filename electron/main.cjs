@@ -15,6 +15,7 @@ const { PolicyEngine } = require('./security/policy-engine.cjs');
 const { NativeObdBridge } = require('./obd/native-obd-bridge.cjs');
 const { LocalDatabase } = require('./data/local-database.cjs');
 const { BackupManager } = require('./data/backup-manager.cjs');
+const { GmailConnector, validateConfig:validateGmailConfig } = require('./integrations/gmail.cjs');
 const developerRepair = require('./developer-repair.cjs');
 const { verifyReleaseManifest } = require('./release-manifest.cjs');
 const { validateUploadedFileUrl } = require('./analysis/file-upload-validator.cjs');
@@ -33,9 +34,17 @@ let policy;
 let obdBridge;
 let database;
 let backupManager;
+let gmailConnector;
 let selfRepairLearning;
 let adminDiagnosticsManager;
 const adminHelperConfig = parseHelperArgs(process.argv);
+const profileArg = process.argv.find(value => value.startsWith('--jarvis-profile='));
+if (profileArg && !isManualRepairRuntime && !adminHelperConfig) {
+  const profile = profileArg.slice('--jarvis-profile='.length);
+  if (!path.isAbsolute(profile)) throw new Error('PROFILE_PATH_MUST_BE_ABSOLUTE');
+  fs.mkdirSync(profile, { recursive:true });
+  app.setPath('userData', profile);
+}
 if (isManualRepairRuntime) {
   const userDataArg = process.argv.find((value)=>value.startsWith('--jarvis-user-data='));
   const manualUserData = userDataArg ? userDataArg.slice('--jarvis-user-data='.length) : '';
@@ -815,6 +824,7 @@ async function saveSettingsInternal(patch={}) {
 }
 
 async function deleteAllLocalData() {
+  gmailConnector?.cancelPending();
   const userData = app.getPath('userData');
   const backupDirectory = path.join(app.getPath('documents'), 'Jarvis Backups');
   const failures = [];
@@ -1599,9 +1609,28 @@ async function invokeJarvisFunction(name, payload={}) {
       return { data:validateUploadedFileUrl(payload?.file_url ?? payload?.url) };
     case 'generateImage': return openRouterGenerateImage(payload);
     case 'gmailFetch':
-      return { data:{ emails:[], connected:false, configured:false, capabilities:[], reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
+      return { data:await gmailConnector.fetchEmails(payload) };
     case 'gmailSend':
-      return { data:{ success:false, configured:false, reason:'GMAIL_OAUTH_NOT_CONFIGURED' } };
+      for (const attachment of payload.attachments || []) {
+        const checked = validateUploadedFileUrl(attachment.file_url);
+        if (checked.valid !== true || checked.allowed !== true) throw new Error('GMAIL_ATTACHMENT_REFUSED');
+      }
+      return { data:await gmailConnector.send(payload) };
+    case 'gmailStatus': return { data:gmailConnector.status() };
+    case 'gmailConnect': return { data:await gmailConnector.connect(payload.mode || 'read_send') };
+    case 'gmailCancel': gmailConnector.cancelPending(); return { data:{ success:true, cancelled:true, ...gmailConnector.status() } };
+    case 'gmailDisconnect': return { data:await gmailConnector.disconnect() };
+    case 'gmailConfigure': {
+      const config = validateGmailConfig(payload);
+      if (gmailConnector.connecting) throw new Error('GMAIL_CONNECT_IN_PROGRESS');
+      gmailConnector.cancelPending();
+      const raw = readJson(settingsPath(), {});
+      raw.gmailClientId = config.client_id;
+      raw.gmailClientSecret = protectSecret(config.client_secret);
+      delete raw.gmailTokens;
+      writeJson(settingsPath(), raw);
+      return { data:{ success:true, ...gmailConnector.status() } };
+    }
     case 'transcribeVoice':
       return openRouterTranscribeVoice(payload);
     case 'synthesizeVoice':
@@ -1962,6 +1991,7 @@ async function requestLocalDevice(request={}) {
 
 function functionPolicyAction(name, payload={}) {
   const functionName = String(name || 'unknown');
+  if (functionName === 'gmailSend') return { type:'email_send', target:String(payload.to || ''), authorised:localOwnerAuthorised(), transmitsSensitiveData:true };
   // Normal AI chat and user-selected AI attachments do not interrupt every request
   // with a policy dialog. Destructive/system operations keep their own policy gates.
   return {
@@ -2217,19 +2247,17 @@ function isTrustedRendererNavigation(targetUrl='') {
   }
 }
 
-function openExternalUrl(targetUrl='') {
+async function openExternalUrl(targetUrl='') {
   try {
     const parsed = new URL(String(targetUrl || ''));
     const allowedProtocols = new Set(['http:','https:','mailto:','tel:','sms:']);
-    if (!allowedProtocols.has(parsed.protocol)) return;
-    void shell.openExternal(parsed.toString()).catch((error)=>{
-      recordCrash('external-url-open-failed', {
-        kind:'external-url',
-        message:String(error?.message || error),
-        href:parsed.protocol
-      });
-    });
-  } catch {}
+    if (!allowedProtocols.has(parsed.protocol)) return { success:false, accepted:false, reason:'EXTERNAL_PROTOCOL_DENIED' };
+    await shell.openExternal(parsed.toString());
+    return { success:true, accepted:true };
+  } catch (error) {
+    recordCrash('external-url-open-failed', { kind:'external-url', message:'EXTERNAL_OPEN_FAILED', code:String(error?.code || '') });
+    return { success:false, accepted:false, reason:'EXTERNAL_OPEN_FAILED' };
+  }
 }
 
 function lockRendererNavigation(win) {
@@ -2325,6 +2353,18 @@ app.whenReady().then(async () => {
   purgeInsecureLegacySecrets();
   obdBridge = new NativeObdBridge();
   database = new LocalDatabase(path.join(app.getPath('userData'), 'data', 'jarvis.sqlite3'));
+  const gmailDatabase = database;
+  gmailConnector = new GmailConnector({
+    getConfig:() => { const raw = readJson(settingsPath(), {}); return { client_id:raw.gmailClientId || process.env.JARVIS_GMAIL_CLIENT_ID || '', client_secret:unprotectSecret(raw.gmailClientSecret) }; },
+    getTokens:() => { const value = unprotectSecret(readJson(settingsPath(), {}).gmailTokens); return value ? JSON.parse(value) : null; },
+    saveTokens:tokens => { const raw = readJson(settingsPath(), {}); if (tokens) raw.gmailTokens = protectSecret(JSON.stringify(tokens)); else delete raw.gmailTokens; writeJson(settingsPath(), raw); },
+    openExternal:url => shell.openExternal(url),
+    getOperation:operation_id => gmailDatabase.filter('EmailDelivery', { operation_id }, null, 1)[0] || null,
+    saveOperation:(operation_id, patch) => {
+      const row = gmailDatabase.filter('EmailDelivery', { operation_id }, null, 1)[0];
+      if (row) gmailDatabase._update('EmailDelivery', row.id, patch); else gmailDatabase._create('EmailDelivery', { operation_id, ...patch });
+    },
+  });
   backupManager = new BackupManager({ app, dialog, database, getSettings:getSettingsInternal, saveSettings:saveSettingsInternal });
   selfRepairLearning = new SelfRepairLearning(path.join(app.getPath('userData'),'self-repair-learning.json'));
   adminDiagnosticsManager = new AdminDiagnosticsManager({
@@ -2387,6 +2427,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('jarvis:admin:stop', () => adminDiagnosticsManager?.stop?.() || {active:false,expiresAt:null});
 
   ipcMain.handle('jarvis:settings:get', () => getSettingsInternal());
+  ipcMain.handle('jarvis:external:open', (_event, url) => openExternalUrl(url));
   ipcMain.handle('jarvis:theme:set', (_e, theme) => {
     const resolved = theme === 'light' ? 'light' : 'dark';
     nativeTheme.themeSource = resolved;
@@ -2465,6 +2506,18 @@ app.whenReady().then(async () => {
   ipcMain.handle('jarvis:obd:status', () => obdBridge.status());
   ipcMain.handle('jarvis:obd:disconnect', () => obdBridge.disconnect());
   ipcMain.handle('jarvis:data:filter', (_e, req={}) => database.filter(req.entity, req.query, req.sort, req.limit));
+  ipcMain.handle('jarvis:retail:sale', (_e, request={}) => guarded(
+    { type:'local_data_write', target:'retail-sale-stock-ledger' }, () => database.recordRetailSale(request)
+  ));
+  ipcMain.handle('jarvis:invoice:payment', (_e, request={}) => guarded(
+    { type:'local_data_write', target:'invoice-payment-ledger' }, () => database.recordInvoicePayment(request)
+  ));
+  ipcMain.handle('jarvis:retail:return', (_e, request={}) => guarded(
+    { type:'local_data_write', target:'retail-return-stock-ledger' }, () => database.voidRetailSale(request)
+  ));
+  ipcMain.handle('jarvis:retail:stock', (_e, request={}) => guarded(
+    { type:'local_data_write', target:'retail-stock' }, () => database.adjustRetailStock(request)
+  ));
   ipcMain.handle('jarvis:data:search', (_e, req={}) => database.search(req.entity, req.query, req.text, req.limit));
   ipcMain.handle('jarvis:data:create', (_e, req={}) => guarded(
     { type:'local_data_write', target:String(req.entity || '') },

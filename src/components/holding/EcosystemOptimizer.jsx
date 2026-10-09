@@ -44,13 +44,19 @@ export default function EcosystemOptimizer() {
   const [aiInsight, setAiInsight] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [error, setError] = useState('');
 
   const runAnalysis = async () => {
     setLoading(true);
+    setError('');
+    try {
     const data = await loadEcosystemData();
     const result = analyzeEcosystem(data);
     setAnalysis(result);
-    setLoading(false);
+    } catch {
+      setAnalysis(null);
+      setError('Az üzleti elemzéshez szükséges adatok nem tölthetők be. Próbáld újra.');
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { runAnalysis(); }, []);
@@ -61,7 +67,9 @@ export default function EcosystemOptimizer() {
     const prompt = `Te egy üzleti ökoszisztéma-optimalizáló AI vagy. Elemezd ezt az adatot és adj 3-4 mondatos, konkrét, azonnal végrehajtható tanácsot:
 
 Ecosystem Score: ${analysis.score}/100
-Havi bevétel: £${analysis.totalRevenue.toFixed(0)} | Nettó profit: £${analysis.netProfit.toFixed(0)} | Profitráta: ${analysis.margin.toFixed(1)}%
+Időszak: ${analysis.financialPeriod || 'aktuális hónap'}
+Havi pénzbevétel: £${analysis.totalRevenue.toFixed(0)} | Pénzforgalmi egyenleg: £${analysis.netProfit.toFixed(0)} | Egyenleg/bevétel: ${analysis.margin.toFixed(1)}%
+Ezek rögzített pénzmozgások, nem teljes számviteli eredményadatok.
 Aktív projektek: ${analysis.activeProjects} | Lejárt: ${analysis.overdueProjects}
 Kintlévőség: £${analysis.unpaidTotal.toFixed(0)}
 Ineffektivitások: ${analysis.inefficiencies.map(i => i.message).join('; ')}
@@ -88,7 +96,7 @@ Adj rövid, cselekvésre ösztönző elemzést magyarul. Legyél konkrét és d�
     );
   }
 
-  if (!analysis) return null;
+  if (!analysis) return error ? <div role="alert" className="p-4 space-y-3 text-sm text-red-400"><p>{error}</p><button onClick={runAnalysis}>Újrapróbálás</button></div> : null;
 
   const visibleInefficiencies = showAll ? analysis.inefficiencies : analysis.inefficiencies.slice(0, 3);
 
@@ -100,19 +108,20 @@ Adj rövid, cselekvésre ösztönző elemzést magyarul. Legyél konkrét és d�
           <ScoreRing score={analysis.score} />
           <div className="flex-1">
             <p className="text-base font-bold text-foreground mb-1">Ecosystem Score</p>
+            <p className="text-xs text-muted-foreground mb-2">{analysis.financialPeriod || 'Aktuális hónap'} · rögzített pénzmozgások</p>
             <div className="space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Havi bevétel</span>
                 <span className="text-foreground font-medium">£{analysis.totalRevenue.toFixed(0)}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Nettó profit</span>
+                <span className="text-muted-foreground">Pénzforgalmi egyenleg</span>
                 <span className={`font-medium ${analysis.netProfit >= 0 ? 'text-primary' : 'text-red-400'}`}>
                   £{analysis.netProfit.toFixed(0)}
                 </span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Profitráta</span>
+                <span className="text-muted-foreground">Egyenleg / bevétel</span>
                 <span className={`font-medium ${analysis.margin >= 30 ? 'text-primary' : analysis.margin >= 15 ? 'text-yellow-400' : 'text-red-400'}`}>
                   {analysis.margin.toFixed(1)}%
                 </span>
@@ -126,6 +135,7 @@ Adj rövid, cselekvésre ösztönző elemzést magyarul. Legyél konkrét és d�
             </div>
           </div>
         </div>
+        {(analysis.unassignedIncome > 0 || analysis.unassignedExpense > 0) && <p className="mt-3 text-xs text-yellow-400">Vállalkozáshoz még nem rendelt tételek: £{(analysis.unassignedIncome || 0).toFixed(2)} bevétel, £{(analysis.unassignedExpense || 0).toFixed(2)} kiadás. Ezek a teljes egyenlegben szerepelnek.</p>}
 
         <button onClick={runAnalysis}
           className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-secondary text-muted-foreground text-xs font-medium hover:text-foreground transition-colors">

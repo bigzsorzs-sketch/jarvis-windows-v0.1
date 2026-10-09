@@ -12,7 +12,7 @@ export default function HoldingOverview({ businesses, projects, employees, clien
   const stats = [
     { label: 'Havi bevétel', value: `£${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: 'text-green-400', bg: 'bg-green-400/10' },
     { label: 'Havi kiadás', value: `£${totalExpense.toLocaleString()}`, icon: TrendingDown, color: 'text-red-400', bg: 'bg-red-400/10' },
-    { label: 'Nettó profit', value: `£${totalProfit.toLocaleString()}`, icon: DollarSign, color: totalProfit >= 0 ? 'text-primary' : 'text-red-400', bg: totalProfit >= 0 ? 'bg-primary/10' : 'bg-red-400/10' },
+    { label: 'Havi pénzforgalmi egyenleg', value: `£${totalProfit.toLocaleString()}`, icon: DollarSign, color: totalProfit >= 0 ? 'text-primary' : 'text-red-400', bg: totalProfit >= 0 ? 'bg-primary/10' : 'bg-red-400/10' },
     { label: 'Aktív cégek', value: activeBusinesses, icon: Building2, color: 'text-blue-400', bg: 'bg-blue-400/10' },
     { label: 'Projektek', value: activeProjects, icon: FolderOpen, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
     { label: 'Munkatársak', value: totalEmployees, icon: Users, color: 'text-purple-400', bg: 'bg-purple-400/10' },
@@ -20,6 +20,7 @@ export default function HoldingOverview({ businesses, projects, employees, clien
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">A vállalkozáshoz rendelt, rögzített pénzmozgások ebből a hónapból. A kiállított, ki nem fizetett számla nem bevétel.</p>
       {/* KPI grid */}
       <div className="grid grid-cols-2 gap-3">
         {stats.map(({ label, value, icon: Icon, color, bg }) => (
@@ -36,7 +37,7 @@ export default function HoldingOverview({ businesses, projects, employees, clien
       {/* Profit margin bar */}
       <div className="bg-card border border-border rounded-2xl p-4">
         <div className="flex justify-between items-center mb-2">
-          <p className="text-xs font-semibold text-foreground">Holding profit margin</p>
+          <p className="text-xs font-semibold text-foreground">Pénzforgalmi egyenleg / bevétel</p>
           <p className="text-xs text-muted-foreground">
             {totalRevenue > 0 ? `${((totalProfit / totalRevenue) * 100).toFixed(1)}%` : '—'}
           </p>

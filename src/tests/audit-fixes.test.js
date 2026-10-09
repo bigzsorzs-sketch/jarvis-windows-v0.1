@@ -126,7 +126,7 @@ test('a failed repair restores both compiled renderer and activation bytes',()=>
 test('comma decimals persist correctly and nonfinite amounts do not write records',async()=>{
   const writes=[];
   const entities=new Proxy({}, {get:(_target,entity)=>({create:async data=>{writes.push({entity,data});return data;}})});
-  const context={jarvis:{auth:{me:async()=>({email:'owner@test'})},entities},logger:{warn(){}},ENV_TOOLS:{},syncDiscoveredTools(){},localDateKey:()=> '2026-09-30'};
+  const context={jarvis:{auth:{me:async()=>({email:'owner@test'})},entities},crypto:globalThis.crypto,logger:{warn(){}},ENV_TOOLS:{},syncDiscoveredTools(){},localDateKey:()=> '2026-09-30'};
   const tools=vm.runInNewContext(source('src/lib/assistantTools.js').replace(/^import .*;\n/gm,'').replace(/export /g,'')+';TOOLS',context);
   await tools.log_blood_sugar({value:'6,7'});
   await tools.log_finance({description:'teszt',amount:'12,99'});

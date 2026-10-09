@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import TutorialOverlay from '@/components/tutorial/TutorialOverlay';
 import { jarvis } from '@/api/jarvisClient';
 import { useLang } from '@/lib/i18n';
@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import SensitiveValue from '@/components/common/SensitiveValue';
 import { maskCurrency } from '@/lib/dataMasker';
 import { localDateKey } from '@/lib/localDate';
+import MobileSelect from '@/components/common/MobileSelect';
 
 const today = () => localDateKey();
 
@@ -16,6 +17,9 @@ export default function FinanceTool() {
   const { t } = useLang();
   const [tab, setTab] = useState('attekintes');
   const [entries, setEntries] = useState([]);
+  const [businesses, setBusinesses] = useState([]);
+  const saving = useRef(false);
+  const attempt = useRef(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ description: '', amount: '', type: 'income', category: 'magan', date: today() });
   const [aiAnalysis, setAiAnalysis] = useState('');
@@ -28,6 +32,7 @@ export default function FinanceTool() {
     jarvis.auth.me()
       .then((user) => {
         if (!user?.email) throw new Error('auth_required');
+        jarvis.entities.Business.filter({ created_by:user.email }).then(setBusinesses).catch(() => setErrorMessage('A vállalkozáslista nem tölthető be.'));
         return jarvis.entities.FinanceEntry.filter({ created_by: user.email }, '-date');
       })
       .then(setEntries)
@@ -38,24 +43,35 @@ export default function FinanceTool() {
   }, [t]);
 
   const save = async () => {
-    if (!form.description || !form.amount) return;
+    if (!form.description || !form.amount || saving.current) return;
+    saving.current = true;
     const currentUser = await jarvis.auth.me().catch(() => null);
     if (!currentUser?.email) {
       setErrorMessage(t('finance_load_error'));
+      saving.current = false;
       return;
     }
-    const created = await jarvis.entities.FinanceEntry.create({ ...form, created_by: currentUser.email, amount: parseFloat(form.amount) });
+    try {
+    const request = attempt.current || { ...form, created_by: currentUser.email, amount: Number(form.amount),
+      business_id:form.category === 'ceges' ? form.business_id || null : null, currency:'GBP', operation_id:crypto.randomUUID() };
+    attempt.current = request;
+    const created = await jarvis.entities.FinanceEntry.create(request);
+    attempt.current = null;
     setEntries(prev => [created, ...prev]);
     setForm({ description: '', amount: '', type: 'income', category: 'magan', date: today() });
     setShowAdd(false);
+    } catch (error) { if (/INVALID|PRECISION|NOT_FOUND/.test(String(error?.message))) attempt.current = null; setErrorMessage('A pénzügyi tétel mentése nem igazolt. Ellenőrizd az összeget és a dátumot; az újrapróbálás ugyanazt a műveletet használja.'); }
+    finally { saving.current = false; }
   };
 
   const deleteEntry = async (id) => {
     const currentUser = await jarvis.auth.me().catch(() => null);
     const entry = entries.find((item) => item.id === id);
     if (!currentUser?.email || entry?.created_by !== currentUser.email) return;
-    await jarvis.entities.FinanceEntry.delete(id);
+    if (entry.source_sale_id || entry.source_invoice_id) { setErrorMessage('A kapcsolt eladás- vagy számlatétel közvetlenül nem törölhető.'); return; }
+    try { await jarvis.entities.FinanceEntry.delete(id);
     setEntries(prev => prev.filter(e => e.id !== id));
+    } catch { setErrorMessage('A tétel nem törölhető.'); }
   };
 
   const now = new Date();
@@ -301,7 +317,7 @@ export default function FinanceTool() {
                   >
                     {entry.type === 'income' ? '+' : '-'}£{(entry.amount||0).toFixed(2)}
                   </SensitiveValue>
-                  <button onClick={() => deleteEntry(entry.id)} className="text-muted-foreground/50 hover:text-destructive"><X size={13} /></button>
+                  {!entry.source_sale_id && !entry.source_invoice_id && <button onClick={() => deleteEntry(entry.id)} className="text-muted-foreground/50 hover:text-destructive"><X size={13} /></button>}
                 </div>
               </div>
             ))}
@@ -333,6 +349,8 @@ export default function FinanceTool() {
                   ))}
                 </div>
                 <input type="date" className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground" value={form.date} onChange={e => setForm(f=>({...f,date:e.target.value}))} />
+                {form.category === 'ceges' && <MobileSelect value={form.business_id || ''} onChange={v => setForm(f => ({ ...f, business_id:v }))}
+                  options={[{ value:'', label:'Nincs vállalkozáshoz rendelve' }, ...businesses.map(b => ({ value:b.id, label:b.name }))]} placeholder="Vállalkozás" />}
                 <button onClick={save} className="w-full py-3 rounded-2xl bg-primary text-primary-foreground font-semibold">{t('save')}</button>
               </div>
             </motion.div>

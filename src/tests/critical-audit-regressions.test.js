@@ -124,7 +124,8 @@ test('fake multi-user and cloud paths remain disabled while recorded voice is ex
   assert.equal(preload.includes('remoteTts:true'), true);
   assert.equal(main.includes('openrouter.ai/api/v1/audio/transcriptions'), true);
   assert.equal(main.includes('openrouter.ai/api/v1/audio/speech'), true);
-  assert.equal(preload.includes('gmailOAuth:false'), true);
+  assert.equal(preload.includes('gmailOAuth:true'), true);
+  assert.equal(main.includes('new GmailConnector'), true);
   assert.equal(cloud.includes('felhőszinkron nincs engedélyezve'), true);
 });
 

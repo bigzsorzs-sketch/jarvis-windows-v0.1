@@ -205,7 +205,7 @@ export const TOOLS = {
     return { success:true, message:`📞 Hívás indítása: ${n} – ${resolvedPhone}.`, data:{ name:n, phone:resolvedPhone } };
   },
 
-  create_invoice: async ({ client_name, client_email, items, notes }) => {
+  create_invoice: async ({ client_name, client_email, items, notes, business_id }) => {
     const currentUser = await getCurrentUserOrThrow();
     const cn = requireString(client_name, 'ügyfél neve');
     const inv_number = createInvoiceNumber();
@@ -218,18 +218,28 @@ export const TOOLS = {
         description,
         quantity,
         unit_price:unitPrice,
-        total:quantity * unitPrice
+        total:Math.round(quantity * unitPrice * 100) / 100
       };
     });
-    const total = processedItems.reduce((sum, item) => sum + item.total, 0);
+    const total = processedItems.reduce((sum, item) => sum + Math.round(item.total * 100), 0) / 100;
     if (!Number.isFinite(total)) throw new Error('Érvénytelen számlaösszeg.');
     const invoice = await jarvis.entities.Invoice.create(withOwner({
       invoice_number: inv_number, client_name: cn, client_email: client_email || '',
       items: processedItems, total_amount: total, notes: notes || '',
-      issue_date: today(), status: 'piszkozat'
+      issue_date: today(), status: 'piszkozat', business_id:business_id || null,
     }, currentUser));
     await logAction('create_invoice', `Invoice: ${inv_number} for ${cn}`, { client_name: cn, total }, invoice);
     return { success: true, message: `🧾 Számla létrehozva: ${inv_number} – ${cn} – £${total.toFixed(2)}`, data: invoice };
+  },
+
+  record_retail_sale: async ({ product_id, quantity, discount = 0, operation_id }) => {
+    const result = await jarvis.retail.recordSale({ product_id, quantity, discount, operation_id:operation_id || crypto.randomUUID(), date:today() });
+    return { success:result?.success === true, message:result?.success === true ? `Eladás, készlet és pénzügyi tétel rögzítve: £${result.sale.revenue.toFixed(2)}.` : 'Az eladás nem igazolt.', data:result };
+  },
+
+  record_invoice_payment: async ({ invoice_id, operation_id }) => {
+    const result = await jarvis.invoices.recordPayment({ invoice_id, operation_id:operation_id || crypto.randomUUID(), date:today() });
+    return { success:result?.success === true, message:result?.success === true ? `Számlafizetés és pénzügyi tétel rögzítve: £${result.entry.amount.toFixed(2)}.` : 'A számlafizetés nem igazolt.', data:result };
   },
 
   generate_pdf: async ({ invoice_id }) => {
@@ -257,26 +267,40 @@ export const TOOLS = {
     const fileName = `${inv.invoice_number}.pdf`;
     doc.save(fileName);
     await logAction('generate_pdf', `PDF generated: ${inv.invoice_number}`, { invoice_id }, { file:fileName });
-    return { success:true, message:`📄 PDF elkészült: ${fileName}`, data:{ invoice:inv, fileName } };
+    return { success:true, message:`📄 PDF elkészült: ${fileName}`, data:{ invoice:inv, fileName, attachment:{ name:fileName, file_url:doc.output('datauristring').replace(/^data:application\/pdf;[^,]*,/, 'data:application/pdf;base64,') } } };
   },
 
   draft_email: async ({ to, subject, body }) => {
     const recipient = requireString(to, 'email cím');
+    if (/[\r\n]/.test(recipient) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return { success:false, message:'Érvénytelen email-cím.', data:{ sent:false } };
     const sub = subject || 'Tárgy nélkül';
 
-    // Try Gmail API send first; fall back to mailto on failure
-    try {
-      const res = await jarvis.functions.invoke('gmailSend', { to: recipient, subject: sub, body: body || '' });
-      if (res?.data?.success) {
-        await logAction('draft_email', `Email sent via Gmail API to ${recipient}`, { to: recipient, subject: sub }, { sent: true });
-        return { success: true, message: `📧 Email elküldve: ${recipient} – "${sub}"`, data: { to: recipient, subject: sub, sent: true } };
-      }
-    } catch { /* Gmail connector not set up — fall through to mailto */ }
+    const mailto = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(sub)}&body=${encodeURIComponent(body || '')}`;
+    const result = window.jarvisDesktop?.openExternal
+      ? await window.jarvisDesktop.openExternal(mailto)
+      : { accepted:Boolean(window.open(mailto)) };
+    const accepted = result?.accepted === true;
+    await logAction('draft_email', `Email draft handoff ${accepted ? 'accepted' : 'unconfirmed'}`, { to:recipient, subject:sub }, { accepted, sent:false });
+    return { success:accepted, message:accepted
+      ? `Az email-piszkozatot átadtam a rendszer levelezőjének. Ellenőrizd és küldd el: ${recipient}.`
+      : 'Az email-piszkozat megnyitása nem igazolt. Ellenőrizd az alapértelmezett levelező beállítását.', data:{ to:recipient, subject:sub, accepted, sent:false } };
+  },
 
-    const mailto = `mailto:${recipient}?subject=${encodeURIComponent(sub)}&body=${encodeURIComponent(body || '')}`;
-    window.open(mailto);
-    await logAction('draft_email', `Email drafted (mailto) to ${recipient}`, { to: recipient, subject: sub }, { opened: true });
-    return { success: true, message: `📧 Email szerkesztő megnyitva – Címzett: ${recipient}, Tárgy: "${sub}"`, data: { to: recipient, subject: sub, sent: false } };
+  send_email: async ({ to, subject, body, attachments = [], operation_id }) => {
+    const recipient = requireString(to, 'email cím');
+    try {
+    const result = await jarvis.functions.invoke('gmailSend', { to:recipient, subject:subject || 'Tárgy nélkül', body:body || '', attachments,
+      operation_id:operation_id || crypto.randomUUID() });
+    if (result?.data?.success !== true || result?.data?.sent !== true || !result.data.id) {
+      return { success:false, unknownOutcome:result?.data?.unknownOutcome === true,
+        message:result?.data?.unknownOutcome ? 'A küldés eredménye bizonytalan. Ellenőrizd a Gmail Elküldött levelek mappáját, mielőtt újra küldenéd.' : 'Az email küldése nem sikerült. Ellenőrizd a Gmail-kapcsolatot és a küldési engedélyt.', data:result?.data || null };
+    }
+    return { success:true, message:`📧 Email elküldve: ${recipient}`, data:{ to:recipient, sent:true, provider_id:result.data.id, attachments:attachments.map(a => a.name) } };
+    } catch (error) {
+      const known = /GMAIL_(SCOPE|CONNECT|RECIPIENT|MESSAGE|ATTACHMENT|OPERATION|AUTH)|JARVIS_POLICY/.test(String(error?.message || ''));
+      return { success:false, unknownOutcome:!known, blocked:/JARVIS_POLICY_USER_DENIED/.test(String(error?.message || '')),
+        message:known ? 'Az email nem lett elküldve: hiányzó kapcsolat, hibás adat vagy visszautasított engedély.' : 'A küldés eredménye nem igazolt. Ellenőrizd az Elküldött levelek mappát az újrapróbálás előtt.', data:{ sent:false } };
+    }
   },
 
   create_invoice_and_email: async ({ client_name, client_email, items, notes, email_subject }) => {
@@ -304,17 +328,20 @@ export const TOOLS = {
       'Üdvözlettel,',
       'Jarvis',
     ].join('\n');
-    const emailResult = await TOOLS.draft_email({
+    const emailResult = await TOOLS.send_email({
       to: recipient,
       subject: email_subject || `Számla ${invoice.invoice_number}`,
       body,
+      attachments:[pdfResult.data.attachment],
     });
     const sent = emailResult?.data?.sent === true;
     return {
-      success: emailResult?.success !== false,
+      success: sent && emailResult?.success === true,
+      unknownOutcome:emailResult?.unknownOutcome === true,
+      blocked:emailResult?.blocked === true,
       message: sent
         ? `✅ Számla és PDF elkészült, az email elküldve: ${invoice.invoice_number}.`
-        : `✅ Számla és PDF elkészült: ${invoice.invoice_number}. Az email szerkesztő megnyílt; a PDF-et csatolni kell, mert közvetlen Gmail-küldés nincs konfigurálva.`,
+        : `A számla és PDF elkészült: ${invoice.invoice_number}. Az email küldése nem igazolt. ${emailResult?.message || ''}`,
       data: { invoice, pdf:pdfResult?.data || null, email:emailResult?.data || null },
     };
   },
@@ -351,14 +378,15 @@ export const TOOLS = {
     return { success: true, message: `🍽️ Étkezés rögzítve: ${mn}${cal ? ` (${cal} kcal)` : ''}`, data: meal };
   },
 
-  log_finance: async ({ description, amount, type, category }) => {
+  log_finance: async ({ description, amount, type, category, business_id, operation_id }) => {
     const currentUser = await getCurrentUserOrThrow();
     const desc = requireString(description, 'leírás');
     const amt = requireNumber(amount, 'összeg');
     if (amt <= 0) return { success: false, message: '❌ Az összegnek pozitívnak kell lennie.' };
     const t = ['income', 'expense'].includes(type) ? type : 'expense';
     const entry = await jarvis.entities.FinanceEntry.create(withOwner({
-      description: desc, amount: amt, type: t, category: category || 'magan', date: today()
+      description: desc, amount: amt, type: t, category: category || 'magan', date: today(), business_id:business_id || null,
+      operation_id:operation_id || crypto.randomUUID(), currency:'GBP'
     }, currentUser));
     await logAction('log_finance', `Finance: ${desc} £${amt}`, { description: desc, amount: amt, type: t }, entry);
     return { success: true, message: `💰 Pénzügyi tétel: ${desc} – ${t === 'income' ? '+' : '-'}£${amt}`, data: entry };

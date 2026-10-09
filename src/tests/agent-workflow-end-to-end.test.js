@@ -54,3 +54,42 @@ test('chat and voice run invoice → actual PDF → note through the real router
     assert.equal(episodes[0].source, source);
   }
 });
+
+test('invoice email carries generated PDF bytes and reports partial work when Gmail delivery is uncertain', async () => {
+  for (const delivered of [true, false]) {
+    const storage = new Map(), requests = [], downloads = [];
+    class DownloadPDF extends jsPDF {
+      constructor() { super(); this.save = name => downloads.push(name); }
+    }
+    const h = moduleHarness({ stubs:{ jspdf:{ jsPDF:DownloadPDF }, '@/lib/logger':{ logger:{ warn(){}, info(){}, error(){} } }, './languageEngine':{}, './ecosystemEngine':{} },
+      globals:{ window:{ localStorage:{ getItem:key => storage.get(key) ?? null, setItem:(key,value) => storage.set(key,value) },
+        jarvisDesktop:{ invokeFunction:async (name,payload) => {
+          requests.push({ name, payload });
+          return { data:delivered ? { success:true, sent:true, id:'fixture-provider-id' } : { success:false, sent:false, unknownOutcome:true } };
+        } } } } });
+    const tools = h.load('src/lib/assistantTools.js').TOOLS;
+    const result = await tools.create_invoice_and_email({ client_name:'Buyer fixture', client_email:'buyer@example.test', items:[{ description:'Service', quantity:2, unit_price:20 }] });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].name, 'gmailSend');
+    assert.ok(requests[0].payload.operation_id);
+    const url = requests[0].payload.attachments[0].file_url;
+    assert.equal(Buffer.from(url.split(',')[1], 'base64').subarray(0,5).toString(), '%PDF-');
+    assert.equal(result.success, delivered);
+    assert.equal(result.unknownOutcome, !delivered);
+    assert.equal(result.data.invoice.total_amount, 40);
+    assert.equal(downloads.length, 1);
+  }
+});
+
+test('draft email only hands off to the mail client and never calls Gmail send', async () => {
+  const storage = new Map(), opened = [];
+  const h = moduleHarness({ stubs:{ '@/lib/logger':{ logger:{ warn(){} } }, './languageEngine':{}, './ecosystemEngine':{} }, globals:{ window:{
+    localStorage:{ getItem:key => storage.get(key) ?? null, setItem:(key,value) => storage.set(key,value) },
+    jarvisDesktop:{ openExternal:async url => { opened.push(url); return { success:true, accepted:true }; }, invokeFunction:async () => { throw new Error('DRAFT_MUST_NOT_SEND'); } },
+  } } });
+  const result = await h.load('src/lib/assistantTools.js').TOOLS.draft_email({ to:'buyer@example.test', subject:'Fixture', body:'Fixture body' });
+  assert.equal(result.success, true);
+  assert.equal(result.data.sent, false);
+  assert.equal(opened.length, 1);
+  assert.ok(opened[0].startsWith('mailto:'));
+});

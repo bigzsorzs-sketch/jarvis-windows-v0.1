@@ -229,7 +229,22 @@ jobs:
           }
           Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
+      - name: Test installed Windows workflows and persistence
+        run: node scripts/test-installed-workflows.cjs
+
+      - name: Preserve installed workflow acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Windows-Acceptance
+          path: |
+            release/windows-acceptance.json
+            release/windows-acceptance.png
+          if-no-files-found: warn
+
       - name: Create SHA-256 checksum
+        # Only installers that pass a real install/IPC/persistence/uninstall
+        # exercise proceed to candidate checksum and release publication.
         shell: pwsh
         run: |
           $exe = Get-ChildItem release\Jarvis-Setup-*-x64.exe | Select-Object -First 1

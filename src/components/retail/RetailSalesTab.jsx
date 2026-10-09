@@ -1,7 +1,7 @@
 import React from 'react';
 import { TrendingUp } from 'lucide-react';
 
-export default function RetailSalesTab({ sales }) {
+export default function RetailSalesTab({ sales, onVoid }) {
   if (sales.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
@@ -18,6 +18,8 @@ export default function RetailSalesTab({ sales }) {
           <div>
             <p className="text-sm font-semibold text-foreground">{s.product_name}</p>
             <p className="text-xs text-muted-foreground">{s.quantity} db · {s.date}{s.discount > 0 ? ` · -${s.discount}%` : ''}</p>
+            {s.status === 'voided' && <p className="text-xs text-orange-400">Visszáru rögzítve: {s.voided_date}</p>}
+            {s.status === 'completed' && onVoid && <button onClick={() => onVoid(s)} className="text-xs text-orange-400 mt-1">Visszáru és visszatérítés</button>}
           </div>
           <div className="text-right">
             <p className="text-sm font-bold text-primary">£{s.revenue?.toFixed(2)}</p>

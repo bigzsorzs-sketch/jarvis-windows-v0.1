@@ -120,17 +120,17 @@ test('style transfer does not generate an image when there are no visible source
 });
 
 test('the finance receipt scan sends a validated file URL to analysis and populates its draft', async () => {
-  const h = uploadHarness('src/pages/tools/FinanceTool.jsx', { 7: false });
+  const h = uploadHarness('src/pages/tools/FinanceTool.jsx', { 8: false });
   const props = findProps(h.render(), props => props.type === 'file');
   assert.ok(props, 'receipt scan input found');
   await props.onChange({ target: { files: [file] } });
   assert.equal(h.requests[0].payload.file_url, fileUrl);
   assert.equal(h.requests[1]?.name, 'runAiTask');
   assert.equal(h.requests[1].payload.file_urls[0], fileUrl);
-  assert.equal(h.states[3].description, 'Demo receipt');
-  assert.equal(h.states[3].amount, 12);
-  assert.equal(h.states[2], true);
-  assert.equal(h.states[6], false);
+  assert.equal(h.states[4].description, 'Demo receipt');
+  assert.equal(h.states[4].amount, 12);
+  assert.equal(h.states[3], true);
+  assert.equal(h.states[7], false);
 });
 
 test('uploadCanvasAsFile uses the same validated adapter as the screens', async () => {

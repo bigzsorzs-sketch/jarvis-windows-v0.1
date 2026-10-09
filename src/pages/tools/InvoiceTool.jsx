@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
 import { localDateKey } from '@/lib/localDate';
+import MobileSelect from '@/components/common/MobileSelect';
 import { jsPDF } from 'jspdf';
 
 const genNumber = () => 'INV-' + Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -22,6 +23,7 @@ export default function InvoiceTool() {
   const navigate = useNavigate();
   const { t } = useLang();
   const [invoices, setInvoices] = useState([]);
+  const [businesses, setBusinesses] = useState([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -34,6 +36,7 @@ export default function InvoiceTool() {
     jarvis.auth.me()
       .then((currentUser) => {
         if (!currentUser?.email) throw new Error('auth_required');
+        jarvis.entities.Business.filter({ created_by:currentUser.email }).then(setBusinesses).catch(() => setErrorMessage('A vállalkozáslista nem tölthető be.'));
         return jarvis.entities.Invoice.filter({ created_by: currentUser.email }, '-issue_date');
       })
       .then(setInvoices)
@@ -62,26 +65,37 @@ export default function InvoiceTool() {
       setErrorMessage('A számlákat most nem tudtuk betölteni.');
       return;
     }
-    const created = await jarvis.entities.Invoice.create({ ...form, created_by: currentUser.email, total_amount: total });
+    try {
+    const created = await jarvis.entities.Invoice.create({ ...form, created_by: currentUser.email, total_amount: total, business_id:form.business_id || null });
     setInvoices(prev => [created, ...prev]);
     setShowCreate(false);
     setForm({ invoice_number: genNumber(), client_name: '', client_email: '', issue_date: today(), due_date: '', items: [{ description: '', quantity: 1, unit_price: 0, total: 0 }], status: 'piszkozat', notes: '' });
+    } catch { setErrorMessage('A számla nem menthető. Ellenőrizd a tételeket, az árat és a dátumokat.'); }
   };
 
   const deleteInvoice = async (id) => {
     const currentUser = await jarvis.auth.me().catch(() => null);
     const invoice = invoices.find((item) => item.id === id);
     if (!currentUser?.email || invoice?.created_by !== currentUser.email) return;
-    await jarvis.entities.Invoice.delete(id);
+    try { await jarvis.entities.Invoice.delete(id);
     setInvoices(prev => prev.filter(i => i.id !== id));
+    } catch { setErrorMessage('A kifizetett számla nem törölhető: a pénzügyi nyilvántartás része.'); }
   };
 
   const updateStatus = async (id, status) => {
     const currentUser = await jarvis.auth.me().catch(() => null);
     const invoice = invoices.find((item) => item.id === id);
     if (!currentUser?.email || invoice?.created_by !== currentUser.email) return;
-    await jarvis.entities.Invoice.update(id, { status });
-    setInvoices(prev => prev.map(i => i.id === id ? { ...i, status } : i));
+    try {
+      let updated;
+      if (status === 'kifizetve') {
+        if (!window.confirm('A pénz ténylegesen beérkezett? Ez a művelet pénzügyi bevételt is rögzít.')) return;
+        const result = await jarvis.invoices.recordPayment({ invoice_id:id, date:today(), operation_id:crypto.randomUUID() });
+        if (result?.success !== true) throw new Error('PAYMENT_NOT_CONFIRMED');
+        updated = result.invoice;
+      } else updated = await jarvis.entities.Invoice.update(id, { status });
+      setInvoices(prev => prev.map(i => i.id === id ? updated : i));
+    } catch { setErrorMessage('A számla állapota nem módosítható. A korábbi, kifizetett számlákat külön egyeztesd a pénzügyi tételekkel.'); }
   };
 
   const generateWithAI = async () => {
@@ -194,14 +208,14 @@ export default function InvoiceTool() {
                       {inv.notes && <p className="text-xs text-muted-foreground italic">{inv.notes}</p>}
                       <div className="flex gap-2 mt-2 flex-wrap">
                         {Object.entries(statusLabels).map(([key, label]) => (
-                          <button key={key} onClick={() => updateStatus(inv.id, key)}
+                          <button key={key} onClick={() => updateStatus(inv.id, key)} disabled={Boolean(inv.payment_entry_id)}
                             className={`px-3 py-1 rounded-full text-xs font-medium ${inv.status === key ? statusColors[key] : 'bg-secondary text-muted-foreground'}`}>
                             {label}
                           </button>
                         ))}
-                        <button onClick={() => deleteInvoice(inv.id)} className="px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs">
+                        {!inv.payment_entry_id && <button onClick={() => deleteInvoice(inv.id)} className="px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs">
                           <Trash2 size={12} />
-                        </button>
+                        </button>}
                       </div>
                     </div>
                   </motion.div>
@@ -236,6 +250,8 @@ export default function InvoiceTool() {
                 </div>
                 <input className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground" placeholder="Vevő neve" value={form.client_name} onChange={e => setForm(f => ({...f, client_name: e.target.value}))} />
                 <input className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground" placeholder="Vevő email" value={form.client_email} onChange={e => setForm(f => ({...f, client_email: e.target.value}))} />
+                <MobileSelect value={form.business_id || ''} onChange={v => setForm(f => ({ ...f, business_id:v }))}
+                  options={[{ value:'', label:'Nincs vállalkozáshoz rendelve' }, ...businesses.map(b => ({ value:b.id, label:b.name }))]} placeholder="Vállalkozás" />
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Kiállítás dátuma</p>

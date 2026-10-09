@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('jarvisDesktop', {
   platform: process.platform,
-  capabilities: { recordedStt:true, remoteTts:true, gmailOAuth:false, cloudSync:false },
+  capabilities: { recordedStt:true, remoteTts:true, gmailOAuth:true, cloudSync:false },
   invokeFunction: (name, payload) => ipcRenderer.invoke('jarvis:function:invoke', name, payload),
   getSystemContext: () => ipcRenderer.invoke('jarvis:system:context'),
   getRecentCrashes: (limit = 20) => ipcRenderer.invoke('jarvis:crash:recent', limit),
@@ -26,9 +26,14 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   listSpeechModels: () => ipcRenderer.invoke('jarvis:ai:list-speech-models'),
   testAiConnection: (apiKey = '') => ipcRenderer.invoke('jarvis:ai:test-connection', { apiKey }),
   selectFiles: (options) => ipcRenderer.invoke('jarvis:file:select', options),
+  openExternal: (url) => ipcRenderer.invoke('jarvis:external:open', url),
   oneClickUpdate: () => ipcRenderer.invoke('jarvis:update:one-click'),
   localDeviceRequest: (request) => ipcRenderer.invoke('jarvis:device:request', request),
   data: {
+    recordRetailSale: (request) => ipcRenderer.invoke('jarvis:retail:sale', request),
+    recordInvoicePayment: (request) => ipcRenderer.invoke('jarvis:invoice:payment', request),
+    voidRetailSale: (request) => ipcRenderer.invoke('jarvis:retail:return', request),
+    adjustRetailStock: (request) => ipcRenderer.invoke('jarvis:retail:stock', request),
     filter: (entity, query, sort, limit) => ipcRenderer.invoke('jarvis:data:filter', { entity, query, sort, limit }),
     search: (entity, query, text, limit) => ipcRenderer.invoke('jarvis:data:search', { entity, query, text, limit }),
     create: (entity, data) => ipcRenderer.invoke('jarvis:data:create', { entity, data }),

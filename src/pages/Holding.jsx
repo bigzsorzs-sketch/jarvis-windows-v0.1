@@ -9,6 +9,7 @@ import HoldingOverview from '@/components/holding/HoldingOverview';
 import BusinessCard from '@/components/holding/BusinessCard';
 import BusinessDetail from '@/components/holding/BusinessDetail';
 import EcosystemOptimizer from '@/components/holding/EcosystemOptimizer';
+import { businessesWithLedger } from '@/lib/financialLedger';
 
 const INDUSTRIES = ['Technológia', 'Ingatlan', 'Kereskedelem', 'Marketing', 'Pénzügy', 'Egészségügy', 'Logisztika', 'Oktatás', 'Vendéglátás', 'Egyéb'];
 const EMOJIS = ['🏢', '🏗️', '🛒', '💻', '🏠', '🚗', '🍕', '🏋️', '📦', '💊', '🎓', '🎯'];
@@ -68,19 +69,25 @@ export default function Holding() {
       return;
     }
     const ownerFilter = { created_by: currentUser.email };
-    const [b, p, e, c, inv] = await Promise.all([
+    try {
+    const [b, p, e, c, inv, finance] = await Promise.all([
       jarvis.entities.Business.filter(ownerFilter, '-created_date'),
       jarvis.entities.BusinessProject.filter(ownerFilter, '-created_date'),
       jarvis.entities.Employee.filter(ownerFilter),
       jarvis.entities.BusinessClient.filter(ownerFilter),
-      jarvis.entities.Invoice.filter(ownerFilter, '-created_date', 100),
+      jarvis.entities.Invoice.filter(ownerFilter, '-created_date'),
+      jarvis.entities.FinanceEntry.filter(ownerFilter),
     ]);
-    setBusinesses(b);
+    setBusinesses(businessesWithLedger(b, finance));
     setProjects(p);
     setEmployees(e);
     setClients(c);
     setInvoices(inv);
-    setLoading(false);
+    } catch {
+      setBusinesses([]); setProjects([]); setEmployees([]); setClients([]); setInvoices([]);
+      setOwnerError('Az üzleti adatok nem tölthetők be. A pénzügyi összesítések nem igazoltak.');
+    }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -92,7 +99,8 @@ export default function Holding() {
       setOwnerError(OWNER_ERROR);
       return;
     }
-    const created = await jarvis.entities.Business.create({
+    try {
+    await jarvis.entities.Business.create({
       ...form,
       created_by: currentUser.email,
       revenue_monthly: parseFloat(form.revenue_monthly) || 0,
@@ -100,9 +108,10 @@ export default function Holding() {
       employee_count: parseInt(form.employee_count) || 0,
       kpi_target_revenue: parseFloat(form.kpi_target_revenue) || 0,
     });
-    setBusinesses(prev => [created, ...prev]);
+    await load();
     setForm({ name: '', type: 'sajat', industry: '', logo_emoji: '🏢', revenue_monthly: '', expense_monthly: '', employee_count: '', contact_email: '', website: '', kpi_target_revenue: '', notes: '', status: 'aktiv' });
     setShowAdd(false);
+    } catch { setOwnerError('A vállalkozás nem menthető. Próbáld újra.'); }
   };
 
   const filtered = businesses.filter(b => {

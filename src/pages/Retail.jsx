@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import TutorialOverlay from '@/components/tutorial/TutorialOverlay';
 import { jarvis } from '@/api/jarvisClient';
 import { invokeWithRetry } from '@/lib/llmGateway';
@@ -25,6 +25,10 @@ export default function Retail() {
   const [tab, setTab] = useState('inventory'); // inventory | stocktake | restock | sales | insights
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
+  const [businesses, setBusinesses] = useState([]);
+  const [savingSale, setSavingSale] = useState(false);
+  const saleInFlight = useRef(false);
+  const saleAttempt = useRef(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [showSale, setShowSale] = useState(false);
@@ -33,7 +37,7 @@ export default function Retail() {
   const [aiLoading, setAiLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const [prodForm, setProdForm] = useState({ name: '', sku: '', price: '', cost: '', stock: '', category: '', min_stock: '' });
+  const [prodForm, setProdForm] = useState({ name: '', sku: '', price: '', cost: '', stock: '', category: '', min_stock: '', business_id:'' });
   const [saleForm, setSaleForm] = useState({ product_id: '', quantity: '1', discount: '0' });
   const [barcode, setBarcode] = useState('');
   const [movementQty, setMovementQty] = useState('1');
@@ -48,12 +52,14 @@ export default function Retail() {
     try {
       const user = await jarvis.auth.me();
       if (!user?.email) throw new Error('auth_required');
-      const [p, s] = await Promise.all([
+      const [p, s, b] = await Promise.all([
         jarvis.entities.RetailProduct?.filter({ created_by: user.email }, '-created_date') || [],
-        jarvis.entities.RetailSale?.filter({ created_by: user.email }, '-created_date', 50) || [],
+        jarvis.entities.RetailSale.filter({ created_by: user.email }, '-created_date'),
+        jarvis.entities.Business.filter({ created_by:user.email }),
       ]);
       setProducts(p);
       setSales(s);
+      setBusinesses(b);
     } catch {
       setErrorMessage(t('retail_load_error'));
     } finally {
@@ -63,42 +69,50 @@ export default function Retail() {
 
   const addProduct = async () => {
     if (!prodForm.name.trim()) return;
+    try {
     const created = await jarvis.entities.RetailProduct.create({
       ...prodForm,
-      price: parseFloat(prodForm.price) || 0,
-      cost: parseFloat(prodForm.cost) || 0,
-      stock: parseInt(prodForm.stock) || 0,
-      min_stock: parseInt(prodForm.min_stock) || 5,
+      business_id:prodForm.business_id || null,
+      price: Number(prodForm.price),
+      cost: Number(prodForm.cost || 0),
+      stock: Number(prodForm.stock || 0),
+      min_stock: Number(prodForm.min_stock || 5),
     });
     setProducts(prev => [created, ...prev]);
-    setProdForm({ name: '', sku: '', price: '', cost: '', stock: '', category: '', min_stock: '' });
+    setProdForm({ name: '', sku: '', price: '', cost: '', stock: '', category: '', min_stock: '', business_id:'' });
     setShowAdd(false);
+    } catch { setErrorMessage('A termék nem menthető. Ellenőrizd az árat és az egész darabszámokat.'); }
   };
 
   const recordSale = async () => {
-    if (!saleForm.product_id) return;
-    const product = products.find(p => p.id === saleForm.product_id);
-    if (!product) return;
-    const qty = parseInt(saleForm.quantity) || 1;
-    const discount = parseFloat(saleForm.discount) || 0;
-    const revenue = product.price * qty * (1 - discount / 100);
-    const profit = (product.price - product.cost) * qty * (1 - discount / 100);
-
-    await jarvis.entities.RetailSale.create({
-      product_id: product.id,
-      product_name: product.name,
-      quantity: qty,
-      unit_price: product.price,
-      discount,
-      revenue,
-      profit,
-      date: today(),
-    });
-    // Update stock
-    await jarvis.entities.RetailProduct.update(product.id, { stock: Math.max(0, (product.stock || 0) - qty) });
+    if (!saleForm.product_id || saleInFlight.current) return;
+    saleInFlight.current = true;
+    setSavingSale(true);
+    setErrorMessage('');
+    const request = saleAttempt.current || { ...saleForm, operation_id:crypto.randomUUID(), date:today() };
+    saleAttempt.current = request;
+    try {
+    const result = await jarvis.retail.recordSale(request);
+    if (result?.success !== true) throw new Error('SALE_NOT_CONFIRMED');
+    saleAttempt.current = null;
     setShowSale(false);
     setSaleForm({ product_id: '', quantity: '1', discount: '0' });
-    load();
+    await load();
+    } catch (error) {
+      const reason = String(error?.message || '');
+      if (/INVALID|PRECISION|INSUFFICIENT_STOCK|NOT_FOUND|TOO_LARGE/.test(reason)) saleAttempt.current = null;
+      setErrorMessage(reason.includes('INSUFFICIENT_STOCK') ? 'Nincs elegendő készlet. Az eladás nem lett rögzítve.'
+        : 'Az eladás mentése nem igazolt. Ellenőrizd az adatokat, majd próbáld újra; az újrapróbálás ugyanazt a műveletet használja.');
+    } finally { saleInFlight.current = false; setSavingSale(false); }
+  };
+
+  const voidSale = async (sale) => {
+    if (!window.confirm('Rögzíted a visszáru teljes visszatérítését és a termék készletre vételét?')) return;
+    try {
+      const result = await jarvis.retail.voidSale({ sale_id:sale.id, operation_id:crypto.randomUUID(), date:today() });
+      if (result?.success !== true) throw new Error('RETURN_NOT_CONFIRMED');
+      await load();
+    } catch { setErrorMessage('A visszáru rögzítése nem sikerült. Frissítsd az eladáslistát az újrapróbálás előtt.'); }
   };
 
   const matchedProduct = products.find((p) => {
@@ -108,28 +122,30 @@ export default function Retail() {
 
   const updateStockByBarcode = async (direction) => {
     if (!matchedProduct) return;
-    const qty = parseInt(movementQty) || 1;
-    const nextStock = direction === 'in'
-      ? (matchedProduct.stock || 0) + qty
-      : Math.max(0, (matchedProduct.stock || 0) - qty);
-
-    await jarvis.entities.RetailProduct.update(matchedProduct.id, { stock: nextStock });
+    try {
+    const result = await jarvis.retail.adjustStock({ product_id:matchedProduct.id, quantity:Number(movementQty), direction, operation_id:crypto.randomUUID() });
+    if (result?.success !== true) throw new Error('STOCK_NOT_CONFIRMED');
     setBarcode('');
     setMovementQty('1');
-    load();
+    await load();
+    } catch { setErrorMessage('A készletmozgás nem menthető. Ellenőrizd a darabszámot és a rendelkezésre álló készletet.'); }
   };
 
   const updatePhysicalStock = async (productId, stock) => {
-    await jarvis.entities.RetailProduct.update(productId, { stock });
+    const product = products.find(item => item.id === productId);
+    try {
+    const result = await jarvis.retail.adjustStock({ product_id:productId, stock, expected_stock:product?.stock, operation_id:crypto.randomUUID() });
+    if (result?.success !== true) throw new Error('STOCK_NOT_CONFIRMED');
     setProducts((prev) => prev.map((item) => (item.id === productId ? { ...item, stock } : item)));
+    } catch { await load(); setErrorMessage('A készlet időközben változott vagy érvénytelen. Frissítsd a listát és ismételd meg a leltárt.'); }
   };
 
   const getAiInsight = async () => {
     setAiLoading(true);
-    const totalRevenue = sales.reduce((s, sale) => s + (sale.revenue || 0), 0);
-    const totalProfit = sales.reduce((s, sale) => s + (sale.profit || 0), 0);
+    const totalRevenue = sales.filter(sale => sale.status !== 'voided').reduce((s, sale) => s + (sale.revenue || 0), 0);
+    const totalProfit = sales.filter(sale => sale.status !== 'voided').reduce((s, sale) => s + (sale.profit || 0), 0);
     const lowStock = products.filter(p => (p.stock || 0) <= (p.min_stock || 5));
-    const topProduct = sales.reduce((acc, sale) => {
+    const topProduct = sales.filter(sale => sale.status !== 'voided').reduce((acc, sale) => {
       acc[sale.product_name] = (acc[sale.product_name] || 0) + sale.revenue;
       return acc;
     }, {});
@@ -159,10 +175,10 @@ Adj rövid, döntésre kész elemzést. Legyél specifikus.`;
     p.sku?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const totalRevenue = sales.reduce((s, sale) => s + (sale.revenue || 0), 0);
-  const totalProfit = sales.reduce((s, sale) => s + (sale.profit || 0), 0);
+  const totalRevenue = sales.filter(sale => sale.status !== 'voided').reduce((s, sale) => s + (sale.revenue || 0), 0);
+  const totalProfit = sales.filter(sale => sale.status !== 'voided').reduce((s, sale) => s + (sale.profit || 0), 0);
   const lowStock = products.filter(p => (p.stock || 0) <= (p.min_stock || 5));
-  const todaySales = sales.filter(s => s.date === today());
+  const todaySales = sales.filter(s => s.date === today() && s.status !== 'voided');
 
   const retailTutorial = [
     {
@@ -235,7 +251,7 @@ Adj rövid, döntésre kész elemzést. Legyél specifikus.`;
 
             {tab === 'restock' && <RetailRestockTab products={products} />}
 
-            {tab === 'sales' && <RetailSalesTab sales={sales} />}
+            {tab === 'sales' && <RetailSalesTab sales={sales} onVoid={voidSale} />}
 
             {tab === 'insights' && (
               <RetailInsightsTab
@@ -264,6 +280,9 @@ Adj rövid, döntésre kész elemzést. Legyél specifikus.`;
               <div className="space-y-3">
                 <input className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground"
                   placeholder="Termék neve *" value={prodForm.name} onChange={e => setProdForm(f => ({ ...f, name: e.target.value }))} />
+                <MobileSelect value={prodForm.business_id} onChange={v => setProdForm(f => ({ ...f, business_id:v }))}
+                  options={[{ value:'', label:'Céges – vállalkozáshoz még nincs rendelve' }, ...businesses.map(b => ({ value:b.id, label:b.name }))]}
+                  placeholder="Vállalkozás" />
                 <div className="grid grid-cols-2 gap-2">
                   <input className="bg-secondary rounded-xl px-3 py-2.5 text-sm outline-none border border-border text-foreground"
                     placeholder="Barcode / SKU" value={prodForm.sku} onChange={e => setProdForm(f => ({ ...f, sku: e.target.value }))} />
@@ -325,14 +344,14 @@ Adj rövid, döntésre kész elemzést. Legyél specifikus.`;
                       const qty = parseInt(saleForm.quantity) || 1;
                       const disc = parseFloat(saleForm.discount) || 0;
                       const rev = p ? p.price * qty * (1 - disc / 100) : 0;
-                      const profit = p ? (p.price - p.cost) * qty * (1 - disc / 100) : 0;
+                      const profit = p ? rev - p.cost * qty : 0;
                       return `Bevétel: £${rev.toFixed(2)} | Profit: £${profit.toFixed(2)}`;
                     })()}
                   </div>
                 )}
-                <button onClick={recordSale} disabled={!saleForm.product_id}
+                <button onClick={recordSale} disabled={!saleForm.product_id || savingSale}
                   className="w-full py-3 rounded-2xl bg-orange-500 text-white font-semibold text-sm disabled:opacity-50">
-                  Eladás rögzítése
+                  {savingSale ? 'Mentés…' : 'Kifizetett eladás rögzítése'}
                 </button>
               </div>
             </motion.div>
