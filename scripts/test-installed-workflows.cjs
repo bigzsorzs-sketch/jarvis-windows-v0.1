@@ -205,9 +205,19 @@ async function stop() {
     console.error(report.error); process.exitCode = 1;
   } finally {
     await stop().catch(() => {});
+    try {
+      // NSIS and Electron child processes can release Windows file handles
+      // just after their parent exits. Retry only the disposable test root;
+      // a persistent cleanup failure still fails acceptance and is reported.
+      await fs.promises.rm(root, { recursive:true, force:true, maxRetries:12, retryDelay:250 });
+      done('isolated installation and profile cleanup');
+    } catch (error) {
+      report.success = false;
+      report.cleanup_error = String(error.stack || error);
+      console.error(report.cleanup_error); process.exitCode = 1;
+    }
     report.finished_at = new Date().toISOString();
     fs.mkdirSync('release', { recursive:true });
     fs.writeFileSync('release/windows-acceptance.json', JSON.stringify(report, null, 2));
-    fs.rmSync(root, { recursive:true, force:true });
   }
 })();
