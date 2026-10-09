@@ -10,7 +10,7 @@ const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 
 if (process.platform !== 'win32') { console.log('Installed Windows workflow checks require Windows.'); process.exit(0); }
-const installer = path.resolve(process.argv[2] || `release/Jarvis-Setup-${require('../package.json').version}-x64.exe`);
+const installer = path.resolve(process.argv.slice(2).find(arg => !arg.startsWith('--')) || `release/Jarvis-Setup-${require('../package.json').version}-x64.exe`);
 if (!fs.existsSync(installer)) throw new Error('INSTALLER_MISSING');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-acceptance-'));
 const install = path.join(root, 'installed');
@@ -161,6 +161,13 @@ async function stop() {
     }
     assert.ok(editVisible, 'GMAIL_CONFIGURATION_FORM_NOT_VISIBLE');
     done('installed Gmail screen reopens OAuth configuration for correction');
+    if (process.argv.includes('--language-audit')) {
+      const languageAudit = await require('./language-workflow-audit.cjs')(runtime);
+      report.language_audit = { language_state_success:languageAudit.language_state_success, catalog_complete:languageAudit.catalog_complete, interface_complete:languageAudit.interface_complete, routes:languageAudit.checks.length, failures:languageAudit.failures };
+      assert.equal(languageAudit.language_state_success, true, 'LANGUAGE_RUNTIME_FAILURES');
+      done('all installed route/language switches and persisted preference');
+      console.log('Complete UI translation:', languageAudit.interface_complete, '(see windows-language-audit.json)');
+    }
     const screenshot = await runtime.command('Page.captureScreenshot', { format:'png' });
     fs.mkdirSync('release', { recursive:true });
     fs.writeFileSync('release/windows-acceptance.png', Buffer.from(screenshot.data, 'base64'));

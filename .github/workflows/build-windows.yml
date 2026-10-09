@@ -230,7 +230,7 @@ jobs:
           Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
       - name: Test installed Windows workflows and persistence
-        run: node scripts/test-installed-workflows.cjs
+        run: node scripts/test-installed-workflows.cjs --language-audit
 
       - name: Preserve installed workflow acceptance evidence
         if: always()
@@ -240,6 +240,7 @@ jobs:
           path: |
             release/windows-acceptance.json
             release/windows-acceptance.png
+            release/windows-language-audit.json
           if-no-files-found: warn
 
       - name: Create SHA-256 checksum
