@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useEffect, useState } from 'react';
 import { X, Download } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -7,6 +8,7 @@ import RepairCostEstimator from '@/components/obd2/RepairCostEstimator';
 import GeminiDiagnosisPanel from '@/components/obd2/GeminiDiagnosisPanel';
 
 export default function SessionDetail({ session: initialSession, onClose }) {
+  const { locale } = useLang();
   const [vehicle, setVehicle] = useState(null);
   const [currentSession, setCurrentSession] = useState(initialSession);
 
@@ -68,7 +70,7 @@ export default function SessionDetail({ session: initialSession, onClose }) {
             <div>
               <h2 className="text-lg font-semibold text-foreground">📊 Munkamenet részletek</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                {startDate.toLocaleDateString('hu-HU')} {startDate.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}
+                {startDate.toLocaleDateString(locale)} {startDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
             <button

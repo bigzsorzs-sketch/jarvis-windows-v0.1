@@ -172,7 +172,7 @@ export default function FinanceTool() {
         {/* Tabs */}
         <div className="flex bg-secondary rounded-2xl p-1 mb-5">
           {[['attekintes', `📊 ${t('overview_tab')}`], ['tetelek', `📋 ${t('entries_tab')}`]].map(([key, label]) => (
-            <button key={key} data-finance-tab={key} onClick={() => setTab(key)}
+            <button key={key} data-finance-tab={key} aria-pressed={tab === key} onClick={() => setTab(key)}
               className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
               {label}
             </button>
@@ -289,7 +289,7 @@ export default function FinanceTool() {
               </div>
             )}
 
-            <button onClick={() => setShowAdd(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-primary/40 text-primary text-sm font-medium">
+            <button data-audit-open="finance-entry" onClick={() => setShowAdd(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-primary/40 text-primary text-sm font-medium">
               <Plus size={15} /> {t('add_manual_entry')}
             </button>
           </div>
@@ -297,7 +297,7 @@ export default function FinanceTool() {
 
         {tab === 'tetelek' && (
           <div className="space-y-2">
-            <button onClick={() => setShowAdd(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold mb-3">
+            <button data-audit-open="finance-entry" onClick={() => setShowAdd(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold mb-3">
               <Plus size={15} /> {t('new_entry')}
             </button>
             {entries.length === 0 && <p className="text-center text-muted-foreground text-sm py-8">{t('no_entries')}</p>}
@@ -332,8 +332,8 @@ export default function FinanceTool() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">{t('new_entry')}</h2>
-                <button onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="finance-entry" className="text-base font-semibold text-foreground">{t('new_entry')}</h2>
+                <button data-audit-close="finance-entry" onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
               <div className="space-y-3">
                 <input className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground" placeholder={t('description')} value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} />

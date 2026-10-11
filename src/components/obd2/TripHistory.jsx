@@ -1,9 +1,11 @@
+import { useLang } from '@/lib/i18n';
 import { useEffect, useState } from 'react';
 import { getTrips, deleteTrip } from '@/lib/tripLogger';
 import { MapPin, Trash2, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function TripHistory({ onViewTrip }) {
+  const { locale } = useLang();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -78,7 +80,7 @@ export default function TripHistory({ onViewTrip }) {
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-foreground">
-                    {startDate.toLocaleDateString('hu-HU')} {startDate.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}
+                    {startDate.toLocaleDateString(locale)} {startDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                   </p>
                   <div className="flex gap-4 text-xs text-muted-foreground mt-1">
                     <span>📍 {trip.distance?.toFixed(1) || 0} km</span>

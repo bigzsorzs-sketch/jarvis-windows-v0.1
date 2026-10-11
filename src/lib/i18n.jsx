@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useCallback, useState } from 'react';
+import { createLanguagePreferences, languageDirection, localeForLanguage } from './languagePreferences';
 
 // ─── SUPPORTED LANGUAGES (42 languages with flags) ───────────────────────────
 export const SUPPORTED_LANGUAGES = [
@@ -49,6 +50,52 @@ export const SUPPORTED_LANGUAGES = [
 // ─── UI TRANSLATIONS ──────────────────────────────────────────────────────────
 const translations = {
   hu: {
+    saving: "Mentés...",
+    chat_history: "Beszélgetési előzmények",
+    chat_history_hint: "Korábbi Jarvis beszélgetések",
+    chat_history_empty: "Még nincs mentett beszélgetés.",
+    chat_conversation: "Beszélgetés",
+    chat_delete_conversation: "Beszélgetés törlése",
+    fuel_subtitle: "Valós fogyasztás és tankolási költségek",
+    fuel_new_log: "Új tankolás rögzítése",
+    fuel_form_hint: "Add meg a litert, a forintban fizetett árat és a távolságot.",
+    fuel_without_vehicle: "Jármű nélkül",
+    fuel_petrol: "Benzin",
+    fuel_diesel: "Dízel",
+    fuel_hybrid: "Hibrid",
+    fuel_other: "Egyéb",
+    fuel_liters: "Liter",
+    fuel_cost: "Költség (Ft)",
+    fuel_distance: "Távolság (km)",
+    fuel_odometer: "Kilométeróra",
+    fuel_station: "Benzinkút",
+    fuel_save: "Tankolás mentése",
+    fuel_save_error: "Nem sikerült menteni a tankolást. Az adataid megmaradtak; próbáld újra.",
+    fuel_invalid_input: "Ellenőrizd a dátumot és az értékeket. Pozitív liter és legalább 1 km szükséges.",
+    fuel_delete_error: "Nem sikerült törölni a tankolást. Próbáld újra.",
+    fuel_cost_trend: "Költségek alakulása",
+    fuel_chart_empty: "Még nincs grafikonhoz elegendő tankolási adat.",
+    fuel_log_empty: "Még nincs rögzített tankolás.",
+    fuel_log_title: "Tankolási napló",
+    fuel_avg_consumption: "Átlagfogyasztás",
+    fuel_total_cost: "Összes költség",
+    fuel_cost_per_km: "Költség / km",
+    fuel_total_distance: "Megtett táv",
+    retail_inventory: "Készlet",
+    retail_stocktake: "Leltár",
+    retail_restock: "Beszerzés",
+    retail_sales: "Eladások",
+    retail_insights: "AI elemzés",
+    page_voice_help: "Hangparancsok",
+    page_ai_feedback_admin: "AI visszajelzések",
+    page_system_center: "Rendszerközpont",
+    secure_label: "BIZTONSÁGOS",
+    local_core_label: "HELYI MAG",
+    collapse_sidebar: "Oldalsáv összecsukása",
+    page_not_found: "Az oldal nem található",
+    page_not_found_hint: "Ez az útvonal nem található az alkalmazásban.",
+    go_home: "Főoldal",
+    language_save_error: "A nyelv mentése nem sikerült. Válaszd ki újra.",
     // Nav
     chat: 'Csevegés', dashboard: 'Műszerfal', tools: 'Eszközök', settings: 'Beállítások',
     more: 'Több', holding: 'Holding', audit: 'Audit', new_chat: 'Új chat',
@@ -73,7 +120,7 @@ const translations = {
     // Tasks
     todos: 'Feladatok', add_todo: 'Új feladat...', add: 'Hozzáadás',
     low: 'Alacsony', medium: 'Közepes', urgent: 'Sürgős', no_todos: 'Még nincsenek feladatok.',
-    add_task: 'Feladat hozzáadása', open_full_assistant: 'Megnyitom az asszisztenst',
+    add_task: 'Feladat hozzáadása',
     // Call / Nav
     call: 'Hívás', make_call: 'Hívás indítása', call_number: 'Telefonszám',
     // Notes
@@ -240,6 +287,52 @@ const translations = {
     driving_mode_active: 'Vezetési mód aktív', driving_mode_desc: 'Hands-free használatra optimalizált nézet, gyors navigációval és útvonalfigyeléssel.', driving_open_maps: 'Google Maps megnyitása', driving_route_watch_active: 'Út naplózása aktív', driving_route_watch_start: 'Útvonalfigyelés indítása', driving_route_watch_enabled: '🚗 Útvonalfigyelés bekapcsolva.', driving_route_watch_disabled: '✅ Útvonalfigyelés kikapcsolva.', driving_finish_trip: 'Út vége', driving_battery_safe: 'Akkukímélő útfigyelés aktív', driving_sync_in_progress: 'Szinkron folyamatban', driving_offline_sync: 'Offline vagy, az út később szinkronizálódik', driving_saved: 'Út sikeresen mentve', driving_gps_weak: 'GPS pontosság gyenge', driving_gps_stable: 'GPS figyelés stabil', driving_retry_sync: 'Sikertelen szinkron újrapróbálása', driving_tip_1: 'Ha torlódást vagy lassulást észlelsz, egy koppintással újra tudod nyitni a navigációt.', driving_tip_2: 'A következő lépésben ide köthető a Messenger vezetés közbeni diktálás is.', driving_mvp_label: 'Első működő MVP: Google Maps + torlódás fókusz',
   },
   en: {
+    saving: "Saving...",
+    chat_history: "Conversation history",
+    chat_history_hint: "Previous Jarvis conversations",
+    chat_history_empty: "No saved conversations yet.",
+    chat_conversation: "Conversation",
+    chat_delete_conversation: "Delete conversation",
+    fuel_subtitle: "Actual fuel consumption and refuelling costs",
+    fuel_new_log: "Record a refuelling",
+    fuel_form_hint: "Enter litres, cost in Hungarian forints (HUF), and distance.",
+    fuel_without_vehicle: "No vehicle",
+    fuel_petrol: "Petrol",
+    fuel_diesel: "Diesel",
+    fuel_hybrid: "Hybrid",
+    fuel_other: "Other",
+    fuel_liters: "Litres",
+    fuel_cost: "Cost (HUF)",
+    fuel_distance: "Distance (km)",
+    fuel_odometer: "Odometer",
+    fuel_station: "Petrol station",
+    fuel_save: "Save refuelling",
+    fuel_save_error: "Refuelling could not be saved. Your entries have been kept; try again.",
+    fuel_invalid_input: "Check the date and values. Litres must be positive and distance at least 1 km.",
+    fuel_delete_error: "Refuelling could not be deleted. Try again.",
+    fuel_cost_trend: "Cost trend",
+    fuel_chart_empty: "Not enough refuelling data for a chart yet.",
+    fuel_log_empty: "No refuellings recorded yet.",
+    fuel_log_title: "Refuelling log",
+    fuel_avg_consumption: "Average consumption",
+    fuel_total_cost: "Total cost",
+    fuel_cost_per_km: "Cost / km",
+    fuel_total_distance: "Distance travelled",
+    retail_inventory: "Inventory",
+    retail_stocktake: "Stocktake",
+    retail_restock: "Restocking",
+    retail_sales: "Sales",
+    retail_insights: "AI analysis",
+    page_voice_help: "Voice commands",
+    page_ai_feedback_admin: "AI feedback",
+    page_system_center: "System Center",
+    secure_label: "SECURE",
+    local_core_label: "LOCAL CORE",
+    collapse_sidebar: "Collapse sidebar",
+    page_not_found: "Page not found",
+    page_not_found_hint: "This route could not be found in the application.",
+    go_home: "Go home",
+    language_save_error: "Language could not be saved. Select it again.",
     // Nav
     chat: 'Chat', dashboard: 'Dashboard', tools: 'Tools', settings: 'Settings',
     more: 'More', holding: 'Holding', audit: 'Audit', new_chat: 'New chat',
@@ -264,7 +357,7 @@ const translations = {
     // Tasks
     todos: 'Tasks', add_todo: 'New task...', add: 'Add',
     low: 'Low', medium: 'Medium', urgent: 'Urgent', no_todos: 'No tasks yet.',
-    add_task: 'Add Task', open_full_assistant: 'Open Full Assistant',
+    add_task: 'Add Task',
     // Call / Nav
     call: 'Call', make_call: 'Make a Call', call_number: 'Phone number',
     // Notes
@@ -431,6 +524,52 @@ const translations = {
     driving_mode_active: 'Driving mode active', driving_mode_desc: 'A hands-free view optimized for quick navigation and route tracking.', driving_open_maps: 'Open Google Maps', driving_route_watch_active: 'Route logging active', driving_route_watch_start: 'Start route tracking', driving_route_watch_enabled: '🚗 Route tracking enabled.', driving_route_watch_disabled: '✅ Route tracking disabled.', driving_finish_trip: 'Finish trip', driving_battery_safe: 'Battery-safe route tracking active', driving_sync_in_progress: 'Sync in progress', driving_offline_sync: 'You are offline, the route will sync later', driving_saved: 'Route saved successfully', driving_gps_weak: 'GPS accuracy is weak', driving_gps_stable: 'GPS tracking is stable', driving_retry_sync: 'Retry failed sync', driving_tip_1: 'If you notice traffic or delays, you can reopen navigation with one tap.', driving_tip_2: 'Next step: Messenger voice dictation can be connected here.', driving_mvp_label: 'First working MVP: Google Maps + traffic focus',
   },
   de: {
+    saving: "Wird gespeichert...",
+    chat_history: "Gesprächsverlauf",
+    chat_history_hint: "Frühere Jarvis-Gespräche",
+    chat_history_empty: "Noch keine gespeicherten Gespräche.",
+    chat_conversation: "Gespräch",
+    chat_delete_conversation: "Gespräch löschen",
+    fuel_subtitle: "Tatsächlicher Verbrauch und Tankkosten",
+    fuel_new_log: "Tankvorgang erfassen",
+    fuel_form_hint: "Liter, Kosten in ungarischen Forint (HUF) und Entfernung eingeben.",
+    fuel_without_vehicle: "Ohne Fahrzeug",
+    fuel_petrol: "Benzin",
+    fuel_diesel: "Diesel",
+    fuel_hybrid: "Hybrid",
+    fuel_other: "Sonstiges",
+    fuel_liters: "Liter",
+    fuel_cost: "Kosten (HUF)",
+    fuel_distance: "Entfernung (km)",
+    fuel_odometer: "Kilometerstand",
+    fuel_station: "Tankstelle",
+    fuel_save: "Tankvorgang speichern",
+    fuel_save_error: "Speichern fehlgeschlagen. Ihre Eingaben bleiben erhalten; versuchen Sie es erneut.",
+    fuel_invalid_input: "Datum und Werte prüfen. Liter müssen positiv und die Entfernung mindestens 1 km sein.",
+    fuel_delete_error: "Löschen fehlgeschlagen. Versuchen Sie es erneut.",
+    fuel_cost_trend: "Kostenverlauf",
+    fuel_chart_empty: "Noch nicht genügend Tankdaten für ein Diagramm.",
+    fuel_log_empty: "Noch keine Tankvorgänge erfasst.",
+    fuel_log_title: "Tankprotokoll",
+    fuel_avg_consumption: "Durchschnittsverbrauch",
+    fuel_total_cost: "Gesamtkosten",
+    fuel_cost_per_km: "Kosten / km",
+    fuel_total_distance: "Gefahrene Strecke",
+    retail_inventory: "Lagerbestand",
+    retail_stocktake: "Inventur",
+    retail_restock: "Nachbestellung",
+    retail_sales: "Verkäufe",
+    retail_insights: "KI-Analyse",
+    page_voice_help: "Sprachbefehle",
+    page_ai_feedback_admin: "KI-Feedback",
+    page_system_center: "Systemzentrale",
+    secure_label: "SICHER",
+    local_core_label: "LOKALER KERN",
+    collapse_sidebar: "Seitenleiste einklappen",
+    page_not_found: "Seite nicht gefunden",
+    page_not_found_hint: "Dieser Pfad wurde in der Anwendung nicht gefunden.",
+    go_home: "Zur Startseite",
+    language_save_error: "Die Sprache konnte nicht gespeichert werden. Wählen Sie sie erneut.",
     chat: 'Chat', dashboard: 'Dashboard', tools: 'Werkzeuge', settings: 'Einstellungen',
     more: 'Mehr', holding: 'Holding', audit: 'Audit', new_chat: 'Neuer Chat',
     home: 'Startseite', assistant: 'Assistent',
@@ -580,6 +719,52 @@ const translations = {
     legal_info: 'Information', legal_history: 'Verlauf',
   },
   fr: {
+    saving: "Enregistrement...",
+    chat_history: "Historique des conversations",
+    chat_history_hint: "Conversations Jarvis précédentes",
+    chat_history_empty: "Aucune conversation enregistrée.",
+    chat_conversation: "Conversation",
+    chat_delete_conversation: "Supprimer la conversation",
+    fuel_subtitle: "Consommation réelle et frais de carburant",
+    fuel_new_log: "Enregistrer un plein",
+    fuel_form_hint: "Saisissez les litres, le coût en forints hongrois (HUF) et la distance.",
+    fuel_without_vehicle: "Sans véhicule",
+    fuel_petrol: "Essence",
+    fuel_diesel: "Diesel",
+    fuel_hybrid: "Hybride",
+    fuel_other: "Autre",
+    fuel_liters: "Litres",
+    fuel_cost: "Coût (HUF)",
+    fuel_distance: "Distance (km)",
+    fuel_odometer: "Kilométrage",
+    fuel_station: "Station-service",
+    fuel_save: "Enregistrer le plein",
+    fuel_save_error: "Échec de l’enregistrement. Vos données sont conservées ; réessayez.",
+    fuel_invalid_input: "Vérifiez la date et les valeurs. Les litres doivent être positifs et la distance d’au moins 1 km.",
+    fuel_delete_error: "Échec de la suppression. Réessayez.",
+    fuel_cost_trend: "Évolution des coûts",
+    fuel_chart_empty: "Pas encore assez de données pour un graphique.",
+    fuel_log_empty: "Aucun plein enregistré.",
+    fuel_log_title: "Journal des pleins",
+    fuel_avg_consumption: "Consommation moyenne",
+    fuel_total_cost: "Coût total",
+    fuel_cost_per_km: "Coût / km",
+    fuel_total_distance: "Distance parcourue",
+    retail_inventory: "Stock",
+    retail_stocktake: "Inventaire",
+    retail_restock: "Réapprovisionnement",
+    retail_sales: "Ventes",
+    retail_insights: "Analyse IA",
+    page_voice_help: "Commandes vocales",
+    page_ai_feedback_admin: "Retours sur l’IA",
+    page_system_center: "Centre système",
+    secure_label: "SÉCURISÉ",
+    local_core_label: "NOYAU LOCAL",
+    collapse_sidebar: "Réduire la barre latérale",
+    page_not_found: "Page introuvable",
+    page_not_found_hint: "Ce chemin est introuvable dans l’application.",
+    go_home: "Accueil",
+    language_save_error: "La langue n’a pas pu être enregistrée. Sélectionnez-la à nouveau.",
     chat: 'Chat', dashboard: 'Tableau de bord', tools: 'Outils', settings: 'Paramètres',
     more: 'Plus', holding: 'Holding', audit: 'Audit', new_chat: 'Nouveau chat',
     home: 'Accueil', assistant: 'Assistant',
@@ -729,6 +914,52 @@ const translations = {
     legal_info: 'Information', legal_history: 'Historique',
   },
   es: {
+    saving: "Guardando...",
+    chat_history: "Historial de conversaciones",
+    chat_history_hint: "Conversaciones anteriores de Jarvis",
+    chat_history_empty: "Todavía no hay conversaciones guardadas.",
+    chat_conversation: "Conversación",
+    chat_delete_conversation: "Eliminar conversación",
+    fuel_subtitle: "Consumo real y gastos de combustible",
+    fuel_new_log: "Registrar un repostaje",
+    fuel_form_hint: "Introduce litros, coste en florines húngaros (HUF) y distancia.",
+    fuel_without_vehicle: "Sin vehículo",
+    fuel_petrol: "Gasolina",
+    fuel_diesel: "Diésel",
+    fuel_hybrid: "Híbrido",
+    fuel_other: "Otro",
+    fuel_liters: "Litros",
+    fuel_cost: "Coste (HUF)",
+    fuel_distance: "Distancia (km)",
+    fuel_odometer: "Kilometraje",
+    fuel_station: "Gasolinera",
+    fuel_save: "Guardar repostaje",
+    fuel_save_error: "No se pudo guardar. Tus datos se han conservado; inténtalo de nuevo.",
+    fuel_invalid_input: "Comprueba la fecha y los valores. Los litros deben ser positivos y la distancia al menos 1 km.",
+    fuel_delete_error: "No se pudo eliminar el repostaje. Inténtalo de nuevo.",
+    fuel_cost_trend: "Evolución de costes",
+    fuel_chart_empty: "Todavía no hay suficientes datos para un gráfico.",
+    fuel_log_empty: "Todavía no hay repostajes registrados.",
+    fuel_log_title: "Registro de repostajes",
+    fuel_avg_consumption: "Consumo medio",
+    fuel_total_cost: "Coste total",
+    fuel_cost_per_km: "Coste / km",
+    fuel_total_distance: "Distancia recorrida",
+    retail_inventory: "Existencias",
+    retail_stocktake: "Recuento",
+    retail_restock: "Reposición",
+    retail_sales: "Ventas",
+    retail_insights: "Análisis IA",
+    page_voice_help: "Comandos de voz",
+    page_ai_feedback_admin: "Comentarios sobre la IA",
+    page_system_center: "Centro del sistema",
+    secure_label: "SEGURO",
+    local_core_label: "NÚCLEO LOCAL",
+    collapse_sidebar: "Contraer barra lateral",
+    page_not_found: "Página no encontrada",
+    page_not_found_hint: "No se ha encontrado esta ruta en la aplicación.",
+    go_home: "Inicio",
+    language_save_error: "No se pudo guardar el idioma. Selecciónalo de nuevo.",
     chat: 'Chat', dashboard: 'Panel', tools: 'Herramientas', settings: 'Configuración',
     more: 'Más', holding: 'Holding', audit: 'Auditoría', new_chat: 'Nuevo chat',
     home: 'Inicio', assistant: 'Asistente',
@@ -887,35 +1118,31 @@ function getTranslations(lang) {
 const LangContext = createContext(null);
 
 export function LangProvider({ children }) {
-  const [lang, setLang] = useState(() => {
-    const stored = localStorage.getItem('app_lang');
-    const valid = SUPPORTED_LANGUAGES.map(l => l.code);
-    return stored && valid.includes(stored) ? stored : 'hu';
+  const [preferences] = useState(() => {
+    let storage;
+    try { storage = window.localStorage; } catch {}
+    return createLanguagePreferences({ languages:SUPPORTED_LANGUAGES, storage, bridge:window.jarvisDesktop });
   });
+  const [lang, setLang] = useState(preferences.current);
+  const [languagePersistence, setLanguagePersistence] = useState({ pending:false, error:false });
 
   useEffect(() => {
-    let cancelled = false;
-    window.jarvisDesktop?.getSettings?.().then((settings) => {
-      const code = settings?.language;
-      const valid = SUPPORTED_LANGUAGES.some(l => l.code === code);
-      if (!cancelled && valid && !localStorage.getItem('app_lang')) {
-        setLang(code);
-        localStorage.setItem('app_lang', code);
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
+    preferences.setListeners({ onChange:setLang, onStatus:setLanguagePersistence });
+    preferences.hydrate();
+    return () => preferences.setListeners();
+  }, [preferences]);
 
-  const changeLang = (code) => {
-    setLang(code);
-    localStorage.setItem('app_lang', code);
-    window.jarvisDesktop?.saveSettings?.({ language: code }).catch?.(() => {});
-  };
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = languageDirection(lang);
+  }, [lang]);
 
-  const t = (key) => getTranslations(lang)[key] || getTranslations('en')[key] || key;
+  const changeLang = preferences.select;
+  const t = useCallback((key) => tStatic(lang, key), [lang]);
+  const locale = localeForLanguage(lang, SUPPORTED_LANGUAGES);
 
   return (
-    <LangContext.Provider value={{ lang, changeLang, t, SUPPORTED_LANGUAGES }}>
+    <LangContext.Provider value={{ lang, locale, changeLang, t, languagePersistence, SUPPORTED_LANGUAGES }}>
       {children}
     </LangContext.Provider>
   );
@@ -926,5 +1153,8 @@ export function useLang() {
 }
 
 export function tStatic(lang, key) {
-  return getTranslations(lang)[key] || getTranslations('en')[key] || key;
+  const chosen = getTranslations(lang);
+  if (Object.hasOwn(chosen, key)) return chosen[key];
+  if (Object.hasOwn(translations.en, key)) return translations.en[key];
+  return key;
 }

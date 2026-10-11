@@ -156,7 +156,7 @@ export default function InvoiceTool() {
           <h1 className="text-xl font-bold text-foreground">{t('invoices')}</h1>
         </div>
 
-        <button onClick={() => setShowCreate(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm mb-2">
+        <button data-audit-open="invoice" onClick={() => setShowCreate(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm mb-2">
           <Plus size={16} /> {t('new_invoice')}
         </button>
         {errorMessage && (
@@ -235,12 +235,12 @@ export default function InvoiceTool() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">Új számla</h2>
+                <h2 data-audit-view="invoice" className="text-base font-semibold text-foreground">Új számla</h2>
                 <div className="flex gap-2">
                   <button onClick={generateWithAI} className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-primary/10 text-primary text-xs">
                     {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Bot size={12} />} AI generálás
                   </button>
-                  <button onClick={() => setShowCreate(false)}><X size={18} className="text-muted-foreground" /></button>
+                  <button data-audit-close="invoice" onClick={() => setShowCreate(false)}><X size={18} className="text-muted-foreground" /></button>
                 </div>
               </div>
               <div className="space-y-3">

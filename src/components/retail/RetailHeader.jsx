@@ -12,10 +12,10 @@ export default function RetailHeader({ productsCount, todayRevenue, onAddSale, o
         <p className="text-xs text-muted-foreground">{productsCount} termék · Ma: £{todayRevenue.toFixed(0)} bevétel</p>
       </div>
       <div className="flex gap-2">
-        <button onClick={onAddSale} className="px-3 py-1.5 rounded-xl bg-orange-500/20 text-orange-400 text-xs font-semibold border border-orange-500/30">
+        <button data-audit-open="sale" onClick={onAddSale} className="px-3 py-1.5 rounded-xl bg-orange-500/20 text-orange-400 text-xs font-semibold border border-orange-500/30">
           + Eladás
         </button>
-        <button onClick={onAddProduct} className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
+        <button data-audit-open="product" onClick={onAddProduct} className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
           <Plus size={14} className="text-primary-foreground" />
         </button>
       </div>

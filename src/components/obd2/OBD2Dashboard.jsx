@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar } from 'recharts';
 import { Gauge, Thermometer, Wind, AlertTriangle, Trash2, Settings } from 'lucide-react';
@@ -6,6 +7,7 @@ import { parseOBD2Response, handleOBD2Error } from '@/lib/obd2ErrorHandler';
 import OBD2WidgetDashboard from './OBD2WidgetDashboard';
 
 export default function OBD2Dashboard({ obd2Manager, isConnected }) {
+  const { locale } = useLang();
   const [showWidgets, setShowWidgets] = useState(false);
   const [data, setData] = useState([]);
   const [dtcCodes, setDtcCodes] = useState([]);
@@ -73,7 +75,7 @@ export default function OBD2Dashboard({ obd2Manager, isConnected }) {
         }
 
         setCurrentValues({ rpm, temperature, maf, timestamp: now });
-        setData(prev => [...prev, { rpm, temperature, maf, time: new Date().toLocaleTimeString('hu-HU') }].slice(-30));
+        setData(prev => [...prev, { rpm, temperature, maf, timestamp:new Date().toISOString() }].slice(-30));
       } catch (error) {
         const errorInfo = handleOBD2Error(error);
         console.error('OBD2 read error:', errorInfo);
@@ -93,6 +95,7 @@ export default function OBD2Dashboard({ obd2Manager, isConnected }) {
     }
   };
 
+  const chartData = data.map(entry => ({ ...entry, time:new Date(entry.timestamp).toLocaleTimeString(locale) }));
   if (!isConnected || data.length === 0) {
     return (
       <div className="space-y-4">
@@ -168,7 +171,7 @@ export default function OBD2Dashboard({ obd2Manager, isConnected }) {
         </h3>
         <div className="w-full overflow-hidden">
           <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={data} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
+            <LineChart data={chartData} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#333" />
               <XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 9 }} width={40} />
@@ -187,7 +190,7 @@ export default function OBD2Dashboard({ obd2Manager, isConnected }) {
         </h3>
         <div className="w-full overflow-hidden">
           <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={data} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
+            <LineChart data={chartData} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#333" />
               <XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 9 }} domain={[0, 120]} width={40} />
@@ -206,7 +209,7 @@ export default function OBD2Dashboard({ obd2Manager, isConnected }) {
         </h3>
         <div className="w-full overflow-hidden">
           <ResponsiveContainer width="100%" height={180}>
-            <ComposedChart data={data} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#333" />
               <XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 9 }} width={40} />

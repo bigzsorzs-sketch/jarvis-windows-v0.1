@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useEffect } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import { X, AlertCircle } from 'lucide-react';
@@ -38,6 +39,7 @@ function MapFitBounds({ coordinates }) {
 }
 
 export default function TripMapViewer({ trip, onClose }) {
+  const { locale } = useLang();
   if (!trip) return null;
 
   const { coordinates = [], obd2Data = [], startTime, endTime, distance } = trip;
@@ -105,7 +107,7 @@ export default function TripMapViewer({ trip, onClose }) {
                   <Popup>
                     <div className="text-xs">
                       <p className="font-semibold">🟢 Kezdés</p>
-                      <p>{new Date(startCoord.timestamp).toLocaleTimeString('hu-HU')}</p>
+                      <p>{new Date(startCoord.timestamp).toLocaleTimeString(locale)}</p>
                     </div>
                   </Popup>
                 </Marker>
@@ -117,7 +119,7 @@ export default function TripMapViewer({ trip, onClose }) {
                   <Popup>
                     <div className="text-xs">
                       <p className="font-semibold">🔵 Vég</p>
-                      <p>{new Date(endCoord.timestamp).toLocaleTimeString('hu-HU')}</p>
+                      <p>{new Date(endCoord.timestamp).toLocaleTimeString(locale)}</p>
                     </div>
                   </Popup>
                 </Marker>
@@ -140,7 +142,7 @@ export default function TripMapViewer({ trip, onClose }) {
                         {problem.value} {problem.unit}
                       </p>
                       <p className="text-muted-foreground">
-                        {new Date(problem.timestamp).toLocaleTimeString('hu-HU')}
+                        {new Date(problem.timestamp).toLocaleTimeString(locale)}
                       </p>
                     </div>
                   </Popup>

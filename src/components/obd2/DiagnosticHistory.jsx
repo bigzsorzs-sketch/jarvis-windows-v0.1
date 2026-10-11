@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useEffect, useState } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import { Clock, AlertCircle, CheckCircle2, Trash2, Eye } from 'lucide-react';
@@ -6,6 +7,7 @@ import { saveEncryptedLocalBackup, removeEncryptedLocalBackup } from '@/lib/encr
 import EncryptedLocalBackupNotice from '@/components/privacy/EncryptedLocalBackupNotice';
 
 export default function DiagnosticHistory({ onSelectSession }) {
+  const { locale } = useLang();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -94,7 +96,7 @@ export default function DiagnosticHistory({ onSelectSession }) {
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    {startDate.toLocaleDateString('hu-HU')} {startDate.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}
+                    {startDate.toLocaleDateString(locale)} {startDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                     {session.status === 'completed' ? (
                       <CheckCircle2 size={14} className="text-green-500" />
                     ) : (

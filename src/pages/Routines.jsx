@@ -54,7 +54,7 @@ const DEFAULT_ROUTINES = [
 
 export default function Routines() {
   const navigate = useNavigate();
-  const { t, lang } = useLang();
+  const { locale, t, lang } = useLang();
   const [routines, setRoutines] = useState([]);
   const [patterns, setPatterns] = useState([]);
   const [running, setRunning] = useState(null);
@@ -176,7 +176,7 @@ export default function Routines() {
             <h1 className="text-xl font-bold text-foreground">{t('routines_title')}</h1>
             <p className="text-xs text-muted-foreground">{t('routines_sub')}</p>
           </div>
-          <button onClick={() => setShowAdd(true)} className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
+          <button data-audit-open="routine" onClick={() => setShowAdd(true)} className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
             <Plus size={14} className="text-primary-foreground" />
           </button>
         </div>
@@ -229,7 +229,7 @@ export default function Routines() {
                     </div>
                     {routine.last_run && (
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {t('last_run')} {new Date(routine.last_run).toLocaleDateString()}
+                        {t('last_run')} {new Date(routine.last_run).toLocaleDateString(locale)}
                       </p>
                     )}
                   </div>
@@ -270,8 +270,8 @@ export default function Routines() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">{t('new_routine')}</h2>
-                <button onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="routine" className="text-base font-semibold text-foreground">{t('new_routine')}</h2>
+                <button data-audit-close="routine" onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
               <div className="space-y-3">
                 <input className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground"

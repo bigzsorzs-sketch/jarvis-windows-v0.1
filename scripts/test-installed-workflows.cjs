@@ -59,8 +59,13 @@ async function launch() {
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once:true }); socket.addEventListener('error', reject, { once:true }); });
   let sequence = 0;
   const pending = new Map();
+  const exceptions = new Map();
   socket.addEventListener('message', event => {
     const result = JSON.parse(String(event.data));
+    if (result.method === 'Runtime.exceptionThrown') {
+      const detail = result.params.exceptionDetails;
+      exceptions.set(detail.exceptionId, { text:detail.exception?.description || detail.text, url:detail.url, line:detail.lineNumber });
+    } else if (result.method === 'Runtime.exceptionRevoked') exceptions.delete(result.params.exceptionId);
     const request = pending.get(result.id);
     if (!request) return;
     pending.delete(result.id); clearTimeout(request.timer);
@@ -82,7 +87,7 @@ async function launch() {
     if (i === 59) throw new Error('INSTALLED_PRELOAD_OR_REACT_NOT_READY');
     await wait(250);
   }
-  return { evaluate, command };
+  return { evaluate, command, exceptions:() => [...exceptions.values()] };
 }
 async function stop() {
   socket?.close();

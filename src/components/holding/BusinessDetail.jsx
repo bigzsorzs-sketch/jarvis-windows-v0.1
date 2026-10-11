@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useState } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 
@@ -20,6 +21,7 @@ const statusColors = {
 };
 
 export default function BusinessDetail({ business, projects, employees, clients, invoices, onBack, onRefresh }) {
+  const { locale } = useLang();
   const [tab, setTab] = useState('Áttekintés');
   const [ownerError, setOwnerError] = useState('');
   const [showAddProject, setShowAddProject] = useState(false);
@@ -119,14 +121,14 @@ export default function BusinessDetail({ business, projects, employees, clients,
           <p className="text-xs text-muted-foreground">{business.industry}</p>
         </div>
         <div className={`text-sm font-bold ${profit >= 0 ? 'text-primary' : 'text-red-400'}`}>
-          {profit >= 0 ? '+' : ''}£{profit.toLocaleString()}
+          {profit >= 0 ? '+' : ''}£{profit.toLocaleString(locale)}
         </div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 px-4 pb-3 overflow-x-auto shrink-0" style={{ scrollbarWidth: 'none' }}>
         {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)}
+          <button key={t} data-business-tab={t} aria-pressed={tab === t} onClick={() => setTab(t)}
             className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${tab === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
             {t}
           </button>
@@ -143,10 +145,10 @@ export default function BusinessDetail({ business, projects, employees, clients,
           <>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: 'Havi bevétel', val: `£${(business.revenue_monthly||0).toLocaleString()}`, color: 'text-green-400' },
-                { label: 'Havi kiadás', val: `£${(business.expense_monthly||0).toLocaleString()}`, color: 'text-red-400' },
-                { label: 'Pénzforgalmi egyenleg', val: `£${profit.toLocaleString()}`, color: profit >= 0 ? 'text-primary' : 'text-red-400' },
-                { label: 'Bérköltség', val: `£${totalSalary.toLocaleString()}`, color: 'text-orange-400' },
+                { label: 'Havi bevétel', val: `£${(business.revenue_monthly||0).toLocaleString(locale)}`, color: 'text-green-400' },
+                { label: 'Havi kiadás', val: `£${(business.expense_monthly||0).toLocaleString(locale)}`, color: 'text-red-400' },
+                { label: 'Pénzforgalmi egyenleg', val: `£${profit.toLocaleString(locale)}`, color: profit >= 0 ? 'text-primary' : 'text-red-400' },
+                { label: 'Bérköltség', val: `£${totalSalary.toLocaleString(locale)}`, color: 'text-orange-400' },
               ].map(({ label, val, color }) => (
                 <div key={label} className="bg-card border border-border rounded-2xl p-3">
                   <p className={`text-lg font-bold ${color}`}>{val}</p>
@@ -171,8 +173,8 @@ export default function BusinessDetail({ business, projects, employees, clients,
               <div className="bg-card border border-border rounded-2xl p-4">
                 <p className="text-xs font-semibold text-foreground mb-2">KPI – Bevételi cél</p>
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                  <span>£{(business.revenue_monthly||0).toLocaleString()}</span>
-                  <span>£{business.kpi_target_revenue.toLocaleString()}</span>
+                  <span>£{(business.revenue_monthly||0).toLocaleString(locale)}</span>
+                  <span>£{business.kpi_target_revenue.toLocaleString(locale)}</span>
                 </div>
                 <div className="w-full bg-secondary rounded-full h-2">
                   <div className="h-2 rounded-full bg-primary transition-all"
@@ -186,7 +188,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
         {/* PROJEKTEK */}
         {tab === 'Projektek' && (
           <>
-            <button onClick={() => setShowAddProject(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-primary/10 border border-primary/30 text-primary text-sm font-medium">
+            <button data-audit-open="project" onClick={() => setShowAddProject(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-primary/10 border border-primary/30 text-primary text-sm font-medium">
               <Plus size={15} /> Új projekt
             </button>
             {bProjects.length === 0 && <p className="text-center text-xs text-muted-foreground py-6">Nincsenek projektek</p>}
@@ -198,7 +200,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
                       <p className="text-sm font-semibold text-foreground">{p.name}</p>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[p.status]}`}>{p.status}</span>
                     </div>
-                    {p.budget > 0 && <p className="text-xs text-muted-foreground">Budget: £{p.budget.toLocaleString()}</p>}
+                    {p.budget > 0 && <p className="text-xs text-muted-foreground">Budget: £{p.budget.toLocaleString(locale)}</p>}
                     {p.end_date && <p className="text-xs text-muted-foreground">Határidő: {p.end_date}</p>}
                     {p.progress > 0 && (
                       <div className="mt-2">
@@ -219,7 +221,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
         {/* HR */}
         {tab === 'HR' && (
           <>
-            <button onClick={() => setShowAddEmployee(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-sm font-medium">
+            <button data-audit-open="employee" onClick={() => setShowAddEmployee(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-sm font-medium">
               <Plus size={15} /> Új munkatárs
             </button>
             {bEmployees.length === 0 && <p className="text-center text-xs text-muted-foreground py-6">Nincsenek munkatársak</p>}
@@ -229,7 +231,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-foreground">{e.name}</p>
                   <p className="text-xs text-muted-foreground">{e.role}{e.department ? ` · ${e.department}` : ''}</p>
-                  {e.salary_monthly > 0 && <p className="text-xs text-primary">£{e.salary_monthly.toLocaleString()}/hó</p>}
+                  {e.salary_monthly > 0 && <p className="text-xs text-primary">£{e.salary_monthly.toLocaleString(locale)}/hó</p>}
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${statusColors[e.status]}`}>{e.status}</span>
                 <button onClick={() => deleteEmployee(e.id)} className="text-muted-foreground/40 hover:text-red-400"><Trash2 size={13} /></button>
@@ -241,7 +243,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
         {/* ÜGYFELEK */}
         {tab === 'Ügyfelek' && (
           <>
-            <button onClick={() => setShowAddClient(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-400 text-sm font-medium">
+            <button data-audit-open="client" onClick={() => setShowAddClient(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-400 text-sm font-medium">
               <Plus size={15} /> Új ügyfél
             </button>
             {bClients.length === 0 && <p className="text-center text-xs text-muted-foreground py-6">Nincsenek ügyfelek</p>}
@@ -251,7 +253,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-foreground">{c.name}</p>
                   <p className="text-xs text-muted-foreground">{c.company || c.email || ''}</p>
-                  {c.total_revenue > 0 && <p className="text-xs text-primary">£{c.total_revenue.toLocaleString()} bevétel</p>}
+                  {c.total_revenue > 0 && <p className="text-xs text-primary">£{c.total_revenue.toLocaleString(locale)} bevétel</p>}
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${statusColors[c.status]}`}>{c.status}</span>
                 <button onClick={() => deleteClient(c.id)} className="text-muted-foreground/40 hover:text-red-400"><Trash2 size={13} /></button>
@@ -273,7 +275,7 @@ export default function BusinessDetail({ business, projects, employees, clients,
                     <p className="text-xs text-muted-foreground">{inv.issue_date}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-primary">£{(inv.total_amount||0).toLocaleString()}</p>
+                    <p className="text-sm font-bold text-primary">£{(inv.total_amount||0).toLocaleString(locale)}</p>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${inv.status === 'kifizetve' ? 'bg-green-400/15 text-green-400' : 'bg-yellow-400/15 text-yellow-400'}`}>{inv.status}</span>
                   </div>
                 </div>
@@ -345,8 +347,8 @@ function Modal({ title, onClose, children }) {
         transition={{ type: 'spring', damping: 25 }}
         className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-base font-semibold text-foreground">{title}</h2>
-          <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
+          <h2 data-audit-view="business-form" className="text-base font-semibold text-foreground">{title}</h2>
+          <button data-audit-close="business-form" onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
         </div>
         <div className="space-y-2">{children}</div>
       </motion.div>

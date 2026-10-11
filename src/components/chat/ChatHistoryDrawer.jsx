@@ -1,11 +1,12 @@
 import { createPortal } from 'react-dom';
 import { History, MessageSquarePlus, Trash2, X } from 'lucide-react';
+import { useLang } from '@/lib/i18n';
 
-function formatDate(value) {
+function formatDate(value, locale) {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString('hu-HU', {
+  return date.toLocaleString(locale, {
     month:'short',
     day:'numeric',
     hour:'2-digit',
@@ -22,6 +23,7 @@ export default function ChatHistoryDrawer({
   onOpenConversation,
   onDeleteConversation,
 }) {
+  const { t, locale } = useLang();
   if (!open) return null;
 
   return createPortal(
@@ -29,17 +31,17 @@ export default function ChatHistoryDrawer({
       <aside
         className="absolute left-0 top-0 h-full w-[340px] max-w-[88vw] border-r border-border bg-background shadow-2xl flex flex-col"
         onMouseDown={(event) => event.stopPropagation()}
-        aria-label="Beszélgetési előzmények"
+        aria-label={t('chat_history')}
       >
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4">
           <div className="flex items-center gap-2">
             <History size={18} className="text-primary" />
             <div>
-              <h2 className="text-sm font-semibold">Előzmények</h2>
-              <p className="text-[11px] text-muted-foreground">Korábbi Jarvis beszélgetések</p>
+              <h2 className="text-sm font-semibold">{t('chat_history')}</h2>
+              <p className="text-[11px] text-muted-foreground">{t('chat_history_hint')}</p>
             </div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg bg-secondary grid place-items-center" aria-label="Bezárás">
+          <button onClick={onClose} className="w-8 h-8 rounded-lg bg-secondary grid place-items-center" aria-label={t('close')}>
             <X size={16} />
           </button>
         </div>
@@ -50,14 +52,14 @@ export default function ChatHistoryDrawer({
             className="w-full rounded-xl bg-primary text-primary-foreground px-3 py-2.5 text-sm font-semibold flex items-center justify-center gap-2"
           >
             <MessageSquarePlus size={16} />
-            Új beszélgetés
+            {t('new_chat')}
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {conversations.length === 0 ? (
             <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-              Még nincs mentett beszélgetés.
+              {t('chat_history_empty')}
             </div>
           ) : conversations.map((conversation) => {
             const active = conversation.id === activeConversationId;
@@ -71,10 +73,10 @@ export default function ChatHistoryDrawer({
                   className="min-w-0 flex-1 text-left px-1"
                 >
                   <div className="truncate text-sm font-medium text-foreground">
-                    {conversation.title || 'Beszélgetés'}
+                    {conversation.title || t('chat_conversation')}
                   </div>
                   <div className="mt-0.5 text-[10px] text-muted-foreground">
-                    {formatDate(conversation.updated_date || conversation.created_date)}
+                    {formatDate(conversation.updated_date || conversation.created_date, locale)}
                   </div>
                 </button>
                 <button
@@ -83,8 +85,8 @@ export default function ChatHistoryDrawer({
                     onDeleteConversation?.(conversation.id);
                   }}
                   className="w-8 h-8 rounded-lg grid place-items-center text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                  aria-label="Beszélgetés törlése"
-                  title="Törlés"
+                  aria-label={t('chat_delete_conversation')}
+                  title={t('delete')}
                 >
                   <Trash2 size={14} />
                 </button>

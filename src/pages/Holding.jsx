@@ -148,7 +148,7 @@ export default function Holding() {
             <h1 className="text-xl font-bold text-foreground">Holding Control</h1>
             <p className="text-xs text-muted-foreground">{businesses.length} vállalkozás · {projects.filter(p=>p.status==='folyamatban').length} aktív projekt</p>
           </div>
-          <button onClick={() => setShowAdd(true)}
+          <button data-audit-open="business" onClick={() => setShowAdd(true)}
             className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
             <Plus size={16} className="text-primary-foreground" />
           </button>
@@ -164,11 +164,11 @@ export default function Holding() {
 
         {/* Tab switcher */}
         <div className="flex gap-2">
-          <button onClick={() => setTab('businesses')}
+          <button data-holding-tab="businesses" aria-pressed={tab === 'businesses'} onClick={() => setTab('businesses')}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${tab === 'businesses' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
             🏢 Vállalkozások
           </button>
-          <button onClick={() => setTab('optimizer')}
+          <button data-holding-tab="optimizer" aria-pressed={tab === 'optimizer'} onClick={() => setTab('optimizer')}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${tab === 'optimizer' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
             ⚡ Optimizer
           </button>
@@ -216,7 +216,7 @@ export default function Holding() {
                         {businesses.length === 0 ? 'Adj hozzá vállalkozásokat a Holding-hoz!' : 'Nincs találat'}
                       </p>
                       {businesses.length === 0 && (
-                        <button onClick={() => setShowAdd(true)} className="mt-3 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold">
+                        <button data-audit-open="business" onClick={() => setShowAdd(true)} className="mt-3 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold">
                           + Első vállalkozás hozzáadása
                         </button>
                       )}
@@ -248,8 +248,8 @@ export default function Holding() {
               transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">Új vállalkozás</h2>
-                <button onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="business" className="text-base font-semibold text-foreground">Új vállalkozás</h2>
+                <button data-audit-close="business" onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
 
               <div className="space-y-3">

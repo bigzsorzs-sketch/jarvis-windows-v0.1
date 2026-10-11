@@ -18,7 +18,7 @@ const TYPE_CONFIG = {
 };
 
 export default function LocationsPage() {
-  const { t, lang } = useLang();
+  const { locale, t, lang } = useLang();
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -214,7 +214,7 @@ export default function LocationsPage() {
                         </div>
                       )}
                       {loc.last_triggered && (
-                        <p className="text-xs text-muted-foreground/60 mt-1">Utoljára aktiválva: {new Date(loc.last_triggered).toLocaleDateString('hu-HU')}</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">Utoljára aktiválva: {new Date(loc.last_triggered).toLocaleDateString(locale)}</p>
                       )}
                     </div>
                     <button onClick={() => deleteLocation(loc.id)} className="text-muted-foreground/40 hover:text-destructive">

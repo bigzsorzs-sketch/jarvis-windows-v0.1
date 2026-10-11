@@ -69,7 +69,7 @@ function safeJsonForPrompt(value, maxLength = 12000) {
 }
 
 export default function SystemCenter() {
-  const { lang } = useLang();
+  const { locale, lang } = useLang();
   const hu = lang === 'hu';
   const tx = (hungarian, english) => hu ? hungarian : english;
 
@@ -466,7 +466,7 @@ export default function SystemCenter() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-4">
             <div className="jarvis-metric"><span>{tx('Aktuális verzió crash','Current-version crashes')}</span><strong>{currentVersionCrashes.length}</strong></div>
             <div className="jarvis-metric"><span>{tx('Utolsó típus','Latest type')}</span><strong className="text-[10px]">{latestCurrentCrash?.kind || '-'}</strong></div>
-            <div className="jarvis-metric"><span>{tx('Utolsó időpont','Latest time')}</span><strong className="text-[10px]">{latestCurrentCrash?.at ? new Date(latestCurrentCrash.at).toLocaleString() : '-'}</strong></div>
+            <div className="jarvis-metric"><span>{tx('Utolsó időpont','Latest time')}</span><strong className="text-[10px]">{latestCurrentCrash?.at ? new Date(latestCurrentCrash.at).toLocaleString(locale) : '-'}</strong></div>
           </div>
         </section>
 

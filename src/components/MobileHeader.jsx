@@ -5,7 +5,7 @@ import { useLang } from '@/lib/i18n';
 const ROOT_PATHS = ['/', '/chat', '/muszerfal', '/eszkozok', '/beallitasok'];
 
 // Maps route → translation key
-const PAGE_TITLE_KEYS = {
+export const PAGE_TITLE_KEYS = {
   '/tools/finance':      'page_finance',
   '/tools/invoices':     'page_invoices',
   '/tools/calendar':     'page_calendar',
@@ -29,8 +29,9 @@ const PAGE_TITLE_KEYS = {
   '/obd2':               'page_obd2',
   '/jelentesek':         'page_reports',
   '/memoria':            'page_memory',
-  '/voice-help':         'Voice Command Help',
-  '/ai-feedback-admin':  'AI Feedback Admin',
+  '/voice-help':         'page_voice_help',
+  '/ai-feedback-admin':  'page_ai_feedback_admin',
+  '/system-center':      'page_system_center',
   '/fuel-tracker':       'page_fuel_tracker',
   '/live-assistant':     'page_live_assistant',
 };
