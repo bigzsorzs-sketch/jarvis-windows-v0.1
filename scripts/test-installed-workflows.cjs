@@ -167,6 +167,24 @@ async function stop() {
     assert.ok(editVisible, 'GMAIL_CONFIGURATION_FORM_NOT_VISIBLE');
     done('installed Gmail screen reopens OAuth configuration for correction');
     if (process.argv.includes('--language-audit')) {
+      // The isolated install is a fresh profile. /chat correctly opens its
+      // first-run SetupWizard when there is no UserSettings record; that
+      // full-screen wizard covers the language picker and makes every route
+      // appear to fail the hit-test. Create the same real persisted record
+      // that onboarding would create before testing ordinary installed pages.
+      const languageProfile = await runtime.evaluate(`(async () => {
+        const data = window.jarvisDesktop.data;
+        const user = await data.getUser();
+        const existing = await data.filter('UserSettings', {}, null, null);
+        if (existing.length) return existing[0];
+        return data.create('UserSettings', {
+          user_name:'Acceptance Tester', preferred_languages:['hu'], ai_name:'Jarvis',
+          personality:'profi', age_group:'felnott', focus_mode:'altalanos',
+          learning_memory:true, web_search:true,
+        });
+      })()`);
+      assert.ok(languageProfile?.id, 'LANGUAGE_ACCEPTANCE_PROFILE_NOT_CREATED');
+      done('persisted onboarding fixture for installed language audit');
       const languageAudit = await require('./language-workflow-audit.cjs')(runtime);
       report.language_audit = { language_state_success:languageAudit.language_state_success, catalog_complete:languageAudit.catalog_complete, interface_complete:languageAudit.interface_complete, routes:languageAudit.checks.length, failures:languageAudit.failures };
       assert.equal(languageAudit.language_state_success, true, 'LANGUAGE_RUNTIME_FAILURES');
