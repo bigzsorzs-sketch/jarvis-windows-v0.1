@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { jarvis } from '@/api/jarvisClient';
 import { Wrench, Plus, Loader2, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -260,14 +261,18 @@ export default function OBD2Scanner() {
         <SessionDetail session={selectedSession} onClose={() => setSelectedSession(null)} />
       )}
 
-      {/* Add Vehicle Modal */}
-      <AnimatePresence>
+      {/* Render above the mobile bottom nav and outside the scrolling main container. */}
+      {createPortal(
+        <AnimatePresence>
         {showAddVehicle && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 z-50 flex items-end"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('page_obd2')}
+            className="fixed inset-0 bg-black/60 z-[100] flex items-end"
           >
             <motion.div
               initial={{ y: '100%' }}
@@ -316,7 +321,9 @@ export default function OBD2Scanner() {
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }
