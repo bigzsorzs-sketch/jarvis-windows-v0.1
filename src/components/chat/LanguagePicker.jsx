@@ -3,8 +3,8 @@ import { useLang } from '@/lib/i18n';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 
-const LanguagePicker = memo(function LanguagePicker() {
-  const { lang, changeLang, t, SUPPORTED_LANGUAGES } = useLang();
+const LanguagePicker = memo(function LanguagePicker({ placement = 'bottom' }) {
+  const { lang, changeLang, t, languagePersistence, SUPPORTED_LANGUAGES } = useLang();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -22,18 +22,23 @@ const LanguagePicker = memo(function LanguagePicker() {
         onClick={() => setOpen(v => !v)}
         className="text-xl leading-none hover:scale-110 transition-transform active:scale-95"
         title={current.name}
+        aria-label={t('language') + ': ' + current.name}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        data-language-toggle
       >
         {current.flag}
       </button>
+      {languagePersistence?.error && <span role="alert" className="text-xs text-red-400">{t('language_save_error')}</span>}
 
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -8 }}
+            initial={{ opacity: 0, scale: 0.95, y: placement === 'top' ? 8 : -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -8 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-9 bg-card border border-border rounded-2xl shadow-2xl z-50 overflow-hidden min-w-[200px]"
+            className={`absolute right-0 ${placement === 'top' ? 'bottom-9' : 'top-9'} bg-card border border-border rounded-2xl shadow-2xl z-50 overflow-hidden min-w-[200px]`}
           >
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider px-4 pt-3 pb-1 sticky top-0 bg-card">
               {t('language')}

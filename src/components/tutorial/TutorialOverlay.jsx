@@ -2,35 +2,38 @@ import { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
+import { readTutorialHistory, completeTutorial } from '@/lib/tutorialPreferences';
 
-export default function TutorialOverlay({ tutorialId, steps, onComplete }) {
+export default function TutorialOverlay({ tutorialId, steps = [], onComplete }) {
   const { t } = useLang();
   const [step, setStep] = useState(0);
   const [shown, setShown] = useState(false);
 
   useEffect(() => {
-    const seen = JSON.parse(localStorage.getItem('tutorialsSeen') || '{}');
-    if (!seen[tutorialId]) {
-      setShown(true);
-    }
+    let storage;
+    try { storage = window.localStorage; } catch {}
+    const seen = readTutorialHistory(storage);
+    setStep(0);
+    setShown(!Object.hasOwn(seen, tutorialId));
   }, [tutorialId]);
 
   const markComplete = () => {
-    const seen = JSON.parse(localStorage.getItem('tutorialsSeen') || '{}');
-    seen[tutorialId] = true;
-    localStorage.setItem('tutorialsSeen', JSON.stringify(seen));
+    let storage;
+    try { storage = window.localStorage; } catch {}
+    completeTutorial(storage, tutorialId);
     setShown(false);
     onComplete?.();
   };
 
   if (!shown || !steps.length) return null;
 
-  const current = steps[step];
+  const current = steps[Math.min(step, steps.length - 1)];
 
   return (
     <AnimatePresence>
       {shown && (
         <motion.div
+          data-tutorial-overlay={tutorialId}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -46,6 +49,7 @@ export default function TutorialOverlay({ tutorialId, steps, onComplete }) {
           >
             {/* Close button */}
             <button
+              aria-label={t('close')}
               onClick={() => setShown(false)}
               className="absolute top-4 right-4 w-8 h-8 rounded-full bg-secondary flex items-center justify-center hover:bg-muted"
             >
@@ -107,6 +111,7 @@ export default function TutorialOverlay({ tutorialId, steps, onComplete }) {
 
             {/* Skip link */}
             <button
+              data-tutorial-dismiss
               onClick={markComplete}
               className="w-full mt-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >

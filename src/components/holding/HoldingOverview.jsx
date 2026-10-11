@@ -1,6 +1,8 @@
+import { useLang } from '@/lib/i18n';
 import { TrendingUp, TrendingDown, Building2, Users, FolderOpen, DollarSign } from 'lucide-react';
 
 export default function HoldingOverview({ businesses, projects, employees, clients }) {
+  const { locale } = useLang();
   const totalRevenue = businesses.reduce((s, b) => s + (b.revenue_monthly || 0), 0);
   const totalExpense = businesses.reduce((s, b) => s + (b.expense_monthly || 0), 0);
   const totalProfit = totalRevenue - totalExpense;
@@ -10,9 +12,9 @@ export default function HoldingOverview({ businesses, projects, employees, clien
   const totalClients = clients.filter(c => c.status === 'aktiv').length;
 
   const stats = [
-    { label: 'Havi bevétel', value: `£${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: 'text-green-400', bg: 'bg-green-400/10' },
-    { label: 'Havi kiadás', value: `£${totalExpense.toLocaleString()}`, icon: TrendingDown, color: 'text-red-400', bg: 'bg-red-400/10' },
-    { label: 'Havi pénzforgalmi egyenleg', value: `£${totalProfit.toLocaleString()}`, icon: DollarSign, color: totalProfit >= 0 ? 'text-primary' : 'text-red-400', bg: totalProfit >= 0 ? 'bg-primary/10' : 'bg-red-400/10' },
+    { label: 'Havi bevétel', value: `£${totalRevenue.toLocaleString(locale)}`, icon: TrendingUp, color: 'text-green-400', bg: 'bg-green-400/10' },
+    { label: 'Havi kiadás', value: `£${totalExpense.toLocaleString(locale)}`, icon: TrendingDown, color: 'text-red-400', bg: 'bg-red-400/10' },
+    { label: 'Havi pénzforgalmi egyenleg', value: `£${totalProfit.toLocaleString(locale)}`, icon: DollarSign, color: totalProfit >= 0 ? 'text-primary' : 'text-red-400', bg: totalProfit >= 0 ? 'bg-primary/10' : 'bg-red-400/10' },
     { label: 'Aktív cégek', value: activeBusinesses, icon: Building2, color: 'text-blue-400', bg: 'bg-blue-400/10' },
     { label: 'Projektek', value: activeProjects, icon: FolderOpen, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
     { label: 'Munkatársak', value: totalEmployees, icon: Users, color: 'text-purple-400', bg: 'bg-purple-400/10' },

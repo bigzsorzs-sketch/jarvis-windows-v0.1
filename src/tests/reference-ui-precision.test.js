@@ -16,7 +16,10 @@ test('approved 9404 home keeps continuous reference waveform', () => {
 test('approved 9404 home hides secondary system navigation without deleting it', () => {
   assert.match(layout, /location\.pathname !== '\/'/);
   assert.match(layout, /page_automotive/);
-  assert.match(layout, /System Center|Rendszerközpont/);
+  assert.match(layout, /path: '\/system-center', label: t\('page_system_center'\)/);
+  const catalogs=fs.readFileSync('src/lib/i18n.jsx','utf8');
+  assert.match(catalogs,/page_system_center: "Rendszerközpont"/);
+  assert.match(catalogs,/page_system_center: "System Center"/);
   assert.match(layout, /t\('settings'\)/);
 });
 

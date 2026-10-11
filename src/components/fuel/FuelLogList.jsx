@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { Trash2 } from 'lucide-react';
 
 function consumption(log) {
@@ -5,27 +6,28 @@ function consumption(log) {
 }
 
 export default function FuelLogList({ logs, vehiclesById, onDelete }) {
+  const { locale, t } = useLang();
   if (logs.length === 0) {
     return (
       <div className="bg-card border border-border rounded-2xl p-8 text-center text-muted-foreground text-sm">
-        Még nincs rögzített tankolás.
+        {t('fuel_log_empty')}
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold text-foreground">Tankolási napló</h2>
+      <h2 className="text-sm font-semibold text-foreground">{t('fuel_log_title')}</h2>
       {logs.map((log) => {
         const vehicle = vehiclesById[log.vehicle_id];
         return (
           <div key={log.id} className="bg-card border border-border rounded-2xl p-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">
-                {new Date(log.date).toLocaleDateString('hu-HU')} · {consumption(log)} L/100km
+                {new Date(log.date).toLocaleDateString(locale)} · {consumption(log)} L/100km
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {log.liters} L · {Number(log.total_cost || 0).toLocaleString('hu-HU')} Ft · {log.distance_km} km
+                {log.liters} L · {Number(log.total_cost || 0).toLocaleString(locale)} Ft · {log.distance_km} km
               </p>
               {vehicle && <p className="text-xs text-muted-foreground mt-1">{vehicle.make} {vehicle.model}</p>}
             </div>

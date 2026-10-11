@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useState, useEffect } from 'react';
 import { Loader2, Gauge, Thermometer, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,6 +12,7 @@ const PID_CONFIGS = {
 };
 
 export default function OBD2DataReader({ manager, autoRead = true }) {
+  const { locale } = useLang();
   const [readings, setReadings] = useState({});
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -47,7 +49,7 @@ export default function OBD2DataReader({ manager, autoRead = true }) {
 
       setReadings(newReadings);
       setHistory(prev => [...prev, {
-        time: new Date().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        timestamp: new Date().toISOString(),
         rpm: newReadings.ENGINE_RPM?.value,
         temperature: newReadings.COOLANT_TEMP?.value,
         maf: newReadings.MAF_AIR_FLOW?.value,
@@ -124,7 +126,7 @@ export default function OBD2DataReader({ manager, autoRead = true }) {
         })}
       </div>
 
-      <OBD2VisualDataPanel readings={readings} history={history} dtcCodes={dtcCodes} />
+      <OBD2VisualDataPanel readings={readings} history={history.map(entry => ({ ...entry, time:new Date(entry.timestamp).toLocaleTimeString(locale, { hour:'2-digit', minute:'2-digit', second:'2-digit' }) }))} dtcCodes={dtcCodes} />
 
       {/* DTC Kódok */}
       {dtcCodes.length > 0 && (

@@ -3,6 +3,7 @@ import { jarvis } from '@/api/jarvisClient';
 import { Scale, Search, Loader2, ChevronDown, ChevronUp, BookOpen, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
+import { getLanguageInstruction } from '@/lib/languageEngine';
 import PullToRefresh from '@/components/common/PullToRefresh';
 
 const QUICK_QUESTIONS = {
@@ -25,7 +26,7 @@ const QUICK_QUESTIONS = {
 };
 
 export default function Legal() {
-  const { t, lang } = useLang();
+  const { t, lang, locale } = useLang();
 
   const LEGAL_TOPICS = [
     { id: 'contract', label: lang === 'hu' ? '📄 Szerződés' : lang === 'es' ? '📄 Contrato' : lang === 'de' ? '📄 Vertrag' : lang === 'fr' ? '📄 Contrat' : '📄 Contract', prompt: 'From a legal perspective, answer this question: ' },
@@ -43,7 +44,7 @@ export default function Legal() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
 
-  const currentTopic = topic || LEGAL_TOPICS[0];
+  const currentTopic = LEGAL_TOPICS.find(item => item.id === topic) || LEGAL_TOPICS[0];
 
   const ask = async (q) => {
     const question = q || query;
@@ -51,7 +52,7 @@ export default function Legal() {
     setLoading(true);
     setResult('');
 
-    const langInstruction = lang === 'hu' ? 'Válaszolj magyarul' : lang === 'es' ? 'Responde en español' : lang === 'de' ? 'Antworte auf Deutsch' : lang === 'fr' ? 'Réponds en français' : 'Respond in English';
+    const langInstruction = getLanguageInstruction(lang);
     const prompt = `${currentTopic.prompt}${question}
 
 ${langInstruction}. Be clear and informative, NOT as legal advice (emphasize this), but as general information.
@@ -61,12 +62,14 @@ Structure:
 3. Important warnings
 4. Recommended next step
 
-Always end with: "⚠️ This is general information, not legal advice. For specific matters, consult a qualified lawyer."`;
+Always end with this warning translated into the selected language: "⚠️ This is general information, not legal advice. For specific matters, consult a qualified lawyer."`;
 
-    const response = await jarvis.functions.invoke('runAiTask', { prompt, model: 'claude_sonnet_4_6' });
-    setResult(response.data?.result || '');
-    setHistory(prev => [{ topic: currentTopic.label, question, answer: response.data?.result || '', date: new Date().toLocaleDateString() }, ...prev.slice(0, 9)]);
-    setLoading(false);
+    try {
+      const response = await jarvis.functions.invoke('runAiTask', { prompt, model: 'claude_sonnet_4_6' });
+      setResult(response.data?.result || '');
+      setHistory(prev => [{ topicId:currentTopic.id, question, answer:response.data?.result || '', date:new Date().toISOString() }, ...prev.slice(0, 9)]);
+    } catch { setResult(t('error_occurred') + ' ' + t('try_again')); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -96,7 +99,7 @@ Always end with: "⚠️ This is general information, not legal advice. For spec
         {/* Topic selector */}
         <div className="flex flex-wrap gap-2 mb-4">
           {LEGAL_TOPICS.map(tp => (
-            <button key={tp.id} onClick={() => setTopic(tp)}
+            <button key={tp.id} onClick={() => setTopic(tp.id)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${currentTopic.id === tp.id ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50' : 'bg-secondary text-muted-foreground'}`}>
               {tp.label}
             </button>
@@ -165,8 +168,8 @@ Always end with: "⚠️ This is general information, not legal advice. For spec
                       <button key={i} onClick={() => setResult(h.answer)}
                         className="w-full text-left bg-secondary rounded-xl p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-blue-400 font-medium">{h.topic}</span>
-                          <span className="text-xs text-muted-foreground">{h.date}</span>
+                          <span className="text-xs text-blue-400 font-medium">{LEGAL_TOPICS.find(item => item.id === h.topicId)?.label}</span>
+                          <span className="text-xs text-muted-foreground">{new Date(h.date).toLocaleDateString(locale)}</span>
                         </div>
                         <p className="text-xs text-foreground line-clamp-2">{h.question}</p>
                       </button>

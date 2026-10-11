@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { jarvis } from '@/api/jarvisClient';
@@ -24,6 +25,7 @@ const StatCard = ({ icon: Icon, label, value, color, delay }) => (
 );
 
 export default function Dashboard() {
+  const { locale } = useLang();
   const { data: conversations } = useQuery({
     queryKey: ['conversations'],
     queryFn: async () => {
@@ -59,7 +61,7 @@ export default function Dashboard() {
     { icon: Brain, label: 'Memória elemek', value: memories.length, color: 'bg-accent/20 text-accent' },
     { icon: CheckSquare, label: 'Elvégzett teendők', value: completedTodos, color: 'bg-green-500/20 text-green-400' },
     { icon: TrendingUp, label: 'Összes teendő', value: todos.length, color: 'bg-yellow-500/20 text-yellow-400' },
-    { icon: Clock, label: 'Ma aktív', value: new Date().toLocaleDateString('hu-HU'), color: 'bg-purple-500/20 text-purple-400' },
+    { icon: Clock, label: 'Ma aktív', value: new Date().toLocaleDateString(locale), color: 'bg-purple-500/20 text-purple-400' },
     { icon: Zap, label: 'AI státusz', value: 'Aktív', color: 'bg-primary/20 text-primary' },
   ];
 

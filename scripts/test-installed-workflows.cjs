@@ -10,7 +10,7 @@ const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 
 if (process.platform !== 'win32') { console.log('Installed Windows workflow checks require Windows.'); process.exit(0); }
-const installer = path.resolve(process.argv[2] || `release/Jarvis-Setup-${require('../package.json').version}-x64.exe`);
+const installer = path.resolve(process.argv.slice(2).find(arg => !arg.startsWith('--')) || `release/Jarvis-Setup-${require('../package.json').version}-x64.exe`);
 if (!fs.existsSync(installer)) throw new Error('INSTALLER_MISSING');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-acceptance-'));
 const install = path.join(root, 'installed');
@@ -59,8 +59,13 @@ async function launch() {
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once:true }); socket.addEventListener('error', reject, { once:true }); });
   let sequence = 0;
   const pending = new Map();
+  const exceptions = new Map();
   socket.addEventListener('message', event => {
     const result = JSON.parse(String(event.data));
+    if (result.method === 'Runtime.exceptionThrown') {
+      const detail = result.params.exceptionDetails;
+      exceptions.set(detail.exceptionId, { text:detail.exception?.description || detail.text, url:detail.url, line:detail.lineNumber });
+    } else if (result.method === 'Runtime.exceptionRevoked') exceptions.delete(result.params.exceptionId);
     const request = pending.get(result.id);
     if (!request) return;
     pending.delete(result.id); clearTimeout(request.timer);
@@ -82,7 +87,7 @@ async function launch() {
     if (i === 59) throw new Error('INSTALLED_PRELOAD_OR_REACT_NOT_READY');
     await wait(250);
   }
-  return { evaluate, command };
+  return { evaluate, command, exceptions:() => [...exceptions.values()] };
 }
 async function stop() {
   socket?.close();
@@ -161,6 +166,31 @@ async function stop() {
     }
     assert.ok(editVisible, 'GMAIL_CONFIGURATION_FORM_NOT_VISIBLE');
     done('installed Gmail screen reopens OAuth configuration for correction');
+    if (process.argv.includes('--language-audit')) {
+      // The isolated install is a fresh profile. /chat correctly opens its
+      // first-run SetupWizard when there is no UserSettings record; that
+      // full-screen wizard covers the language picker and makes every route
+      // appear to fail the hit-test. Create the same real persisted record
+      // that onboarding would create before testing ordinary installed pages.
+      const languageProfile = await runtime.evaluate(`(async () => {
+        const data = window.jarvisDesktop.data;
+        const user = await data.getUser();
+        const existing = await data.filter('UserSettings', {}, null, null);
+        if (existing.length) return existing[0];
+        return data.create('UserSettings', {
+          user_name:'Acceptance Tester', preferred_languages:['hu'], ai_name:'Jarvis',
+          personality:'profi', age_group:'felnott', focus_mode:'altalanos',
+          learning_memory:true, web_search:true,
+        });
+      })()`);
+      assert.ok(languageProfile?.id, 'LANGUAGE_ACCEPTANCE_PROFILE_NOT_CREATED');
+      done('persisted onboarding fixture for installed language audit');
+      const languageAudit = await require('./language-workflow-audit.cjs')(runtime);
+      report.language_audit = { language_state_success:languageAudit.language_state_success, catalog_complete:languageAudit.catalog_complete, interface_complete:languageAudit.interface_complete, routes:languageAudit.checks.length, failures:languageAudit.failures };
+      assert.equal(languageAudit.language_state_success, true, 'LANGUAGE_RUNTIME_FAILURES');
+      done('all installed route/language switches and persisted preference');
+      console.log('Complete UI translation:', languageAudit.interface_complete, '(see windows-language-audit.json)');
+    }
     const screenshot = await runtime.command('Page.captureScreenshot', { format:'png' });
     fs.mkdirSync('release', { recursive:true });
     fs.writeFileSync('release/windows-acceptance.png', Buffer.from(screenshot.data, 'base64'));

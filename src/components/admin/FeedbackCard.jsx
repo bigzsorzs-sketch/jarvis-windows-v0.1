@@ -1,13 +1,15 @@
+import { useLang } from '@/lib/i18n';
 import { ThumbsDown, MessageSquare } from 'lucide-react';
 
 export default function FeedbackCard({ feedback }) {
+  const { locale } = useLang();
   return (
     <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-red-400 text-sm font-semibold">
           <ThumbsDown size={15} /> Gyenge válasz • {feedback.rating}/5
         </div>
-        <span className="text-[11px] text-muted-foreground">{new Date(feedback.created_date).toLocaleDateString('hu-HU')}</span>
+        <span className="text-[11px] text-muted-foreground">{new Date(feedback.created_date).toLocaleDateString(locale)}</span>
       </div>
       {feedback.user_message && (
         <div className="rounded-xl bg-secondary p-3">

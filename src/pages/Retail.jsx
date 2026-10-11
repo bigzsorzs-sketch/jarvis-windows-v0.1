@@ -274,8 +274,8 @@ Adj rövid, döntésre kész elemzést. Legyél specifikus.`;
               transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5 max-h-[80vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">Új termék</h2>
-                <button onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="product" className="text-base font-semibold text-foreground">Új termék</h2>
+                <button data-audit-close="product" onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
               <div className="space-y-3">
                 <input className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground"
@@ -319,8 +319,8 @@ Adj rövid, döntésre kész elemzést. Legyél specifikus.`;
               transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">Eladás rögzítése</h2>
-                <button onClick={() => setShowSale(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="sale" className="text-base font-semibold text-foreground">Eladás rögzítése</h2>
+                <button data-audit-close="sale" onClick={() => setShowSale(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
               <div className="space-y-3">
                 <MobileSelect

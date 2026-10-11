@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { useLang } from '@/lib/i18n';
+import LanguagePicker from '@/components/chat/LanguagePicker';
 
 const ROOT_PATHS = ['/', '/chat', '/muszerfal', '/eszkozok', '/beallitasok'];
 
 // Maps route → translation key
-const PAGE_TITLE_KEYS = {
+export const PAGE_TITLE_KEYS = {
   '/tools/finance':      'page_finance',
   '/tools/invoices':     'page_invoices',
   '/tools/calendar':     'page_calendar',
@@ -29,8 +30,9 @@ const PAGE_TITLE_KEYS = {
   '/obd2':               'page_obd2',
   '/jelentesek':         'page_reports',
   '/memoria':            'page_memory',
-  '/voice-help':         'Voice Command Help',
-  '/ai-feedback-admin':  'AI Feedback Admin',
+  '/voice-help':         'page_voice_help',
+  '/ai-feedback-admin':  'page_ai_feedback_admin',
+  '/system-center':      'page_system_center',
   '/fuel-tracker':       'page_fuel_tracker',
   '/live-assistant':     'page_live_assistant',
 };
@@ -43,12 +45,15 @@ export default function MobileHeader() {
 
   if (isRoot) {
     return (
-      <header className="flex items-center px-4 pt-3 pb-2 shrink-0 bg-background/80 backdrop-blur-sm border-b border-border/40">
+      <header dir="ltr" className="relative z-50 flex items-center gap-3 px-4 pt-3 pb-2 shrink-0 bg-background/80 backdrop-blur-sm border-b border-border/40">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-xl bg-primary flex items-center justify-center">
             <span className="text-primary-foreground font-bold text-xs">J</span>
           </div>
           <span className="font-bold text-base text-foreground tracking-tight">Jarvis</span>
+        </div>
+        <div className="ml-auto shrink-0" aria-label={t('language')}>
+          <LanguagePicker />
         </div>
       </header>
     );
@@ -60,7 +65,7 @@ export default function MobileHeader() {
     : t('back');
 
   return (
-    <header className="flex items-center gap-3 px-3 pt-3 pb-2 shrink-0 bg-background/80 backdrop-blur-sm border-b border-border/40">
+    <header dir="ltr" className="relative z-50 flex items-center gap-3 px-3 pt-3 pb-2 shrink-0 bg-background/80 backdrop-blur-sm border-b border-border/40">
       <button
         onClick={() => navigate(-1)}
         aria-label={t('back')}
@@ -68,7 +73,10 @@ export default function MobileHeader() {
       >
         <ChevronLeft size={20} className="text-foreground" />
       </button>
-      <span className="text-base font-semibold text-foreground truncate">{title}</span>
+      <span dir="auto" className="min-w-0 flex-1 text-base font-semibold text-foreground truncate">{title}</span>
+      <div className="shrink-0" aria-label={t('language')}>
+        <LanguagePicker />
+      </div>
     </header>
   );
 }

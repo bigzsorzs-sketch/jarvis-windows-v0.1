@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { jarvis } from '@/api/jarvisClient';
 import { Wrench, Plus, Loader2, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,8 +9,10 @@ import OBD2DataReader from '@/components/obd2/OBD2DataReader';
 import DiagnosticHistory from '@/components/obd2/DiagnosticHistory';
 import SessionDetail from '@/components/obd2/SessionDetail';
 import { decodeVIN } from '@/lib/vinDecoder';
+import { useLang } from '@/lib/i18n';
 
 export default function OBD2Scanner() {
+  const { t } = useLang();
   const navigate = useNavigate();
   const [manager, setManager] = useState(null);
   const [vehicles, setVehicles] = useState([]);
@@ -188,7 +191,7 @@ export default function OBD2Scanner() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">Járműveim</h2>
             <button
-              onClick={() => setShowAddVehicle(true)}
+              data-audit-open="vehicle" onClick={() => setShowAddVehicle(true)}
               className="px-2.5 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1"
             >
               <Plus size={12} />
@@ -258,14 +261,18 @@ export default function OBD2Scanner() {
         <SessionDetail session={selectedSession} onClose={() => setSelectedSession(null)} />
       )}
 
-      {/* Add Vehicle Modal */}
-      <AnimatePresence>
+      {/* Render above the mobile bottom nav and outside the scrolling main container. */}
+      {createPortal(
+        <AnimatePresence>
         {showAddVehicle && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 z-50 flex items-end"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('page_obd2')}
+            className="fixed inset-0 bg-black/60 z-[100] flex items-end"
           >
             <motion.div
               initial={{ y: '100%' }}
@@ -274,7 +281,7 @@ export default function OBD2Scanner() {
               transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5"
             >
-              <h2 className="text-base font-semibold text-foreground mb-4">Jármű hozzáadása VIN-ből</h2>
+              <h2 data-audit-view="vehicle" className="text-base font-semibold text-foreground mb-4">Jármű hozzáadása VIN-ből</h2>
               <div className="space-y-3">
                 <input
                   className="w-full bg-secondary rounded-xl px-4 py-3 text-sm outline-none border border-border text-foreground uppercase font-mono"
@@ -307,11 +314,16 @@ export default function OBD2Scanner() {
                 >
                   Jármű hozzáadása
                 </button>
+                <button data-audit-close="vehicle" onClick={() => setShowAddVehicle(false)} className="w-full py-2.5 rounded-xl bg-secondary text-foreground text-sm">
+                  {t('cancel')}
+                </button>
               </div>
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

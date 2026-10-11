@@ -106,6 +106,7 @@ export default memo(function EditorMobileBottomBar({
               <button
                 key={id}
                 onClick={() => togglePanel(id)}
+                data-editor-panel={id}
                 className={`flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl shrink-0 min-w-[44px] min-h-[44px] justify-center transition-all ${
                   openPanel === id
                     ? 'bg-accent/20 text-accent'

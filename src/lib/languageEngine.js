@@ -13,17 +13,21 @@ const FR_MARKERS = /\b(je|tu|il|elle|nous|vous|ils|est|sont|pas|les|des|une|avec
 const ES_MARKERS = /\b(yo|tú|él|es|son|una|los|las|con|por|para|que|qué|cómo|cuándo|dónde|está|estoy|tengo|hacer)\b/i;
 
 export function detectLanguageHeuristic(text) {
-  const t = text.toLowerCase();
+  const t = String(text ?? '').toLowerCase();
+  // Count all Unicode words. JavaScript \b does not recognise accented
+  // Hungarian words, and a non-global match used to count at most one hit.
+  const words = t.match(/\p{L}+/gu) || [];
+  const count = markers => {
+    const vocabulary = new Set(markers.source.slice(3, -3).split('|'));
+    return words.filter(word => vocabulary.has(word)).length;
+  };
   const scores = {
-    hu: (t.match(HU_MARKERS) || []).length,
-    en: (t.match(EN_MARKERS) || []).length,
-    de: (t.match(DE_MARKERS) || []).length,
-    fr: (t.match(FR_MARKERS) || []).length,
-    es: (t.match(ES_MARKERS) || []).length,
+    hu: count(HU_MARKERS), en: count(EN_MARKERS), de: count(DE_MARKERS),
+    fr: count(FR_MARKERS), es: count(ES_MARKERS),
   };
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   // Only return a result if there's a clear winner (at least 1 match)
-  if (sorted[0][1] === 0) return null;
+  if (sorted[0][1] === 0 || sorted[0][1] === sorted[1][1]) return null;
   return sorted[0][0];
 }
 
@@ -31,15 +35,17 @@ export function detectLanguageHeuristic(text) {
 export async function detectLanguageLLM(text, options = {}) {
   const requestOrigin = options.requestOrigin || options.request_origin;
   const result = await invokeWithRetry({
-    prompt: `Detect the language of this text and return ONLY the ISO 639-1 two-letter code (e.g. "en", "hu", "de", "fr", "es", "it", "ro", "pl"). Text: "${text.substring(0, 200)}"`,
+    prompt: `Detect the language and return a JSON object with one field, "language", containing its supported language code. Text: ${JSON.stringify(String(text ?? '').substring(0, 200))}`,
     request_origin: requestOrigin,
     response_json_schema: {
       type: 'object',
-      properties: { language: { type: 'string' } }
+      properties: { language: { type:'string', enum:SUPPORTED_LANGUAGES.map(item => item.code) } },
+      required: ['language'], additionalProperties:false,
     }
   });
   const parsed = typeof result === 'string' ? JSON.parse(result) : result;
-  return parsed?.language || 'en';
+  if (!SUPPORTED_LANGUAGES.some(item => item.code === parsed?.language)) throw new Error('UNSUPPORTED_DETECTED_LANGUAGE');
+  return parsed.language;
 }
 
 // Main detection – heuristic first, LLM fallback
@@ -49,7 +55,8 @@ export async function detectLanguage(text, fallbackLanguage = 'hu', options = {}
   const heuristic = detectLanguageHeuristic(clean);
   if (heuristic) return heuristic;
   if ((fallbackLanguage === 'hu' || fallbackLanguage === 'hu-HU') && clean.length < 24) return 'hu';
-  return await detectLanguageLLM(clean, options);
+  try { return await detectLanguageLLM(clean, options); }
+  catch { return SUPPORTED_LANGUAGES.some(item => item.code === fallbackLanguage) ? fallbackLanguage : 'hu'; }
 }
 
 // ─── TRANSLATE TOOL ───────────────────────────────────────────────────────────

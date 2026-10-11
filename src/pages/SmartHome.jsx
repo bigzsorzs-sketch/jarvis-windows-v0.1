@@ -17,7 +17,7 @@ const SCENE_ICONS = [
 ];
 
 export default function SmartHome() {
-  const { t } = useLang();
+  const { locale, t } = useLang();
   const [devices, setDevices] = useState([]);
   const [scenes, setScenes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -158,7 +158,7 @@ export default function SmartHome() {
                   <p className="text-sm font-semibold text-foreground">{scene.name}</p>
                   {scene.last_triggered && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      {new Date(scene.last_triggered).toLocaleDateString('hu-HU')}
+                      {new Date(scene.last_triggered).toLocaleDateString(locale)}
                     </p>
                   )}
                 </button>
@@ -171,7 +171,7 @@ export default function SmartHome() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-foreground">{t('devices')}</h2>
-            <button onClick={() => setShowAddDevice(true)} className="w-7 h-7 rounded-full bg-primary flex items-center justify-center">
+            <button data-audit-open="device" onClick={() => setShowAddDevice(true)} className="w-7 h-7 rounded-full bg-primary flex items-center justify-center">
               <Plus size={14} className="text-primary-foreground" />
             </button>
           </div>
@@ -181,7 +181,7 @@ export default function SmartHome() {
               <Home size={32} className="mx-auto text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">{t('no_devices_desc')}</p>
               <p className="text-xs text-muted-foreground mt-1">{t('no_devices_sub')}</p>
-              <button onClick={() => setShowAddDevice(true)} className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold">
+              <button data-audit-open="device" onClick={() => setShowAddDevice(true)} className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold">
                 {t('add_device')}
               </button>
             </div>
@@ -238,8 +238,8 @@ export default function SmartHome() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">{t('add_device_title')}</h2>
-                <button onClick={() => setShowAddDevice(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="device" className="text-base font-semibold text-foreground">{t('add_device_title')}</h2>
+                <button data-audit-close="device" onClick={() => setShowAddDevice(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
               <div className="space-y-3">
                 <input className="w-full bg-secondary rounded-xl px-4 py-2.5 text-sm outline-none border border-border text-foreground"

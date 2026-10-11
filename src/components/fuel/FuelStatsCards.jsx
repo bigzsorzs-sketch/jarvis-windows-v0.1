@@ -1,8 +1,10 @@
+import { useLang } from '@/lib/i18n';
 function format(value, suffix = '') {
   return `${Number(value || 0).toFixed(1)}${suffix}`;
 }
 
 export default function FuelStatsCards({ logs }) {
+  const { locale, t } = useLang();
   const totalLiters = logs.reduce((sum, log) => sum + Number(log.liters || 0), 0);
   const totalCost = logs.reduce((sum, log) => sum + Number(log.total_cost || 0), 0);
   const totalDistance = logs.reduce((sum, log) => sum + Number(log.distance_km || 0), 0);
@@ -10,10 +12,10 @@ export default function FuelStatsCards({ logs }) {
   const avgCostPerKm = totalDistance > 0 ? totalCost / totalDistance : 0;
 
   const cards = [
-    { label: 'Átlagfogyasztás', value: format(avgConsumption, ' L/100km') },
-    { label: 'Összes költség', value: `${Math.round(totalCost).toLocaleString('hu-HU')} Ft` },
-    { label: 'Költség / km', value: `${format(avgCostPerKm, ' Ft')}` },
-    { label: 'Megtett táv', value: `${Math.round(totalDistance).toLocaleString('hu-HU')} km` },
+    { label:t('fuel_avg_consumption'), value:format(avgConsumption, ' L/100km') },
+    { label:t('fuel_total_cost'), value:`${Math.round(totalCost).toLocaleString(locale)} Ft` },
+    { label:t('fuel_cost_per_km'), value:`${format(avgCostPerKm, ' Ft')}` },
+    { label:t('fuel_total_distance'), value:`${Math.round(totalDistance).toLocaleString(locale)} km` },
   ];
 
   return (

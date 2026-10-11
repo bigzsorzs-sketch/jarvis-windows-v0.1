@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useState, useEffect } from 'react';
 import { jarvis } from '@/api/jarvisClient';
 import { executeRuleAction } from '@/lib/ruleEngine';
@@ -30,6 +31,7 @@ const EMPTY_FORM = {
 };
 
 export default function RuleEngine() {
+  const { locale } = useLang();
   const [rules, setRules] = useState([]);
   const [locations, setLocations] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -170,7 +172,7 @@ export default function RuleEngine() {
                       </p>
                       {rule.last_triggered && (
                         <p className="text-[10px] text-muted-foreground mt-1">
-                          Utoljára: {new Date(rule.last_triggered).toLocaleString('hu-HU')} · {rule.trigger_count}×
+                          Utoljára: {new Date(rule.last_triggered).toLocaleString(locale)} · {rule.trigger_count}×
                         </p>
                       )}
                     </div>

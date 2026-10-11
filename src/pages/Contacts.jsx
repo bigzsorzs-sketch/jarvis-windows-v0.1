@@ -277,10 +277,10 @@ export default function Contacts() {
         </div>
 
         <div className="flex gap-2 mb-4">
-          <button onClick={() => setShowAdd(true)} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm">
+          <button data-audit-open="contact" onClick={() => setShowAdd(true)} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm">
             <Plus size={15} /> {T('new')}
           </button>
-          <button onClick={() => setShowPhoneOptions(true)} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-secondary text-foreground font-semibold text-sm border border-border hover:bg-muted transition-all">
+          <button data-audit-open="phone-options" onClick={() => setShowPhoneOptions(true)} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-secondary text-foreground font-semibold text-sm border border-border hover:bg-muted transition-all">
             <Contact size={15} /> {lang === 'hu' ? 'Telefonkönyv' : 'Phone'}
           </button>
         </div>
@@ -328,8 +328,8 @@ export default function Contacts() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">{T('new')}</h2>
-                <button onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="contact" className="text-base font-semibold text-foreground">{T('new')}</h2>
+                <button data-audit-close="contact" onClick={() => setShowAdd(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
               <div className="space-y-3">
                 {[
@@ -364,8 +364,8 @@ export default function Contacts() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-md mx-auto bg-card rounded-t-3xl p-5">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-semibold text-foreground">{lang === 'hu' ? 'Telefonkezelés' : 'Phone options'}</h2>
-                <button onClick={() => setShowPhoneOptions(false)}><X size={18} className="text-muted-foreground" /></button>
+                <h2 data-audit-view="phone-options" className="text-base font-semibold text-foreground">{lang === 'hu' ? 'Telefonkezelés' : 'Phone options'}</h2>
+                <button data-audit-close="phone-options" onClick={() => setShowPhoneOptions(false)}><X size={18} className="text-muted-foreground" /></button>
               </div>
               <div className="space-y-3">
                 <button 

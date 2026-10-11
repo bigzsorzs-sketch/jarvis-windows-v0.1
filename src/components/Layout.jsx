@@ -9,7 +9,7 @@ import LanguagePicker from './chat/LanguagePicker';
 import GlobalVoiceControl from './voice/GlobalVoiceControl';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLang } from '@/lib/i18n';
-import MobileHeader from './MobileHeader';
+import MobileHeader, { PAGE_TITLE_KEYS } from './MobileHeader';
 import { recordTabPath, getLastTabPath, resetTabPath } from '@/lib/tabHistory';
 import { applyThemeMode } from '@/lib/themeManager';
 
@@ -25,18 +25,18 @@ export default function Layout() {
   const [showMore, setShowMore] = useState(false);
   const [clock, setClock] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { t, lang } = useLang();
+  const { locale, t } = useLang();
 
   useEffect(() => {
     recordTabPath(location.pathname);
   }, [location.pathname]);
 
   useEffect(() => {
-    const updateClock = () => setClock(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    const updateClock = () => setClock(new Date().toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }));
     updateClock();
     const timer = window.setInterval(updateClock, 30000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     const onSidebarCommand = (event) => {
@@ -80,7 +80,7 @@ export default function Layout() {
     { path: '/automotive', label: t('page_automotive'), icon: Car },
     { path: '/obd2', label: 'OBD-II', icon: Activity },
     { path: '/tools/finance', label: t('finance'), icon: BarChart3 },
-    { path: '/system-center', label: lang === 'hu' ? 'Rendszerközpont' : 'System Center', icon: Database },
+    { path: '/system-center', label: t('page_system_center'), icon: Database },
   ];
 
   const activeMobileTab = (() => {
@@ -117,7 +117,7 @@ export default function Layout() {
   const allDesktopItems = [...desktopNav, ...systemNav];
   const currentItem = allDesktopItems.find((item) => item.path === location.pathname)
     || allDesktopItems.find((item) => isDesktopActive(item.path));
-  const pageTitle = currentItem?.label || 'Jarvis';
+  const pageTitle = PAGE_TITLE_KEYS[location.pathname] ? t(PAGE_TITLE_KEYS[location.pathname]) : currentItem?.label || 'Jarvis';
   const pageEyebrow = 'JARVIS';
   const isMoreActive = mobileMoreNav.some(n => n.path === location.pathname);
 
@@ -129,7 +129,7 @@ export default function Layout() {
             <span className="jarvis-reference-logo-orb" />
             {!sidebarCollapsed && <strong>Jarvis</strong>}
           </button>
-          <button className={location.pathname === '/' ? 'jarvis-sidebar-collapse reference-home-hidden' : 'jarvis-sidebar-collapse'} onClick={() => setSidebarCollapsed(v => !v)} aria-label="Oldalsáv összecsukása">
+          <button className={location.pathname === '/' ? 'jarvis-sidebar-collapse reference-home-hidden' : 'jarvis-sidebar-collapse'} onClick={() => setSidebarCollapsed(v => !v)} aria-label={t('collapse_sidebar')}>
             {sidebarCollapsed ? <PanelLeftOpen size={15}/> : <PanelLeftClose size={15}/>}
           </button>
         </div>
@@ -168,13 +168,14 @@ export default function Layout() {
           <div className="flex items-center gap-2">
             <div className="jarvis-status-chip">
               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-              {lang === 'hu' ? 'BIZTONSÁGOS' : 'SECURE'}
+              {t('secure_label')}
             </div>
             <div className="jarvis-status-chip">
               <Cpu size={13} />
-              {lang === 'hu' ? 'HELYI MAG' : 'LOCAL CORE'}
+              {t('local_core_label')}
             </div>
             <div className="ml-2 font-mono text-sm font-semibold text-foreground/80">{clock}</div>
+            <LanguagePicker />
           </div>
         </header>
 
@@ -206,7 +207,7 @@ export default function Layout() {
               ))}
               <div className="my-1 border-t border-border" />
               <div className="flex min-h-[44px] w-full items-center gap-3 px-3 py-2.5">
-                <LanguagePicker />
+                <LanguagePicker placement="top" />
                 <span className="text-xs font-medium text-muted-foreground">{t('language')}</span>
               </div>
             </motion.div>

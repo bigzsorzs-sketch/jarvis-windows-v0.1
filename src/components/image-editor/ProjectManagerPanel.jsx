@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { useState, useEffect } from 'react';
 import { FolderOpen, Cloud, Trash2, Camera, RotateCcw, ChevronDown, ChevronRight, HardDrive } from 'lucide-react';
 import { deserializeLayers } from '@/hooks/useProjectManager';
@@ -8,6 +9,7 @@ export default function ProjectManagerPanel({
   onSaveLocal, onSaveServer, onLoadProject, onAddSnapshot, onDeleteSnapshot, onDeleteProject,
   saving,
 }) {
+  const { locale } = useLang();
   const [projectName, setProjectName] = useState('Névtelen projekt');
   const [snapName, setSnapName] = useState('');
   const [expandedProject, setExpandedProject] = useState(null);
@@ -36,7 +38,7 @@ export default function ProjectManagerPanel({
 
   const handleAddSnap = () => {
     if (!currentProjectId) { flash('⚠️ Először mentsd el a projektet!'); return; }
-    const name = snapName.trim() || `Pillanatfelvétel ${new Date().toLocaleTimeString('hu')}`;
+    const name = snapName.trim() || `Pillanatfelvétel ${new Date().toLocaleTimeString(locale)}`;
     onAddSnapshot(currentProjectId, name);
     setSnapName('');
     flash(`📸 "${name}" elmentve`);
@@ -72,7 +74,7 @@ export default function ProjectManagerPanel({
     if (tab === 'server') loadServer();
   }, [tab]);
 
-  const fmt = (iso) => iso ? new Date(iso).toLocaleString('hu', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
   return (
     <div className="w-64 bg-card border-r border-border flex flex-col shrink-0 overflow-hidden">

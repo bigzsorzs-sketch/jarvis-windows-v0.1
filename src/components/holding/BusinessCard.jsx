@@ -1,3 +1,4 @@
+import { useLang } from '@/lib/i18n';
 import { ChevronRight, TrendingUp, TrendingDown, Users } from 'lucide-react';
 
 const statusConfig = {
@@ -7,11 +8,13 @@ const statusConfig = {
 };
 
 export default function BusinessCard({ business, employeeCount, projectCount, onClick }) {
+  const { locale } = useLang();
   const profit = (business.revenue_monthly || 0) - (business.expense_monthly || 0);
   const st = statusConfig[business.status] || statusConfig.aktiv;
 
   return (
     <button
+      data-business-name={business.name}
       onClick={onClick}
       className="w-full bg-card border border-border rounded-2xl p-4 text-left hover:bg-secondary/50 transition-all active:scale-[0.99]"
     >
@@ -28,11 +31,11 @@ export default function BusinessCard({ business, employeeCount, projectCount, on
           <div className="flex items-center gap-3 mt-2">
             <div className="flex items-center gap-1">
               <TrendingUp size={11} className="text-green-400" />
-              <span className="text-xs text-foreground">£{(business.revenue_monthly || 0).toLocaleString()}</span>
+              <span className="text-xs text-foreground">£{(business.revenue_monthly || 0).toLocaleString(locale)}</span>
             </div>
             <div className="flex items-center gap-1">
               <TrendingDown size={11} className="text-red-400" />
-              <span className="text-xs text-foreground">£{(business.expense_monthly || 0).toLocaleString()}</span>
+              <span className="text-xs text-foreground">£{(business.expense_monthly || 0).toLocaleString(locale)}</span>
             </div>
             <div className="flex items-center gap-1">
               <Users size={11} className="text-muted-foreground" />
@@ -42,7 +45,7 @@ export default function BusinessCard({ business, employeeCount, projectCount, on
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <span className={`text-xs font-bold ${profit >= 0 ? 'text-primary' : 'text-red-400'}`}>
-            {profit >= 0 ? '+' : ''}£{profit.toLocaleString()}
+            {profit >= 0 ? '+' : ''}£{profit.toLocaleString(locale)}
           </span>
           <span className="text-[10px] text-muted-foreground">Pénzforgalmi egyenleg</span>
           <span className="text-xs text-muted-foreground">{projectCount} projekt</span>
